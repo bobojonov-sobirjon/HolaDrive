@@ -1,0 +1,1470 @@
+{% extends "admin/base.html" %}
+{% load static %}
+
+{% block extrastyle %}
+{{ block.super }}
+<style>
+    /* Real-time Notification Styles */
+    #globalNotificationContainer {
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        z-index: 10001;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        max-width: 400px;
+    }
+    
+    /* Chat Modal Styles - Same as conversation change_list */
+    .chat-modal-overlay {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.5);
+        z-index: 10000;
+        backdrop-filter: blur(4px);
+        animation: fadeIn 0.3s ease;
+    }
+    
+    .chat-modal-overlay.show {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+    }
+    
+    @keyframes fadeIn {
+        from { opacity: 0; }
+        to { opacity: 1; }
+    }
+    
+    .chat-modal {
+        background: white;
+        border-radius: 12px;
+        width: 90%;
+        max-width: 900px;
+        height: 85vh;
+        max-height: 800px;
+        display: flex;
+        flex-direction: column;
+        box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+        animation: slideUp 0.3s ease;
+        overflow: hidden;
+    }
+    
+    @keyframes slideUp {
+        from {
+            transform: translateY(50px);
+            opacity: 0;
+        }
+        to {
+            transform: translateY(0);
+            opacity: 1;
+        }
+    }
+    
+    .chat-modal-header {
+        background: linear-gradient(135deg, #5FB3B3 0%, #3A8B85 100%);
+        color: white;
+        padding: 18px 24px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    
+    .chat-modal-header-left {
+        flex: 1;
+    }
+    
+    .chat-modal-header h2 {
+        margin: 0 0 5px 0;
+        font-size: 20px;
+        font-weight: 600;
+    }
+    
+    .chat-modal-header-info {
+        font-size: 13px;
+        opacity: 0.9;
+        margin-top: 4px;
+    }
+    
+    .chat-modal-close {
+        background: none;
+        border: none;
+        color: white;
+        font-size: 28px;
+        cursor: pointer;
+        line-height: 1;
+        padding: 0;
+        margin-left: 20px;
+    }
+    
+    .chat-modal-body {
+        flex: 1;
+        padding: 20px;
+        overflow-y: auto;
+        background: #f8f9fa;
+        display: flex;
+        flex-direction: column;
+    }
+    
+    .chat-modal-footer {
+        padding: 15px 20px;
+        border-top: 1px solid #eee;
+        display: flex;
+        background: #f0f2f5;
+        align-items: center;
+        gap: 10px;
+    }
+    
+    .chat-modal-footer input[type="text"] {
+        flex: 1;
+        padding: 12px 15px;
+        border: 1px solid #ddd;
+        border-radius: 25px;
+        font-size: 15px;
+        outline: none;
+        transition: border-color 0.2s;
+    }
+    
+    .chat-modal-footer input[type="text"]:focus {
+        border-color: #5FB3B3;
+    }
+    
+    .chat-modal-footer input[type="file"] {
+        display: none;
+    }
+    
+    .chat-modal-footer button {
+        background: linear-gradient(45deg, #5FB3B3 0%, #3A8B85 100%);
+        color: white;
+        border: none;
+        border-radius: 25px;
+        padding: 10px 20px;
+        font-size: 15px;
+        cursor: pointer;
+        transition: opacity 0.2s;
+        white-space: nowrap;
+    }
+    
+    .chat-modal-footer button:hover {
+        opacity: 0.9;
+    }
+    
+    .chat-modal-footer #chatModalFileBtn {
+        background: #6c757d !important;
+        padding: 10px 15px !important;
+        font-size: 18px !important;
+        min-width: 45px !important;
+        display: inline-block !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+    }
+    
+    .chat-modal-footer #chatModalFileBtn:hover {
+        background: #5a6268 !important;
+        opacity: 1 !important;
+    }
+    
+    .message {
+        display: flex;
+        margin-bottom: 15px;
+        align-items: flex-end;
+    }
+    
+    .message.user {
+        justify-content: flex-end;
+    }
+    
+    .message.support {
+        justify-content: flex-start;
+    }
+    
+    .message-bubble {
+        padding: 12px 18px;
+        border-radius: 20px;
+        max-width: 70%;
+        line-height: 1.4;
+        word-wrap: break-word;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+    }
+    
+    .message.support .message-bubble {
+        background: linear-gradient(45deg, #5FB3B3 0%, #3A8B85 100%);
+        color: white;
+        border-bottom-left-radius: 4px;
+    }
+    
+    .message.user .message-bubble {
+        background: #ffffff;
+        color: #333;
+        border: 1px solid #e0e0e0;
+        border-bottom-right-radius: 4px;
+    }
+    
+    .message-time {
+        font-size: 10px;
+        color: #999;
+        margin-top: 4px;
+        padding: 0 8px;
+    }
+    
+    .empty-state {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        height: 100%;
+        color: #999;
+    }
+    
+    .empty-state-icon {
+        font-size: 48px;
+        margin-bottom: 16px;
+        opacity: 0.5;
+    }
+    
+    .typing-indicator {
+        padding: 8px 16px;
+        font-style: italic;
+        color: #999;
+        font-size: 13px;
+    }
+    
+    .status-badge {
+        display: inline-block;
+        padding: 5px 12px;
+        border-radius: 20px;
+        font-size: 11px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+    
+    .status-open {
+        background: rgba(76, 175, 80, 0.2);
+        color: #4caf50;
+    }
+    
+    .status-closed {
+        background: rgba(244, 67, 54, 0.2);
+        color: #f44336;
+    }
+    
+    .status-pending {
+        background: rgba(255, 193, 7, 0.2);
+        color: #ffc107;
+    }
+    
+    /* Chat Modal Styles */
+    .chat-modal-overlay {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.5);
+        z-index: 10000;
+        backdrop-filter: blur(4px);
+        animation: fadeIn 0.3s ease;
+    }
+    
+    .chat-modal-overlay.show {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+    }
+    
+    @keyframes fadeIn {
+        from { opacity: 0; }
+        to { opacity: 1; }
+    }
+    
+    .chat-modal {
+        background: white;
+        border-radius: 12px;
+        width: 90%;
+        max-width: 900px;
+        height: 85vh;
+        max-height: 800px;
+        display: flex;
+        flex-direction: column;
+        box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+        animation: slideUp 0.3s ease;
+        overflow: hidden;
+    }
+    
+    @keyframes slideUp {
+        from {
+            transform: translateY(50px);
+            opacity: 0;
+        }
+        to {
+            transform: translateY(0);
+            opacity: 1;
+        }
+    }
+    
+    .chat-modal-header {
+        background: linear-gradient(135deg, #5FB3B3 0%, #3A8B85 100%);
+        color: white;
+        padding: 18px 24px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    
+    .chat-modal-header-left {
+        flex: 1;
+    }
+    
+    .chat-modal-header h2 {
+        margin: 0 0 5px 0;
+        font-size: 20px;
+        font-weight: 600;
+    }
+    
+    .chat-modal-header-info {
+        font-size: 13px;
+        opacity: 0.9;
+        margin-top: 4px;
+    }
+    
+    .chat-modal-close {
+        background: none;
+        border: none;
+        color: white;
+        font-size: 28px;
+        cursor: pointer;
+        line-height: 1;
+        padding: 0;
+        margin-left: 20px;
+    }
+    
+    .chat-modal-body {
+        flex: 1;
+        padding: 20px;
+        overflow-y: auto;
+        background: #f8f9fa;
+        display: flex;
+        flex-direction: column;
+    }
+    
+    .chat-modal-footer {
+        padding: 15px 20px;
+        border-top: 1px solid #eee;
+        display: flex;
+        background: #f0f2f5;
+        align-items: center;
+        gap: 10px;
+    }
+    
+    .chat-modal-footer input[type="text"] {
+        flex: 1;
+        padding: 12px 15px;
+        border: 1px solid #ddd;
+        border-radius: 25px;
+        font-size: 15px;
+        outline: none;
+        transition: border-color 0.2s;
+    }
+    
+    .chat-modal-footer input[type="text"]:focus {
+        border-color: #5FB3B3;
+    }
+    
+    .chat-modal-footer input[type="file"] {
+        display: none;
+    }
+    
+    .chat-modal-footer button {
+        background: linear-gradient(45deg, #5FB3B3 0%, #3A8B85 100%);
+        color: white;
+        border: none;
+        border-radius: 25px;
+        padding: 10px 20px;
+        font-size: 15px;
+        cursor: pointer;
+        transition: opacity 0.2s;
+        white-space: nowrap;
+    }
+    
+    .chat-modal-footer button:hover {
+        opacity: 0.9;
+    }
+    
+    .chat-modal-footer #chatModalFileBtn {
+        background: #6c757d !important;
+        padding: 10px 15px !important;
+        font-size: 18px !important;
+        min-width: 45px !important;
+        display: inline-block !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+    }
+    
+    .chat-modal-footer #chatModalFileBtn:hover {
+        background: #5a6268 !important;
+        opacity: 1 !important;
+    }
+    
+    .message {
+        display: flex;
+        margin-bottom: 15px;
+        align-items: flex-end;
+    }
+    
+    .message.user {
+        justify-content: flex-end;
+    }
+    
+    .message.support {
+        justify-content: flex-start;
+    }
+    
+    .message-bubble {
+        padding: 12px 18px;
+        border-radius: 20px;
+        max-width: 70%;
+        line-height: 1.4;
+        word-wrap: break-word;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+    }
+    
+    .message.support .message-bubble {
+        background: linear-gradient(45deg, #5FB3B3 0%, #3A8B85 100%);
+        color: white;
+        border-bottom-left-radius: 4px;
+    }
+    
+    .message.user .message-bubble {
+        background: #ffffff;
+        color: #333;
+        border: 1px solid #e0e0e0;
+        border-bottom-right-radius: 4px;
+    }
+    
+    .message-time {
+        font-size: 10px;
+        color: #999;
+        margin-top: 4px;
+        padding: 0 8px;
+    }
+    
+    .empty-state {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        height: 100%;
+        color: #999;
+    }
+    
+    .empty-state-icon {
+        font-size: 48px;
+        margin-bottom: 16px;
+        opacity: 0.5;
+    }
+    
+    .typing-indicator {
+        padding: 8px 16px;
+        font-style: italic;
+        color: #999;
+        font-size: 13px;
+    }
+    
+    .global-notification {
+        background: linear-gradient(135deg, #5FB3B3 0%, #3A8B85 100%);
+        color: white;
+        padding: 14px 18px;
+        border-radius: 10px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+        opacity: 0;
+        transform: translateX(400px);
+        transition: opacity 0.3s ease-out, transform 0.3s ease-out;
+        cursor: pointer;
+        position: relative;
+        max-width: 320px;
+        min-width: 260px;
+        backdrop-filter: blur(10px);
+    }
+    
+    .global-notification.show {
+        opacity: 1;
+        transform: translateX(0);
+    }
+    
+    .global-notification.chat-message {
+        border-left: 4px solid #2C7873;
+        box-shadow: 0 4px 12px rgba(95, 179, 179, 0.3);
+    }
+    
+    .global-notification-title {
+        font-weight: 600;
+        margin-bottom: 8px;
+        font-size: 14px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        line-height: 1.3;
+    }
+    
+    .global-notification-message {
+        font-size: 12px;
+        opacity: 0.95;
+        line-height: 1.5;
+        word-wrap: break-word;
+        overflow-wrap: break-word;
+    }
+    
+    .global-notification-close {
+        background: rgba(255, 255, 255, 0.2);
+        border: none;
+        color: white;
+        width: 24px;
+        height: 24px;
+        border-radius: 50%;
+        cursor: pointer;
+        font-size: 16px;
+        line-height: 1;
+        padding: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin-left: 10px;
+    }
+    
+    .global-notification-close:hover {
+        background: rgba(255, 255, 255, 0.3);
+    }
+    
+    .global-notification-time {
+        font-size: 11px;
+        opacity: 0.8;
+        margin-top: 6px;
+    }
+</style>
+{% endblock %}
+
+{% block extrahead %}
+{{ block.super }}
+<script>
+    // Get websocket_url and current user ID from Django
+    window.websocketUrl = '{{ websocket_url|default:"" }}';
+    {% if request.user.is_authenticated %}
+    window.currentUserId = {{ request.user.id }};
+    {% else %}
+    window.currentUserId = 0;
+    {% endif %}
+    console.log('✅ base_site.html extrahead loaded');
+    console.log('👤 window.currentUserId:', window.currentUserId);
+    console.log('🌐 window.websocketUrl:', window.websocketUrl);
+    
+    // Initialize notification WebSocket connection
+    (function() {
+        console.log('🔧 Initializing notification WebSocket connection...');
+        
+        let notificationSocket = null;
+        let displayedNotificationIds = new Set();
+        
+        // Connect to notification WebSocket
+        function connectNotificationWebSocket() {
+            console.log('🔌 connectNotificationWebSocket called');
+            console.log('👤 window.currentUserId:', window.currentUserId);
+            console.log('🌐 window.websocketUrl:', window.websocketUrl);
+            
+            if (!window.currentUserId || window.currentUserId === 0) {
+                console.log('❌ No user ID, skipping notification WebSocket connection');
+                return;
+            }
+            
+            // Close existing connection if any
+            if (notificationSocket) {
+                if (notificationSocket.readyState === WebSocket.OPEN || notificationSocket.readyState === WebSocket.CONNECTING) {
+                    notificationSocket.close();
+                }
+                notificationSocket = null;
+            }
+            
+               const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+               const websocketHost = window.websocketUrl || window.location.host;
+               // User ID is extracted from session (admin) or JWT token (mobile), not needed in path
+               const wsUrl = `${protocol}//${websocketHost}/ws/notifications/`;
+            
+            console.log('🔗 Connecting to notification WebSocket:', wsUrl);
+            notificationSocket = new WebSocket(wsUrl);
+            
+            notificationSocket.onopen = function(e) {
+                console.log('✅ Notification WebSocket connected successfully');
+            };
+            
+            notificationSocket.onmessage = function(e) {
+                try {
+                    console.log('📨 Raw notification message received:', e.data);
+                    const data = JSON.parse(e.data);
+                    console.log('📨 Parsed notification data:', data);
+                    
+                    if (data.type === 'notification') {
+                        console.log('🔔 Showing notification:', data.notification);
+                        showGlobalNotification(data.notification);
+                    } else if (data.type === 'connection_established') {
+                        console.log('✅ Notification connection established:', data.message);
+                    } else {
+                        console.log('❓ Unknown notification message type:', data.type);
+                    }
+                } catch (error) {
+                    console.error('❌ Error parsing notification WebSocket message:', error, e.data);
+                }
+            };
+            
+            notificationSocket.onerror = function(e) {
+                console.error('❌ Notification WebSocket error:', e);
+                console.error('WebSocket error details:', e.type, e.target?.readyState);
+            };
+            
+            notificationSocket.onclose = function(e) {
+                console.log('🔌 Notification WebSocket closed:', e.code, e.reason);
+                // Reconnect after 3 seconds if it wasn't a normal closure
+                if (e.code !== 1000) {
+                    console.log('🔄 Attempting to reconnect in 3 seconds...');
+                    setTimeout(() => {
+                        if (window.currentUserId && window.currentUserId !== 0) {
+                            connectNotificationWebSocket();
+                        }
+                    }, 3000);
+                }
+            };
+        }
+        
+        // Show global notification
+        function showGlobalNotification(notificationData) {
+            console.log('🎯 showGlobalNotification called with:', notificationData);
+            
+            // Use notificationData directly if it's already the notification object, otherwise extract from nested structure
+            const notification = notificationData.notification || notificationData;
+            
+            // Get notification ID (handle both direct ID and nested notification.id)
+            const notificationId = notification.id || notificationData.id;
+            
+            if (!notificationId) {
+                console.warn('⚠️ Notification has no ID, skipping:', notificationData);
+                return;
+            }
+            
+            // Prevent duplicate notifications - check by ID
+            if (displayedNotificationIds.has(notificationId)) {
+                console.log('⚠️ Notification already displayed (by ID), skipping:', notificationId);
+                return;
+            }
+            
+            // Also check by unique key (ID + created_at + title) to catch duplicates
+            const notificationKey = `${notificationId}_${notification.created_at || ''}_${notification.title || ''}`;
+            
+            if (displayedNotificationIds.has(notificationKey)) {
+                console.log('⚠️ Notification already displayed (by unique key), skipping:', notificationKey);
+                return;
+            }
+            
+            // Check if same notification was shown recently (within 3 seconds) by comparing title and time
+            const existingKeys = Array.from(displayedNotificationIds);
+            const recentDuplicate = existingKeys.some(key => {
+                if (typeof key === 'string' && key.includes('_')) {
+                    const parts = key.split('_');
+                    if (parts.length >= 3) {
+                        const existingId = parts[0];
+                        const existingTime = parts[1];
+                        const existingTitle = parts.slice(2).join('_');
+                        const currentTime = notification.created_at || '';
+                        const currentTitle = notification.title || '';
+                        
+                        // Check if same title and time is very close (within 3 seconds) - different ID but same content
+                        if (existingTitle === currentTitle && existingTime && currentTime) {
+                            try {
+                                const existingDate = new Date(existingTime);
+                                const currentDate = new Date(currentTime);
+                                const diff = Math.abs(currentDate - existingDate);
+                                if (diff < 3000 && existingId !== String(notificationId)) { // 3 seconds, different ID
+                                    return true;
+                                }
+                            } catch (e) {
+                                // Ignore date parsing errors
+                            }
+                        }
+                    }
+                }
+                return false;
+            });
+            
+            if (recentDuplicate) {
+                console.log('⚠️ Duplicate notification detected (same content/time within 3s), skipping:', notificationId);
+                return;
+            }
+            
+            displayedNotificationIds.add(notificationId);
+            displayedNotificationIds.add(notificationKey);
+            console.log('✅ Notification added to displayed set:', notificationId, notificationKey);
+            
+            // Try to get container, create if not exists
+            let container = document.getElementById('globalNotificationContainer');
+            if (!container) {
+                console.log('⚠️ Global notification container not found, creating it...');
+                container = document.createElement('div');
+                container.id = 'globalNotificationContainer';
+                container.style.cssText = 'position: fixed; top: 20px; right: 20px; z-index: 10001; display: flex; flex-direction: column; gap: 10px; max-width: 400px;';
+                document.body.appendChild(container);
+                console.log('✅ Global notification container created');
+            }
+            console.log('✅ Global notification container found');
+            
+            const notificationElement = document.createElement('div');
+            notificationElement.className = 'global-notification';
+            if (notification.notification_type === 'chat_message') {
+                notificationElement.classList.add('chat-message');
+            }
+            notificationElement.setAttribute('data-notification-id', notificationId);
+            
+            const titleDiv = document.createElement('div');
+            titleDiv.className = 'global-notification-title';
+            
+            const titleText = document.createElement('span');
+            titleText.textContent = notification.title || 'New Notification';
+            
+            const closeBtn = document.createElement('button');
+            closeBtn.className = 'global-notification-close';
+            closeBtn.innerHTML = '×';
+            closeBtn.onclick = function(e) {
+                e.stopPropagation();
+                removeNotification(notificationElement);
+            };
+            
+            titleDiv.appendChild(titleText);
+            titleDiv.appendChild(closeBtn);
+            
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'global-notification-message';
+            messageDiv.textContent = notification.message || '';
+            
+            const timeDiv = document.createElement('div');
+            timeDiv.className = 'global-notification-time';
+            if (notification.created_at) {
+                const date = new Date(notification.created_at);
+                timeDiv.textContent = date.toLocaleTimeString('en-US', {hour: '2-digit', minute: '2-digit'});
+            }
+            
+            notificationElement.appendChild(titleDiv);
+            notificationElement.appendChild(messageDiv);
+            notificationElement.appendChild(timeDiv);
+            
+            // Click handler - open chat if it's a chat message
+            if (notification.notification_type === 'chat_message' && notification.related_object_type === 'conversation' && notification.related_object_id) {
+                notificationElement.style.cursor = 'pointer';
+                notificationElement.onclick = function() {
+                    // Use global openChatModal function (will be defined below)
+                    if (typeof window.openChatModal === 'function') {
+                        window.openChatModal(notification.related_object_id);
+                    } else {
+                        // Fallback: redirect to conversation admin page
+                        window.location.href = `/admin/chat/conversation/${notification.related_object_id}/change/`;
+                    }
+                    removeNotification(notificationElement);
+                };
+            }
+            
+            container.appendChild(notificationElement);
+            
+            // Animate in
+            setTimeout(() => {
+                notificationElement.classList.add('show');
+            }, 10);
+            
+            // Auto-remove after 8 seconds
+            setTimeout(() => {
+                removeNotification(notificationElement);
+            }, 8000);
+        }
+        
+        // Remove notification
+        function removeNotification(notificationElement) {
+            if (notificationElement) {
+                notificationElement.classList.remove('show');
+                notificationElement.addEventListener('transitionend', () => {
+                    if (notificationElement.parentNode) {
+                        notificationElement.parentNode.removeChild(notificationElement);
+                    }
+                });
+            }
+        }
+        
+        // Connect when page loads - ensure only one connection
+        let connectionAttempted = false;
+        
+        function attemptConnection() {
+            if (connectionAttempted) {
+                console.log('⚠️ Connection already attempted, skipping');
+                return;
+            }
+            
+            if (!window.currentUserId || window.currentUserId === 0) {
+                console.log('❌ No user ID, skipping connection');
+                return;
+            }
+            
+            if (notificationSocket && (notificationSocket.readyState === WebSocket.OPEN || notificationSocket.readyState === WebSocket.CONNECTING)) {
+                console.log('✅ WebSocket already connected or connecting');
+                return;
+            }
+            
+            connectionAttempted = true;
+            console.log('🔧 Attempting notification WebSocket connection...');
+            connectNotificationWebSocket();
+        }
+        
+        console.log('🔧 Notification WebSocket script loaded in extrahead');
+        console.log('📄 Document ready state:', document.readyState);
+        
+        // Try to connect immediately
+        if (document.readyState === 'complete' || document.readyState === 'interactive') {
+            console.log('✅ Document already ready, connecting WebSocket immediately');
+            setTimeout(attemptConnection, 100);
+        } else {
+            console.log('⏳ Document is loading, waiting for DOMContentLoaded');
+            document.addEventListener('DOMContentLoaded', function() {
+                console.log('✅ DOMContentLoaded fired, connecting WebSocket');
+                attemptConnection();
+            });
+        }
+        
+        // Also try on window load as fallback (only if not already connected)
+        window.addEventListener('load', function() {
+            console.log('✅ Window load event fired');
+            if (!notificationSocket || notificationSocket.readyState !== WebSocket.OPEN) {
+                if (!connectionAttempted) {
+                    console.log('🔄 WebSocket not connected, attempting connection');
+                    attemptConnection();
+                }
+            }
+        });
+        
+        // Make functions globally available
+        window.connectNotificationWebSocket = connectNotificationWebSocket;
+        window.showGlobalNotification = showGlobalNotification;
+        
+        // Chat Modal Functions - Available globally for all pages
+        let chatModalCurrentConversationId = null;
+        let chatModalSocket = null;
+        let chatModalDisplayedMessageIds = new Set();
+        
+        // Open chat modal from notification or anywhere
+        window.openChatModal = function(conversationId) {
+            // Attach Enter key listener when modal opens
+            setTimeout(() => {
+                const input = document.getElementById('chatModalInput');
+                if (input) {
+                    // Remove existing listeners to avoid duplicates
+                    const newInput = input.cloneNode(true);
+                    input.parentNode.replaceChild(newInput, input);
+                    
+                    // Add Enter key listener
+                    newInput.addEventListener('keydown', function(e) {
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            window.sendChatModalMessage();
+                        }
+                    });
+                    
+                    // Also handle keypress for compatibility
+                    newInput.addEventListener('keypress', function(e) {
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            window.sendChatModalMessage();
+                        }
+                    });
+                }
+            }, 100);
+            console.log('🔓 openChatModal called with conversationId:', conversationId);
+            
+            chatModalDisplayedMessageIds.clear();
+            chatModalCurrentConversationId = conversationId;
+            let modal = document.getElementById('chatModal');
+            
+            // Create modal if it doesn't exist
+            if (!modal) {
+                console.log('📦 Creating chat modal...');
+                modal = document.createElement('div');
+                modal.id = 'chatModal';
+                modal.className = 'chat-modal-overlay';
+                modal.innerHTML = `
+                    <div class="chat-modal">
+                        <div class="chat-modal-header">
+                            <div class="chat-modal-header-left">
+                                <h2 id="chatModalUserName">Chat</h2>
+                                <div class="chat-modal-header-info">
+                                    <span id="chatModalStatus" class="status-badge"></span>
+                                    <span id="chatModalInfo" style="margin-left: 12px;"></span>
+                                </div>
+                            </div>
+                            <button class="chat-modal-close" onclick="window.closeChatModal()">×</button>
+                        </div>
+                        <div class="chat-modal-body" id="chatModalMessages">
+                            <div class="empty-state">
+                                <div class="empty-state-icon">💬</div>
+                                <div>Loading messages...</div>
+                            </div>
+                            <div id="typingIndicator" class="typing-indicator" style="display: none;"></div>
+                        </div>
+                        <div class="chat-modal-footer">
+                            <input type="file" id="chatModalFileInput" style="display: none !important;" accept="image/*,audio/*,.mp3,.wav,.ogg,.m4a,.pdf,.doc,.docx,.txt">
+                            <button id="chatModalFileBtn" type="button" onclick="document.getElementById('chatModalFileInput').click()" title="Attach file" style="background: #6c757d !important; color: white !important; border: none !important; border-radius: 25px !important; padding: 10px 15px !important; font-size: 18px !important; cursor: pointer !important; min-width: 45px !important; display: inline-block !important; visibility: visible !important; opacity: 1 !important; flex-shrink: 0 !important;">📎</button>
+                            <input type="text" id="chatModalInput" placeholder="Type your message..." autocomplete="off">
+                            <button id="chatModalSendBtn" type="button" onclick="window.sendChatModalMessage()">Send</button>
+                        </div>
+                    </div>
+                `;
+                document.body.appendChild(modal);
+                
+                // Setup event listeners
+                modal.addEventListener('click', function(e) {
+                    if (e.target === modal) {
+                        window.closeChatModal();
+                    }
+                });
+                
+                const modalContent = modal.querySelector('.chat-modal');
+                if (modalContent) {
+                    modalContent.addEventListener('click', function(e) {
+                        e.stopPropagation();
+                    });
+                }
+                
+                // Enter key handler
+                const input = modal.querySelector('#chatModalInput');
+                if (input) {
+                    // Remove existing listeners to avoid duplicates
+                    const newInput = input.cloneNode(true);
+                    input.parentNode.replaceChild(newInput, input);
+                    
+                    // Add Enter key listener
+                    newInput.addEventListener('keydown', function(e) {
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            window.sendChatModalMessage();
+                        }
+                    });
+                    
+                    // Also handle keypress for compatibility
+                    newInput.addEventListener('keypress', function(e) {
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            window.sendChatModalMessage();
+                        }
+                    });
+                }
+                
+                // Handle file input change
+                const fileInput = modal.querySelector('#chatModalFileInput');
+                if (fileInput) {
+                    fileInput.addEventListener('change', function(e) {
+                        const file = e.target.files[0];
+                        if (file) {
+                            // Auto-send file when selected
+                            window.sendChatModalMessage();
+                        }
+                    });
+                }
+            }
+            
+            // Show modal
+            setTimeout(() => {
+                modal.classList.add('show');
+                document.body.style.overflow = 'hidden';
+                
+                // Re-attach Enter key listener (in case modal already existed)
+                const input = modal.querySelector('#chatModalInput');
+                if (input) {
+                    // Remove existing listeners to avoid duplicates
+                    const newInput = input.cloneNode(true);
+                    input.parentNode.replaceChild(newInput, input);
+                    
+                    // Add Enter key listener
+                    newInput.addEventListener('keydown', function(e) {
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            window.sendChatModalMessage();
+                        }
+                    });
+                    
+                    // Also handle keypress for compatibility
+                    newInput.addEventListener('keypress', function(e) {
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            window.sendChatModalMessage();
+                        }
+                    });
+                }
+                
+                // Load conversation data
+                loadChatModalConversationData(conversationId);
+                
+                // Connect WebSocket
+                connectChatModalWebSocket(conversationId);
+            }, 10);
+        };
+        
+        // Close chat modal
+        window.closeChatModal = function() {
+            console.log('🔒 Closing chat modal');
+            const modal = document.getElementById('chatModal');
+            if (modal) {
+                modal.classList.remove('show');
+            }
+            document.body.style.overflow = '';
+            
+            if (chatModalSocket) {
+                chatModalSocket.close(1000, 'User closed modal');
+                chatModalSocket = null;
+            }
+            
+            chatModalCurrentConversationId = null;
+        };
+        
+        // Load conversation data
+        function loadChatModalConversationData(conversationId) {
+            fetch(`/admin/chat/conversation/${conversationId}/chat/messages/`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        const userNameEl = document.getElementById('chatModalUserName');
+                        const statusEl = document.getElementById('chatModalStatus');
+                        const infoEl = document.getElementById('chatModalInfo');
+                        
+                        if (data.conversation) {
+                            if (userNameEl) userNameEl.textContent = `Chat with ${data.conversation.user_name}`;
+                            if (statusEl) {
+                                statusEl.textContent = data.conversation.status.charAt(0).toUpperCase() + data.conversation.status.slice(1);
+                                statusEl.className = `status-badge status-${data.conversation.status}`;
+                            }
+                            if (infoEl) infoEl.textContent = `${data.conversation.user_type.charAt(0).toUpperCase() + data.conversation.user_type.slice(1)} • ${data.conversation.subject || 'No subject'}`;
+                        }
+                        
+                        loadChatModalMessages(data.messages);
+                    }
+                })
+                .catch(error => console.error('Error loading conversation data:', error));
+        }
+        
+        // Load messages
+        function loadChatModalMessages(messages) {
+            const messagesDiv = document.getElementById('chatModalMessages');
+            if (!messagesDiv) return;
+            
+            chatModalDisplayedMessageIds.clear();
+            messagesDiv.innerHTML = '';
+            
+            if (!messages || messages.length === 0) {
+                messagesDiv.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">💬</div>
+                        <div>No messages yet. Start the conversation!</div>
+                    </div>
+                `;
+                return;
+            }
+            
+            messages.forEach(msg => {
+                const messageData = {
+                    message: msg.message || '',
+                    sender: msg.sender_id || msg.sender,
+                    sender_name: msg.sender_name || msg.sender || 'Unknown',
+                    is_from_support: msg.is_from_support || false,
+                    created_at: msg.created_at || new Date().toISOString(),
+                    message_id: msg.id || msg.message_id,
+                    id: msg.id || msg.message_id,
+                    attachment: msg.attachment || null,
+                    file_type: msg.file_type || null,
+                    file_name: msg.file_name || null
+                };
+                addChatModalMessage(messageData);
+            });
+            
+            scrollChatModalToBottom();
+        }
+        
+        // Add message to chat modal
+        function addChatModalMessage(data) {
+            const messageId = data.message_id || data.id;
+            if (messageId && chatModalDisplayedMessageIds.has(messageId)) {
+                return;
+            }
+            if (messageId) {
+                chatModalDisplayedMessageIds.add(messageId);
+            }
+            
+            const messagesDiv = document.getElementById('chatModalMessages');
+            if (!messagesDiv) return;
+            
+            const typingIndicator = document.getElementById('typingIndicator');
+            if (typingIndicator) typingIndicator.style.display = 'none';
+            
+            const emptyState = messagesDiv.querySelector('.empty-state');
+            if (emptyState) emptyState.remove();
+            
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${data.is_from_support ? 'support' : 'user'}`;
+            if (messageId) messageDiv.setAttribute('data-message-id', messageId);
+            
+            const bubble = document.createElement('div');
+            bubble.className = 'message-bubble';
+            
+            // Add file attachment if exists
+            if (data.attachment) {
+                const attachmentDiv = document.createElement('div');
+                attachmentDiv.style.marginBottom = '8px';
+                
+                if (data.file_type === 'image') {
+                    const img = document.createElement('img');
+                    img.src = data.attachment || data.attachment_url;
+                    
+                    // Mobile responsive sizing
+                    if (window.innerWidth <= 768) {
+                        img.style.maxWidth = '100%';
+                        img.style.maxHeight = '250px';
+                        img.style.width = '100%';
+                        img.style.height = 'auto';
+                    } else {
+                        img.style.maxWidth = '300px';
+                        img.style.maxHeight = '300px';
+                        img.style.width = 'auto';
+                        img.style.height = 'auto';
+                    }
+                    
+                    img.style.borderRadius = '8px';
+                    img.style.cursor = 'pointer';
+                    img.style.objectFit = 'contain';
+                    img.style.display = 'block';
+                    img.style.margin = '0 auto';
+                    img.onclick = () => window.open(data.attachment || data.attachment_url, '_blank');
+                    attachmentDiv.appendChild(img);
+                } else if (data.file_type === 'audio') {
+                    // Create custom audio player container
+                    const audioContainer = document.createElement('div');
+                    audioContainer.style.display = 'flex';
+                    audioContainer.style.alignItems = 'center';
+                    audioContainer.style.gap = '12px';
+                    audioContainer.style.width = '100%';
+                    audioContainer.style.maxWidth = '400px';
+                    audioContainer.style.padding = '8px';
+                    audioContainer.style.borderRadius = '8px';
+                    audioContainer.style.backgroundColor = 'rgba(0, 0, 0, 0.05)';
+                    audioContainer.style.boxSizing = 'border-box';
+                    
+                    // Mobile responsive
+                    if (window.innerWidth <= 768) {
+                        audioContainer.style.width = '100%';
+                        audioContainer.style.maxWidth = '100%';
+                        audioContainer.style.padding = '6px';
+                        audioContainer.style.gap = '8px';
+                    }
+                    
+                    // Create audio element (hidden)
+                    const audio = document.createElement('audio');
+                    audio.src = data.attachment || data.attachment_url;
+                    audio.preload = 'metadata';
+                    
+                    // Create play/pause button
+                    const playPauseBtn = document.createElement('button');
+                    playPauseBtn.innerHTML = '▶';
+                    const buttonSize = window.innerWidth <= 768 ? '36px' : '40px';
+                    playPauseBtn.style.width = buttonSize;
+                    playPauseBtn.style.height = buttonSize;
+                    playPauseBtn.style.minWidth = buttonSize;
+                    playPauseBtn.style.minHeight = buttonSize;
+                    playPauseBtn.style.borderRadius = '50%';
+                    playPauseBtn.style.border = 'none';
+                    playPauseBtn.style.backgroundColor = '#5FB3B3';
+                    playPauseBtn.style.color = 'white';
+                    playPauseBtn.style.cursor = 'pointer';
+                    playPauseBtn.style.fontSize = window.innerWidth <= 768 ? '14px' : '16px';
+                    playPauseBtn.style.display = 'flex';
+                    playPauseBtn.style.alignItems = 'center';
+                    playPauseBtn.style.justifyContent = 'center';
+                    playPauseBtn.style.flexShrink = '0';
+                    playPauseBtn.style.outline = 'none';
+                    playPauseBtn.style.userSelect = 'none';
+                    playPauseBtn.style.webkitTapHighlightColor = 'transparent';
+                    
+                    // Create progress container
+                    const progressContainer = document.createElement('div');
+                    progressContainer.style.flex = '1';
+                    progressContainer.style.display = 'flex';
+                    progressContainer.style.flexDirection = 'column';
+                    progressContainer.style.gap = '4px';
+                    
+                    // Create progress bar
+                    const progressBar = document.createElement('div');
+                    progressBar.style.width = '100%';
+                    progressBar.style.height = '6px';
+                    progressBar.style.backgroundColor = 'rgba(0, 0, 0, 0.1)';
+                    progressBar.style.borderRadius = '3px';
+                    progressBar.style.position = 'relative';
+                    progressBar.style.cursor = 'pointer';
+                    
+                    const progressFill = document.createElement('div');
+                    progressFill.style.width = '0%';
+                    progressFill.style.height = '100%';
+                    progressFill.style.backgroundColor = '#5FB3B3';
+                    progressFill.style.borderRadius = '3px';
+                    progressFill.style.transition = 'width 0.1s';
+                    progressBar.appendChild(progressFill);
+                    
+                    // Create time display
+                    const timeDisplay = document.createElement('div');
+                    timeDisplay.style.fontSize = window.innerWidth <= 768 ? '11px' : '12px';
+                    timeDisplay.style.color = '#666';
+                    timeDisplay.style.whiteSpace = 'nowrap';
+                    timeDisplay.textContent = '0:00 / 0:00';
+                    
+                    progressContainer.appendChild(progressBar);
+                    progressContainer.appendChild(timeDisplay);
+                    
+                    // Play/Pause functionality
+                    let isPlaying = false;
+                    playPauseBtn.onclick = () => {
+                        if (isPlaying) {
+                            audio.pause();
+                            playPauseBtn.innerHTML = '▶';
+                            isPlaying = false;
+                        } else {
+                            audio.play();
+                            playPauseBtn.innerHTML = '⏸';
+                            isPlaying = true;
+                        }
+                    };
+                    
+                    // Update progress bar
+                    audio.addEventListener('timeupdate', () => {
+                        if (audio.duration) {
+                            const percent = (audio.currentTime / audio.duration) * 100;
+                            progressFill.style.width = percent + '%';
+                            
+                            const currentTime = formatTime(audio.currentTime);
+                            const duration = formatTime(audio.duration);
+                            timeDisplay.textContent = `${currentTime} / ${duration}`;
+                        }
+                    });
+                    
+                    // Update button when audio ends
+                    audio.addEventListener('ended', () => {
+                        playPauseBtn.innerHTML = '▶';
+                        isPlaying = false;
+                        progressFill.style.width = '0%';
+                        timeDisplay.textContent = '0:00 / ' + formatTime(audio.duration);
+                    });
+                    
+                    // Seek on progress bar click
+                    progressBar.onclick = (e) => {
+                        const rect = progressBar.getBoundingClientRect();
+                        const percent = (e.clientX - rect.left) / rect.width;
+                        audio.currentTime = percent * audio.duration;
+                    };
+                    
+                    // Format time helper
+                    function formatTime(seconds) {
+                        if (!isFinite(seconds)) return '0:00';
+                        const mins = Math.floor(seconds / 60);
+                        const secs = Math.floor(seconds % 60);
+                        return `${mins}:${secs.toString().padStart(2, '0')}`;
+                    }
+                    
+                    // Load duration when metadata is loaded
+                    audio.addEventListener('loadedmetadata', () => {
+                        timeDisplay.textContent = '0:00 / ' + formatTime(audio.duration);
+                    });
+                    
+                    audioContainer.appendChild(playPauseBtn);
+                    audioContainer.appendChild(progressContainer);
+                    attachmentDiv.appendChild(audioContainer);
+                    attachmentDiv.appendChild(audio); // Hidden audio element
+                } else {
+                    const fileLink = document.createElement('a');
+                    fileLink.href = data.attachment || data.attachment_url;
+                    fileLink.target = '_blank';
+                    fileLink.style.display = 'inline-flex';
+                    fileLink.style.alignItems = 'center';
+                    fileLink.style.gap = '8px';
+                    fileLink.style.color = 'inherit';
+                    fileLink.style.textDecoration = 'none';
+                    fileLink.innerHTML = `📄 ${data.file_name || 'Download File'}`;
+                    attachmentDiv.appendChild(fileLink);
+                }
+                
+                bubble.appendChild(attachmentDiv);
+            }
+            
+            // Add message text if exists
+            if (data.message) {
+                const textDiv = document.createElement('div');
+                textDiv.textContent = data.message;
+                bubble.appendChild(textDiv);
+            }
+            
+            const time = document.createElement('div');
+            time.className = 'message-time';
+            if (data.created_at) {
+                const date = new Date(data.created_at);
+                time.textContent = `${date.toLocaleTimeString('en-US', {hour: '2-digit', minute: '2-digit'})} • ${data.sender_name || data.sender || 'Unknown'}`;
+            } else {
+                time.textContent = `Now • ${data.sender_name || data.sender || 'Unknown'}`;
+            }
+            
+            messageDiv.appendChild(bubble);
+            messageDiv.appendChild(time);
+            
+            if (typingIndicator) {
+                messagesDiv.insertBefore(messageDiv, typingIndicator);
+            } else {
+                messagesDiv.appendChild(messageDiv);
+            }
+            
+            scrollChatModalToBottom();
+        }
+        
+        // Connect WebSocket for chat modal
+        function connectChatModalWebSocket(conversationId) {
+            if (chatModalSocket) {
+                if (chatModalSocket.readyState === WebSocket.OPEN || chatModalSocket.readyState === WebSocket.CONNECTING) {
+                    chatModalSocket.close();
+                }
+                chatModalSocket = null;
+            }
+            
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const websocketHost = window.websocketUrl || window.location.host;
+            const wsUrl = `${protocol}//${websocketHost}/ws/chat/${parseInt(conversationId)}/`;
+            
+            console.log('🔗 Connecting chat modal WebSocket:', wsUrl);
+            chatModalSocket = new WebSocket(wsUrl);
+            
+            chatModalSocket.onopen = function(e) {
+                console.log('✅ Chat modal WebSocket connected');
+            };
+            
+            chatModalSocket.onmessage = function(e) {
+                try {
+                    const data = JSON.parse(e.data);
+                    if (data.type === 'chat_message') {
+                        addChatModalMessage(data);
+                    }
+                } catch (error) {
+                    console.error('Error parsing chat modal message:', error);
+                }
+            };
+            
+            chatModalSocket.onerror = function(e) {
+                console.error('Chat modal WebSocket error:', e);
+            };
+            
+            chatModalSocket.onclose = function(e) {
+                console.log('Chat modal WebSocket closed:', e.code);
+            };
+        }
+        
+        // Send message from chat modal
+        window.sendChatModalMessage = function() {
+            const input = document.getElementById('chatModalInput');
+            const fileInput = document.getElementById('chatModalFileInput');
+            const message = input ? input.value.trim() : '';
+            const file = fileInput ? fileInput.files[0] : null;
+            
+            if (!message && !file) {
+                return; // Need either message or file
+            }
+            
+            if (file) {
+                // Send file via API (multipart/form-data)
+                const formData = new FormData();
+                formData.append('file', file);
+                if (message) {
+                    formData.append('message', message);
+                }
+                
+                fetch(`/admin/chat/conversation/${chatModalCurrentConversationId}/chat/send/`, {
+                    method: 'POST',
+                    body: formData,
+                    headers: {
+                        'X-CSRFToken': getCookie('csrftoken')
+                    }
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        // Message will be added via WebSocket
+                        if (input) input.value = '';
+                        if (fileInput) fileInput.value = '';
+                    }
+                })
+                .catch(error => console.error('Error sending file:', error));
+            } else if (message && chatModalSocket && chatModalSocket.readyState === WebSocket.OPEN) {
+                // Send text message via WebSocket
+                chatModalSocket.send(JSON.stringify({
+                    'type': 'chat_message',
+                    'message': message
+                }));
+                if (input) input.value = '';
+            }
+        };
+        
+        // Helper function to get CSRF token
+        function getCookie(name) {
+            let cookieValue = null;
+            if (document.cookie && document.cookie !== '') {
+                const cookies = document.cookie.split(';');
+                for (let i = 0; i < cookies.length; i++) {
+                    const cookie = cookies[i].trim();
+                    if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                        break;
+                    }
+                }
+            }
+            return cookieValue;
+        }
+        
+        // Scroll to bottom
+        function scrollChatModalToBottom() {
+            const messagesDiv = document.getElementById('chatModalMessages');
+            if (messagesDiv) {
+                messagesDiv.scrollTop = messagesDiv.scrollHeight;
+            }
+        }
+        
+        // Close modal on Escape key
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') {
+                const modal = document.getElementById('chatModal');
+                if (modal && modal.classList.contains('show')) {
+                    window.closeChatModal();
+                }
+            }
+        });
+    })();
+</script>
+{% endblock %}
+
+{% block content %}
+{{ block.super }}
+
+<!-- Global Notification Container will be created automatically if not found -->
+{% endblock %}
+

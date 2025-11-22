@@ -1,0 +1,1011 @@
+{% extends "admin/change_list.html" %}
+{% load static %}
+
+{% block extrahead %}
+{{ block.super }}
+<style>
+    /* Chat Modal Styles */
+    .chat-modal-overlay {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.5);
+        z-index: 10000;
+        backdrop-filter: blur(4px);
+        animation: fadeIn 0.3s ease;
+    }
+    
+    .chat-modal-overlay.show {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+    }
+    
+    @keyframes fadeIn {
+        from { opacity: 0; }
+        to { opacity: 1; }
+    }
+    
+    .chat-modal {
+        background: white;
+        border-radius: 12px;
+        width: 90%;
+        max-width: 900px;
+        height: 85vh;
+        max-height: 800px;
+        display: flex;
+        flex-direction: column;
+        box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+        animation: slideUp 0.3s ease;
+        overflow: hidden;
+    }
+    
+    @keyframes slideUp {
+        from {
+            transform: translateY(50px);
+            opacity: 0;
+        }
+        to {
+            transform: translateY(0);
+            opacity: 1;
+        }
+    }
+    
+    .chat-modal-header {
+        background: linear-gradient(135deg, #5FB3B3 0%, #3A8B85 100%);
+        color: white;
+        padding: 18px 24px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    
+    .chat-modal-header-left {
+        flex: 1;
+    }
+    
+    .chat-modal-header h2 {
+        margin: 0 0 5px 0;
+        font-size: 20px;
+        font-weight: 600;
+    }
+    
+    .chat-modal-header-info {
+        font-size: 13px;
+        opacity: 0.9;
+        margin-top: 4px;
+    }
+    
+    .chat-modal-close {
+        background: rgba(255,255,255,0.2);
+        border: none;
+        color: white;
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        cursor: pointer;
+        font-size: 20px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: all 0.3s;
+    }
+    
+    .chat-modal-close:hover {
+        background: rgba(255,255,255,0.3);
+        transform: rotate(90deg);
+    }
+    
+    .chat-modal-body {
+        flex: 1;
+        overflow-y: auto;
+        padding: 20px;
+        background: #f8f9fa;
+        background-image: 
+            radial-gradient(circle at 20% 50%, rgba(95, 179, 179, 0.05) 0%, transparent 50%),
+            radial-gradient(circle at 80% 80%, rgba(58, 139, 133, 0.05) 0%, transparent 50%);
+    }
+    
+    .chat-modal-body::-webkit-scrollbar {
+        width: 6px;
+    }
+    
+    .chat-modal-body::-webkit-scrollbar-track {
+        background: #f1f1f1;
+    }
+    
+    .chat-modal-body::-webkit-scrollbar-thumb {
+        background: #888;
+        border-radius: 3px;
+    }
+    
+    .chat-modal-body::-webkit-scrollbar-thumb:hover {
+        background: #555;
+    }
+    
+    .chat-modal-footer {
+        display: flex;
+        padding: 16px 20px;
+        background: white;
+        border-top: 1px solid #e0e0e0;
+        align-items: center;
+        gap: 10px;
+    }
+    
+    .chat-modal-footer input[type="text"] {
+        flex: 1;
+        padding: 12px 18px;
+        border: 2px solid #e0e0e0;
+        border-radius: 25px;
+        font-size: 14px;
+        outline: none;
+        transition: all 0.3s;
+    }
+    
+    .chat-modal-footer input[type="text"]:focus {
+        border-color: #5FB3B3;
+        box-shadow: 0 0 0 3px rgba(95, 179, 179, 0.1);
+    }
+    
+    .chat-modal-footer input[type="file"] {
+        display: none !important;
+    }
+    
+    .chat-modal-footer button {
+        margin-left: 0;
+        padding: 12px 28px;
+        background: linear-gradient(135deg, #5FB3B3 0%, #3A8B85 100%);
+        color: white;
+        border: none;
+        border-radius: 25px;
+        cursor: pointer;
+        font-size: 14px;
+        font-weight: 600;
+        transition: all 0.3s;
+        box-shadow: 0 2px 5px rgba(95, 179, 179, 0.3);
+        white-space: nowrap;
+    }
+    
+    .chat-modal-footer button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 8px rgba(95, 179, 179, 0.4);
+    }
+    
+    .chat-modal-footer #chatModalFileBtn {
+        background: #6c757d !important;
+        padding: 10px 15px !important;
+        font-size: 18px !important;
+        min-width: 45px !important;
+        display: inline-block !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+        flex-shrink: 0 !important;
+        margin-left: 0 !important;
+        margin-right: 0 !important;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.2) !important;
+    }
+    
+    .chat-modal-footer #chatModalFileBtn:hover {
+        background: #5a6268 !important;
+        opacity: 1 !important;
+        transform: translateY(-2px) !important;
+    }
+    
+    .message {
+        margin-bottom: 12px;
+        display: flex;
+        flex-direction: column;
+        animation: fadeIn 0.3s ease-in;
+    }
+    
+    .message.support {
+        align-items: flex-end;
+    }
+    
+    .message.user {
+        align-items: flex-start;
+    }
+    
+    .message-bubble {
+        max-width: 65%;
+        padding: 12px 16px;
+        border-radius: 18px;
+        word-wrap: break-word;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+    }
+    
+    .message.support .message-bubble {
+        background: linear-gradient(135deg, #5FB3B3 0%, #3A8B85 100%);
+        color: white;
+        border-bottom-right-radius: 4px;
+    }
+    
+    .message.user .message-bubble {
+        background: #ffffff;
+        color: #333;
+        border: 1px solid #e0e0e0;
+        border-bottom-left-radius: 4px;
+    }
+    
+    .message-time {
+        font-size: 10px;
+        color: #999;
+        margin-top: 4px;
+        padding: 0 8px;
+    }
+    
+    .empty-state {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        height: 100%;
+        color: #999;
+    }
+    
+    .empty-state-icon {
+        font-size: 48px;
+        margin-bottom: 16px;
+        opacity: 0.5;
+    }
+    
+    .typing-indicator {
+        padding: 8px 16px;
+        font-style: italic;
+        color: #999;
+        font-size: 13px;
+    }
+    
+    .status-badge {
+        display: inline-block;
+        padding: 5px 12px;
+        border-radius: 20px;
+        font-size: 11px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+    
+    .status-open {
+        background: rgba(76, 175, 80, 0.2);
+        color: #4caf50;
+        border: 1px solid #4caf50;
+    }
+    
+    .status-closed {
+        background: rgba(244, 67, 54, 0.2);
+        color: #f44336;
+        border: 1px solid #f44336;
+    }
+    
+    .status-pending {
+        background: rgba(255, 152, 0, 0.2);
+        color: #ff9800;
+        border: 1px solid #ff9800;
+    }
+    
+    .notification {
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        background: linear-gradient(135deg, #5FB3B3 0%, #3A8B85 100%);
+        color: white;
+        padding: 16px 24px;
+        border-radius: 12px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        z-index: 10001;
+        animation: slideIn 0.3s ease-out;
+        max-width: 350px;
+    }
+    
+    @keyframes slideIn {
+        from {
+            transform: translateX(400px);
+            opacity: 0;
+        }
+        to {
+            transform: translateX(0);
+            opacity: 1;
+        }
+    }
+    
+    .notification-title {
+        font-weight: 600;
+        margin-bottom: 4px;
+        font-size: 14px;
+    }
+    
+    .notification-message {
+        font-size: 13px;
+        opacity: 0.9;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+{{ block.super }}
+
+<!-- Chat Modal -->
+<div id="chatModal" class="chat-modal-overlay">
+    <div class="chat-modal">
+        <div class="chat-modal-header">
+            <div class="chat-modal-header-left">
+                <h2 id="chatModalUserName">Chat</h2>
+                <div class="chat-modal-header-info">
+                    <span id="chatModalStatus" class="status-badge"></span>
+                    <span id="chatModalInfo" style="margin-left: 12px;"></span>
+                </div>
+            </div>
+            <button class="chat-modal-close" onclick="closeChatModal()">×</button>
+        </div>
+        <div class="chat-modal-body" id="chatModalMessages">
+            <div class="empty-state">
+                <div class="empty-state-icon">💬</div>
+                <div>Loading messages...</div>
+            </div>
+            <div id="typingIndicator" class="typing-indicator" style="display: none;"></div>
+        </div>
+        <div class="chat-modal-footer">
+            <input type="file" id="chatModalFileInput" style="display: none !important;" accept="image/*,audio/*,.mp3,.wav,.ogg,.m4a,.pdf,.doc,.docx,.txt">
+            <button id="chatModalFileBtn" type="button" onclick="document.getElementById('chatModalFileInput').click()" title="Attach file" style="background: #6c757d !important; color: white !important; border: none !important; border-radius: 25px !important; padding: 10px 15px !important; font-size: 18px !important; cursor: pointer !important; min-width: 45px !important; display: inline-block !important; visibility: visible !important; opacity: 1 !important; flex-shrink: 0 !important; margin-right: 10px;">📎</button>
+            <input type="text" id="chatModalInput" placeholder="Type your message..." autocomplete="off">
+            <button id="chatModalSendBtn" onclick="sendChatMessage()">Send</button>
+        </div>
+    </div>
+</div>
+
+<div id="notificationContainer"></div>
+
+<script>
+    let currentConversationId = null;
+    let chatSocket = null;
+    let displayedMessageIds = new Set(); // Track displayed messages to prevent duplicates
+    
+    // Open chat modal
+    function openChatModal(conversationId) {
+        // Attach Enter key listener when modal opens
+        setTimeout(() => {
+            attachEnterKeyListener();
+        }, 100);
+        console.log('Opening chat modal for conversation:', conversationId);
+        
+        // Prevent any default behavior
+        if (typeof event !== 'undefined') {
+            event.stopPropagation();
+            event.preventDefault();
+        }
+        
+        // Reset displayed messages when opening new conversation
+        displayedMessageIds.clear();
+        
+        currentConversationId = conversationId;
+        const modal = document.getElementById('chatModal');
+        
+        if (!modal) {
+            console.error('Chat modal element not found!');
+            return;
+        }
+        
+        // Stop any propagation
+        setTimeout(() => {
+            modal.classList.add('show');
+            document.body.style.overflow = 'hidden'; // Prevent background scrolling
+            
+            // Load conversation data (loads existing messages from database)
+            loadConversationData(conversationId);
+            
+            // Connect WebSocket (for real-time new messages)
+            connectWebSocket(conversationId);
+        }, 10);
+    }
+    
+    // Close chat modal
+    function closeChatModal() {
+        console.log('Closing chat modal');
+        const modal = document.getElementById('chatModal');
+        if (modal) {
+            modal.classList.remove('show');
+        }
+        document.body.style.overflow = ''; // Restore scrolling
+        
+        // Close WebSocket
+        if (chatSocket) {
+            chatSocket.close(1000, 'User closed modal');
+            chatSocket = null;
+        }
+        
+        currentConversationId = null;
+    }
+    
+    // Setup event listeners when DOM is ready
+    (function() {
+        function setupModalListeners() {
+            const modal = document.getElementById('chatModal');
+            if (modal) {
+                // Remove existing listeners to avoid duplicates
+                const newModal = modal.cloneNode(true);
+                modal.parentNode.replaceChild(newModal, modal);
+                
+                // Close modal on overlay click (but not on modal content)
+                newModal.addEventListener('click', function(e) {
+                    // Only close if clicking directly on overlay
+                    if (e.target === newModal || e.target.classList.contains('chat-modal-overlay')) {
+                        closeChatModal();
+                    }
+                });
+                
+                // Prevent modal from closing when clicking inside modal
+                const modalContent = newModal.querySelector('.chat-modal');
+                if (modalContent) {
+                    modalContent.addEventListener('click', function(e) {
+                        e.stopPropagation();
+                    });
+                }
+            }
+        }
+        
+        // Try to setup immediately
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', setupModalListeners);
+        } else {
+            setupModalListeners();
+        }
+    })();
+    
+    // Load conversation data
+    function loadConversationData(conversationId) {
+        fetch(`/admin/chat/conversation/${conversationId}/chat/messages/`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // Update header with conversation info
+                    if (data.conversation) {
+                        document.getElementById('chatModalUserName').textContent = `Chat with ${data.conversation.user_name}`;
+                        document.getElementById('chatModalStatus').textContent = data.conversation.status.charAt(0).toUpperCase() + data.conversation.status.slice(1);
+                        document.getElementById('chatModalStatus').className = `status-badge status-${data.conversation.status}`;
+                        document.getElementById('chatModalInfo').textContent = `${data.conversation.user_type.charAt(0).toUpperCase() + data.conversation.user_type.slice(1)} • ${data.conversation.subject || 'No subject'}`;
+                    }
+                    
+                    // Load messages
+                    loadMessages(data.messages);
+                }
+            });
+    }
+    
+    // Load messages
+    function loadMessages(messages) {
+        console.log('Loading messages:', messages);
+        const messagesDiv = document.getElementById('chatModalMessages');
+        if (!messagesDiv) {
+            console.error('chatModalMessages element not found!');
+            return;
+        }
+        
+        // Clear displayed messages set when loading from database
+        displayedMessageIds.clear();
+        messagesDiv.innerHTML = '';
+        
+        if (!messages || messages.length === 0) {
+            messagesDiv.innerHTML = `
+                <div class="empty-state">
+                    <div class="empty-state-icon">💬</div>
+                    <div>No messages yet. Start the conversation!</div>
+                </div>
+            `;
+            return;
+        }
+        
+        messages.forEach(msg => {
+            console.log('Adding message from loadMessages:', msg);
+            // Ensure message has required fields
+            const messageData = {
+                message: msg.message || '',
+                sender: msg.sender_id || msg.sender,
+                sender_name: msg.sender_name || msg.sender || 'Unknown',
+                is_from_support: msg.is_from_support || false,
+                created_at: msg.created_at || new Date().toISOString(),
+                message_id: msg.id || msg.message_id, // Use 'id' from API response
+                id: msg.id || msg.message_id, // Also set 'id' field
+                attachment: msg.attachment || null,
+                file_type: msg.file_type || null,
+                file_name: msg.file_name || null
+            };
+            addMessageToChat(messageData);
+        });
+        
+        scrollToBottom();
+    }
+    
+    // Add message to chat
+    function addMessageToChat(data) {
+        console.log('Adding message to chat:', data);
+        
+        // Check if message already displayed (prevent duplicates)
+        const messageId = data.message_id || data.id;
+        if (messageId) {
+            if (displayedMessageIds.has(messageId)) {
+                console.log('Message already displayed, skipping:', messageId, data);
+                return;
+            }
+            // Mark message as displayed BEFORE adding to DOM
+            displayedMessageIds.add(messageId);
+            console.log('Added message ID to displayed set:', messageId);
+        } else {
+            // If no message_id, use message content + timestamp + sender as unique key
+            const uniqueKey = `${data.message || ''}_${data.created_at || ''}_${data.sender || ''}`;
+            if (displayedMessageIds.has(uniqueKey)) {
+                console.log('Message already displayed (by content), skipping:', uniqueKey);
+                return;
+            }
+            displayedMessageIds.add(uniqueKey);
+            console.log('Added message content to displayed set:', uniqueKey);
+        }
+        
+        const messagesDiv = document.getElementById('chatModalMessages');
+        if (!messagesDiv) {
+            console.error('chatModalMessages element not found!');
+            return;
+        }
+        
+        const typingIndicator = document.getElementById('typingIndicator');
+        if (typingIndicator) {
+            typingIndicator.style.display = 'none';
+        }
+        
+        // Remove empty state if exists
+        const emptyState = messagesDiv.querySelector('.empty-state');
+        if (emptyState) {
+            emptyState.remove();
+        }
+        
+        const messageDiv = document.createElement('div');
+        messageDiv.className = `message ${data.is_from_support ? 'support' : 'user'}`;
+        if (messageId) {
+            messageDiv.setAttribute('data-message-id', messageId);
+        }
+        
+        const bubble = document.createElement('div');
+        bubble.className = 'message-bubble';
+        
+        // Add file attachment if exists
+        if (data.attachment) {
+            const attachmentDiv = document.createElement('div');
+            attachmentDiv.style.marginBottom = '8px';
+            
+            if (data.file_type === 'image') {
+                const img = document.createElement('img');
+                img.src = data.attachment || data.attachment_url;
+                
+                // Mobile responsive sizing
+                if (window.innerWidth <= 768) {
+                    img.style.maxWidth = '100%';
+                    img.style.maxHeight = '250px';
+                    img.style.width = '100%';
+                    img.style.height = 'auto';
+                } else {
+                    img.style.maxWidth = '300px';
+                    img.style.maxHeight = '300px';
+                    img.style.width = 'auto';
+                    img.style.height = 'auto';
+                }
+                
+                img.style.borderRadius = '8px';
+                img.style.cursor = 'pointer';
+                img.style.objectFit = 'contain';
+                img.style.display = 'block';
+                img.style.margin = '0 auto';
+                img.onclick = () => window.open(data.attachment || data.attachment_url, '_blank');
+                attachmentDiv.appendChild(img);
+            } else if (data.file_type === 'audio') {
+                // Create custom audio player container
+                const audioContainer = document.createElement('div');
+                audioContainer.style.display = 'flex';
+                audioContainer.style.alignItems = 'center';
+                audioContainer.style.gap = '12px';
+                audioContainer.style.width = '100%';
+                audioContainer.style.maxWidth = '400px';
+                audioContainer.style.padding = '8px';
+                audioContainer.style.borderRadius = '8px';
+                audioContainer.style.backgroundColor = 'rgba(0, 0, 0, 0.05)';
+                audioContainer.style.boxSizing = 'border-box';
+                
+                // Mobile responsive
+                if (window.innerWidth <= 768) {
+                    audioContainer.style.width = '100%';
+                    audioContainer.style.maxWidth = '100%';
+                    audioContainer.style.padding = '6px';
+                    audioContainer.style.gap = '8px';
+                }
+                
+                // Create audio element (hidden)
+                const audio = document.createElement('audio');
+                audio.src = data.attachment || data.attachment_url;
+                audio.preload = 'metadata';
+                
+                // Create play/pause button
+                const playPauseBtn = document.createElement('button');
+                playPauseBtn.innerHTML = '▶';
+                const buttonSize = window.innerWidth <= 768 ? '36px' : '40px';
+                playPauseBtn.style.width = buttonSize;
+                playPauseBtn.style.height = buttonSize;
+                playPauseBtn.style.minWidth = buttonSize;
+                playPauseBtn.style.minHeight = buttonSize;
+                playPauseBtn.style.borderRadius = '50%';
+                playPauseBtn.style.border = 'none';
+                playPauseBtn.style.backgroundColor = '#5FB3B3';
+                playPauseBtn.style.color = 'white';
+                playPauseBtn.style.cursor = 'pointer';
+                playPauseBtn.style.fontSize = window.innerWidth <= 768 ? '14px' : '16px';
+                playPauseBtn.style.display = 'flex';
+                playPauseBtn.style.alignItems = 'center';
+                playPauseBtn.style.justifyContent = 'center';
+                playPauseBtn.style.flexShrink = '0';
+                playPauseBtn.style.outline = 'none';
+                playPauseBtn.style.userSelect = 'none';
+                playPauseBtn.style.webkitTapHighlightColor = 'transparent';
+                
+                // Create progress container
+                const progressContainer = document.createElement('div');
+                progressContainer.style.flex = '1';
+                progressContainer.style.display = 'flex';
+                progressContainer.style.flexDirection = 'column';
+                progressContainer.style.gap = '4px';
+                
+                // Create progress bar
+                const progressBar = document.createElement('div');
+                progressBar.style.width = '100%';
+                progressBar.style.height = '6px';
+                progressBar.style.backgroundColor = 'rgba(0, 0, 0, 0.1)';
+                progressBar.style.borderRadius = '3px';
+                progressBar.style.position = 'relative';
+                progressBar.style.cursor = 'pointer';
+                
+                const progressFill = document.createElement('div');
+                progressFill.style.width = '0%';
+                progressFill.style.height = '100%';
+                progressFill.style.backgroundColor = '#5FB3B3';
+                progressFill.style.borderRadius = '3px';
+                progressFill.style.transition = 'width 0.1s';
+                progressBar.appendChild(progressFill);
+                
+                // Create time display
+                const timeDisplay = document.createElement('div');
+                timeDisplay.style.fontSize = window.innerWidth <= 768 ? '11px' : '12px';
+                timeDisplay.style.color = '#666';
+                timeDisplay.style.whiteSpace = 'nowrap';
+                timeDisplay.textContent = '0:00 / 0:00';
+                
+                progressContainer.appendChild(progressBar);
+                progressContainer.appendChild(timeDisplay);
+                
+                // Play/Pause functionality
+                let isPlaying = false;
+                playPauseBtn.onclick = () => {
+                    if (isPlaying) {
+                        audio.pause();
+                        playPauseBtn.innerHTML = '▶';
+                        isPlaying = false;
+                    } else {
+                        audio.play();
+                        playPauseBtn.innerHTML = '⏸';
+                        isPlaying = true;
+                    }
+                };
+                
+                // Update progress bar
+                audio.addEventListener('timeupdate', () => {
+                    if (audio.duration) {
+                        const percent = (audio.currentTime / audio.duration) * 100;
+                        progressFill.style.width = percent + '%';
+                        
+                        const currentTime = formatTime(audio.currentTime);
+                        const duration = formatTime(audio.duration);
+                        timeDisplay.textContent = `${currentTime} / ${duration}`;
+                    }
+                });
+                
+                // Update button when audio ends
+                audio.addEventListener('ended', () => {
+                    playPauseBtn.innerHTML = '▶';
+                    isPlaying = false;
+                    progressFill.style.width = '0%';
+                    timeDisplay.textContent = '0:00 / ' + formatTime(audio.duration);
+                });
+                
+                // Seek on progress bar click
+                progressBar.onclick = (e) => {
+                    const rect = progressBar.getBoundingClientRect();
+                    const percent = (e.clientX - rect.left) / rect.width;
+                    audio.currentTime = percent * audio.duration;
+                };
+                
+                // Format time helper
+                function formatTime(seconds) {
+                    if (!isFinite(seconds)) return '0:00';
+                    const mins = Math.floor(seconds / 60);
+                    const secs = Math.floor(seconds % 60);
+                    return `${mins}:${secs.toString().padStart(2, '0')}`;
+                }
+                
+                // Load duration when metadata is loaded
+                audio.addEventListener('loadedmetadata', () => {
+                    timeDisplay.textContent = '0:00 / ' + formatTime(audio.duration);
+                });
+                
+                audioContainer.appendChild(playPauseBtn);
+                audioContainer.appendChild(progressContainer);
+                attachmentDiv.appendChild(audioContainer);
+                attachmentDiv.appendChild(audio); // Hidden audio element
+            } else {
+                const fileLink = document.createElement('a');
+                fileLink.href = data.attachment || data.attachment_url;
+                fileLink.target = '_blank';
+                fileLink.style.display = 'inline-flex';
+                fileLink.style.alignItems = 'center';
+                fileLink.style.gap = '8px';
+                fileLink.style.color = 'inherit';
+                fileLink.style.textDecoration = 'none';
+                fileLink.innerHTML = `📄 ${data.file_name || 'Download File'}`;
+                attachmentDiv.appendChild(fileLink);
+            }
+            
+            bubble.appendChild(attachmentDiv);
+        }
+        
+        // Add message text if exists
+        if (data.message) {
+            const textDiv = document.createElement('div');
+            textDiv.textContent = data.message;
+            bubble.appendChild(textDiv);
+        }
+        
+        const time = document.createElement('div');
+        time.className = 'message-time';
+        if (data.created_at) {
+            const date = new Date(data.created_at);
+            time.textContent = `${date.toLocaleTimeString('en-US', {hour: '2-digit', minute: '2-digit'})} • ${data.sender_name || data.sender || 'Unknown'}`;
+        } else {
+            time.textContent = `Now • ${data.sender_name || data.sender || 'Unknown'}`;
+        }
+        
+        messageDiv.appendChild(bubble);
+        messageDiv.appendChild(time);
+        
+        if (typingIndicator) {
+            messagesDiv.insertBefore(messageDiv, typingIndicator);
+        } else {
+            messagesDiv.appendChild(messageDiv);
+        }
+        
+        scrollToBottom();
+        
+        // Show notification if message is from user
+        if (!data.is_from_support) {
+            showNotification('New Message', (data.message || '').substring(0, 50) + ((data.message || '').length > 50 ? '...' : ''));
+        }
+    }
+    
+    // Connect WebSocket
+    function connectWebSocket(conversationId) {
+        // Close existing connection if any
+        if (chatSocket) {
+            if (chatSocket.readyState === WebSocket.OPEN || chatSocket.readyState === WebSocket.CONNECTING) {
+                console.log('Closing existing WebSocket connection');
+                chatSocket.onclose = null; // Remove close handler to prevent reconnection
+                chatSocket.close();
+            }
+            chatSocket = null;
+        }
+        
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        // For admin panel, use session-based auth (no token needed)
+        // Ensure conversationId is a number
+        const convId = parseInt(conversationId);
+        if (isNaN(convId)) {
+            console.error('Invalid conversation ID:', conversationId);
+            return;
+        }
+        // Use WebSocket URL from settings or fallback to current host
+        const websocketHost = '{{ websocket_url|default:"" }}' || window.location.host;
+        const wsUrl = `${protocol}//${websocketHost}/ws/chat/${convId}/`;
+        
+        console.log('Connecting to WebSocket:', wsUrl);
+        chatSocket = new WebSocket(wsUrl);
+        
+        chatSocket.onopen = function(e) {
+            console.log('WebSocket connected successfully');
+        };
+        
+        chatSocket.onmessage = function(e) {
+            try {
+                console.log('WebSocket message received:', e.data);
+                const data = JSON.parse(e.data);
+                console.log('Parsed WebSocket data:', data);
+                
+                if (data.type === 'chat_message') {
+                    console.log('Processing chat_message from WebSocket:', data);
+                    // Only add if it's a new message (not already loaded from database)
+                    // Messages loaded from database will have been added already
+                    // WebSocket only sends NEW messages that are created after connection
+                    addMessageToChat(data);
+                } else if (data.type === 'typing') {
+                    showTypingIndicator(data.is_typing);
+                } else if (data.type === 'connection_established') {
+                    console.log('Connection established:', data.message);
+                } else {
+                    console.log('Unknown message type:', data.type);
+                }
+            } catch (error) {
+                console.error('Error parsing WebSocket message:', error, e.data);
+            }
+        };
+        
+        chatSocket.onerror = function(e) {
+            console.error('WebSocket error:', e);
+            // Don't show error to user, just log it
+        };
+        
+        chatSocket.onclose = function(e) {
+            console.log('WebSocket closed:', e.code, e.reason);
+            // Only reconnect if modal is still open and it wasn't a normal closure
+            if (currentConversationId && e.code !== 1000) {
+                console.log('Attempting to reconnect WebSocket in 3 seconds...');
+                setTimeout(() => connectWebSocket(currentConversationId), 3000);
+            }
+        };
+    }
+    
+    // Send chat message
+    function sendChatMessage() {
+        const chatInput = document.getElementById('chatModalInput');
+        const fileInput = document.getElementById('chatModalFileInput');
+        const message = chatInput.value.trim();
+        const file = fileInput ? fileInput.files[0] : null;
+        
+        if (file) {
+            // Send file via API (multipart/form-data)
+            const formData = new FormData();
+            formData.append('file', file);
+            if (message) {
+                formData.append('message', message);
+            }
+            
+            fetch(`/admin/chat/conversation/${currentConversationId}/chat/send/`, {
+                method: 'POST',
+                body: formData,
+                headers: {
+                    'X-CSRFToken': getCookie('csrftoken')
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // Message will be added via WebSocket
+                    if (chatInput) chatInput.value = '';
+                    if (fileInput) fileInput.value = '';
+                }
+            })
+            .catch(error => console.error('Error sending file:', error));
+            return;
+        }
+        
+        if (message && chatSocket && chatSocket.readyState === WebSocket.OPEN) {
+            chatSocket.send(JSON.stringify({
+                'type': 'chat_message',
+                'message': message
+            }));
+            chatInput.value = '';
+            // Don't add message to chat here - wait for WebSocket response
+            // This prevents duplicate messages
+        }
+    }
+    
+    // Show typing indicator
+    function showTypingIndicator(typing) {
+        const indicator = document.getElementById('typingIndicator');
+        indicator.style.display = typing ? 'block' : 'none';
+        if (typing) {
+            scrollToBottom();
+        }
+    }
+    
+    // Scroll to bottom
+    function scrollToBottom() {
+        const messagesDiv = document.getElementById('chatModalMessages');
+        messagesDiv.scrollTop = messagesDiv.scrollHeight;
+    }
+    
+    // Show notification
+    function showNotification(title, message) {
+        const container = document.getElementById('notificationContainer');
+        
+        const notification = document.createElement('div');
+        notification.className = 'notification';
+        
+        const titleDiv = document.createElement('div');
+        titleDiv.className = 'notification-title';
+        titleDiv.textContent = title;
+        
+        const messageDiv = document.createElement('div');
+        messageDiv.className = 'notification-message';
+        messageDiv.textContent = message;
+        
+        notification.appendChild(titleDiv);
+        notification.appendChild(messageDiv);
+        
+        container.appendChild(notification);
+        
+        setTimeout(() => {
+            notification.style.animation = 'slideIn 0.3s ease-out reverse';
+            setTimeout(() => {
+                notification.remove();
+            }, 300);
+        }, 4000);
+    }
+    
+    // Get CSRF token
+    function getCookie(name) {
+        let cookieValue = null;
+        if (document.cookie && document.cookie !== '') {
+            const cookies = document.cookie.split(';');
+            for (let i = 0; i < cookies.length; i++) {
+                const cookie = cookies[i].trim();
+                if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                    cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                    break;
+                }
+            }
+        }
+        return cookieValue;
+    }
+    
+    // Handle Enter key - attach when modal opens
+    function attachEnterKeyListener() {
+        const input = document.getElementById('chatModalInput');
+        if (input) {
+            // Remove existing listeners to avoid duplicates
+            const newInput = input.cloneNode(true);
+            input.parentNode.replaceChild(newInput, input);
+            
+            // Add Enter key listener
+            newInput.addEventListener('keydown', function(e) {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    sendChatMessage();
+                }
+            });
+            
+            // Also handle keypress for compatibility
+            newInput.addEventListener('keypress', function(e) {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    sendChatMessage();
+                }
+            });
+        }
+    }
+    
+    // Handle file input change
+    document.getElementById('chatModalFileInput')?.addEventListener('change', function(e) {
+        const file = e.target.files[0];
+        if (file) {
+            // Auto-send file when selected
+            sendChatMessage();
+        }
+    });
+    
+    // Close on Escape key
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') {
+            closeChatModal();
+        }
+    });
+</script>
+{% endblock %}
+

@@ -1,0 +1,636 @@
+{% extends "admin/change_list.html" %}
+{% load static %}
+
+{% block extrahead %}
+{{ block.super }}
+<script>
+    // Get websocket_url from Django settings
+    window.websocketUrl = '{{ websocket_url|default:"" }}';
+</script>
+<style>
+    /* Chat Modal Styles - Same as conversation change_list */
+    .chat-modal-overlay {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.5);
+        z-index: 10000;
+        backdrop-filter: blur(4px);
+        animation: fadeIn 0.3s ease;
+    }
+    
+    .chat-modal-overlay.show {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+    }
+    
+    @keyframes fadeIn {
+        from { opacity: 0; }
+        to { opacity: 1; }
+    }
+    
+    .chat-modal {
+        background: white;
+        border-radius: 12px;
+        width: 90%;
+        max-width: 900px;
+        height: 85vh;
+        max-height: 800px;
+        display: flex;
+        flex-direction: column;
+        box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+        animation: slideUp 0.3s ease;
+        overflow: hidden;
+    }
+    
+    @keyframes slideUp {
+        from {
+            transform: translateY(50px);
+            opacity: 0;
+        }
+        to {
+            transform: translateY(0);
+            opacity: 1;
+        }
+    }
+    
+    .chat-modal-header {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 18px 24px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    
+    .chat-modal-header-left {
+        flex: 1;
+    }
+    
+    .chat-modal-header h2 {
+        margin: 0 0 5px 0;
+        font-size: 20px;
+        font-weight: 600;
+    }
+    
+    .chat-modal-header-info {
+        font-size: 13px;
+        opacity: 0.9;
+        margin-top: 4px;
+    }
+    
+    .chat-modal-close {
+        background: none;
+        border: none;
+        color: white;
+        font-size: 28px;
+        cursor: pointer;
+        line-height: 1;
+        padding: 0;
+        margin-left: 20px;
+    }
+    
+    .chat-modal-body {
+        flex: 1;
+        padding: 20px;
+        overflow-y: auto;
+        background: #f8f9fa;
+        display: flex;
+        flex-direction: column;
+    }
+    
+    .chat-modal-footer {
+        padding: 15px 20px;
+        border-top: 1px solid #eee;
+        display: flex;
+        background: #f0f2f5;
+    }
+    
+    .chat-modal-footer input {
+        flex: 1;
+        padding: 12px 15px;
+        border: 1px solid #ddd;
+        border-radius: 25px;
+        margin-right: 10px;
+        font-size: 15px;
+        outline: none;
+        transition: border-color 0.2s;
+    }
+    
+    .chat-modal-footer input:focus {
+        border-color: #667eea;
+    }
+    
+    .chat-modal-footer button {
+        background: linear-gradient(45deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border: none;
+        border-radius: 25px;
+        padding: 10px 20px;
+        font-size: 15px;
+        cursor: pointer;
+        transition: opacity 0.2s;
+    }
+    
+    .chat-modal-footer button:hover {
+        opacity: 0.9;
+    }
+    
+    .message {
+        display: flex;
+        margin-bottom: 15px;
+        align-items: flex-end;
+    }
+    
+    .message.user {
+        justify-content: flex-end;
+    }
+    
+    .message.support {
+        justify-content: flex-start;
+    }
+    
+    .message-bubble {
+        padding: 12px 18px;
+        border-radius: 20px;
+        max-width: 70%;
+        line-height: 1.4;
+        word-wrap: break-word;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+    }
+    
+    .message.support .message-bubble {
+        background: linear-gradient(45deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border-bottom-left-radius: 4px;
+    }
+    
+    .message.user .message-bubble {
+        background: #ffffff;
+        color: #333;
+        border: 1px solid #e0e0e0;
+        border-bottom-right-radius: 4px;
+    }
+    
+    .message-time {
+        font-size: 10px;
+        color: #999;
+        margin-top: 4px;
+        padding: 0 8px;
+    }
+    
+    .empty-state {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        height: 100%;
+        color: #999;
+    }
+    
+    .empty-state-icon {
+        font-size: 48px;
+        margin-bottom: 16px;
+        opacity: 0.5;
+    }
+    
+    .typing-indicator {
+        padding: 8px 16px;
+        font-style: italic;
+        color: #999;
+        font-size: 13px;
+    }
+    
+    .status-badge {
+        display: inline-block;
+        padding: 5px 12px;
+        border-radius: 20px;
+        font-size: 11px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+    
+    .status-open {
+        background: rgba(76, 175, 80, 0.2);
+        color: #4caf50;
+    }
+    
+    .status-closed {
+        background: rgba(244, 67, 54, 0.2);
+        color: #f44336;
+    }
+    
+    .status-pending {
+        background: rgba(255, 193, 7, 0.2);
+        color: #ffc107;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+{{ block.super }}
+
+<!-- Chat Modal -->
+<div id="chatModal" class="chat-modal-overlay">
+    <div class="chat-modal">
+        <div class="chat-modal-header">
+            <div class="chat-modal-header-left">
+                <h2 id="chatModalUserName">Chat</h2>
+                <div class="chat-modal-header-info">
+                    <span id="chatModalStatus" class="status-badge"></span>
+                    <span id="chatModalInfo" style="margin-left: 12px;"></span>
+                </div>
+            </div>
+            <button class="chat-modal-close" onclick="closeChatModal()">×</button>
+        </div>
+        <div class="chat-modal-body" id="chatModalMessages">
+            <div class="empty-state">
+                <div class="empty-state-icon">💬</div>
+                <div>Loading messages...</div>
+            </div>
+            <div id="typingIndicator" class="typing-indicator" style="display: none;"></div>
+        </div>
+        <div class="chat-modal-footer">
+            <input type="text" id="chatModalInput" placeholder="Type your message..." autocomplete="off">
+            <button id="chatModalSendBtn" onclick="sendChatMessage()">Send</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    let currentConversationId = null;
+    let chatSocket = null;
+    let displayedMessageIds = new Set(); // Track displayed messages to prevent duplicates
+    
+    // Open chat modal from notification
+    function openChatModalFromNotification(conversationId) {
+        console.log('Opening chat modal from notification for conversation:', conversationId);
+        openChatModal(conversationId);
+    }
+    
+    // Open chat modal
+    function openChatModal(conversationId) {
+        console.log('Opening chat modal for conversation:', conversationId);
+        
+        // Prevent any default behavior
+        if (typeof event !== 'undefined') {
+            event.stopPropagation();
+            event.preventDefault();
+        }
+        
+        // Reset displayed messages when opening new conversation
+        displayedMessageIds.clear();
+        
+        currentConversationId = conversationId;
+        const modal = document.getElementById('chatModal');
+        
+        if (!modal) {
+            console.error('Chat modal element not found!');
+            return;
+        }
+        
+        // Stop any propagation
+        setTimeout(() => {
+            modal.classList.add('show');
+            document.body.style.overflow = 'hidden'; // Prevent background scrolling
+            
+            // Load conversation data (loads existing messages from database)
+            loadConversationData(conversationId);
+            
+            // Connect WebSocket (for real-time new messages)
+            connectWebSocket(conversationId);
+        }, 10);
+    }
+    
+    // Close chat modal
+    function closeChatModal() {
+        console.log('Closing chat modal');
+        const modal = document.getElementById('chatModal');
+        if (modal) {
+            modal.classList.remove('show');
+        }
+        document.body.style.overflow = ''; // Restore scrolling
+        
+        // Close WebSocket
+        if (chatSocket) {
+            chatSocket.close(1000, 'User closed modal');
+            chatSocket = null;
+        }
+        
+        currentConversationId = null;
+    }
+    
+    // Setup event listeners when DOM is ready
+    (function() {
+        function setupModalListeners() {
+            const modal = document.getElementById('chatModal');
+            if (modal) {
+                // Close modal on overlay click (but not on modal content)
+                modal.addEventListener('click', function(e) {
+                    // Only close if clicking directly on overlay
+                    if (e.target === modal) {
+                        closeChatModal();
+                    }
+                });
+                
+                // Prevent modal from closing when clicking inside modal
+                const modalContent = modal.querySelector('.chat-modal');
+                if (modalContent) {
+                    modalContent.addEventListener('click', function(e) {
+                        e.stopPropagation();
+                    });
+                }
+            }
+        }
+        
+        // Run setup when DOM is ready
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', setupModalListeners);
+        } else {
+            setupModalListeners();
+        }
+        
+        // Close modal on Escape key
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape' && document.getElementById('chatModal').classList.contains('show')) {
+                closeChatModal();
+            }
+        });
+    })();
+    
+    // Load conversation data
+    function loadConversationData(conversationId) {
+        fetch(`/admin/chat/conversation/${conversationId}/chat/messages/`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // Update header with conversation info
+                    if (data.conversation) {
+                        document.getElementById('chatModalUserName').textContent = `Chat with ${data.conversation.user_name}`;
+                        document.getElementById('chatModalStatus').textContent = data.conversation.status.charAt(0).toUpperCase() + data.conversation.status.slice(1);
+                        document.getElementById('chatModalStatus').className = `status-badge status-${data.conversation.status}`;
+                        document.getElementById('chatModalInfo').textContent = `${data.conversation.user_type.charAt(0).toUpperCase() + data.conversation.user_type.slice(1)} • ${data.conversation.subject || 'No subject'}`;
+                    }
+                    
+                    // Load messages
+                    loadMessages(data.messages);
+                }
+            });
+    }
+    
+    // Load messages
+    function loadMessages(messages) {
+        console.log('Loading messages:', messages);
+        const messagesDiv = document.getElementById('chatModalMessages');
+        if (!messagesDiv) {
+            console.error('chatModalMessages element not found!');
+            return;
+        }
+        
+        // Clear displayed messages set when loading from database
+        displayedMessageIds.clear();
+        messagesDiv.innerHTML = '';
+        
+        if (!messages || messages.length === 0) {
+            messagesDiv.innerHTML = `
+                <div class="empty-state">
+                    <div class="empty-state-icon">💬</div>
+                    <div>No messages yet. Start the conversation!</div>
+                </div>
+            `;
+            return;
+        }
+        
+        messages.forEach(msg => {
+            console.log('Adding message from loadMessages:', msg);
+            // Ensure message has required fields
+            const messageData = {
+                message: msg.message || '',
+                sender: msg.sender_id || msg.sender,
+                sender_name: msg.sender_name || msg.sender || 'Unknown',
+                is_from_support: msg.is_from_support || false,
+                created_at: msg.created_at || new Date().toISOString(),
+                message_id: msg.id || msg.message_id, // Use 'id' from API response
+                id: msg.id || msg.message_id // Also set 'id' field
+            };
+            addMessageToChat(messageData);
+        });
+        
+        scrollToBottom();
+    }
+    
+    // Add message to chat
+    function addMessageToChat(data) {
+        console.log('Adding message to chat:', data);
+        
+        // Check if message already displayed (prevent duplicates)
+        const messageId = data.message_id || data.id;
+        if (messageId) {
+            if (displayedMessageIds.has(messageId)) {
+                console.log('Message already displayed, skipping:', messageId, data);
+                return;
+            }
+            // Mark message as displayed BEFORE adding to DOM
+            displayedMessageIds.add(messageId);
+            console.log('Added message ID to displayed set:', messageId);
+        } else {
+            // If no message_id, use message content + timestamp + sender as unique key
+            const uniqueKey = `${data.message || ''}_${data.created_at || ''}_${data.sender || ''}`;
+            if (displayedMessageIds.has(uniqueKey)) {
+                console.log('Message already displayed (by content), skipping:', uniqueKey);
+                return;
+            }
+            displayedMessageIds.add(uniqueKey);
+            console.log('Added message content to displayed set:', uniqueKey);
+        }
+        
+        const messagesDiv = document.getElementById('chatModalMessages');
+        if (!messagesDiv) {
+            console.error('chatModalMessages element not found!');
+            return;
+        }
+        
+        const typingIndicator = document.getElementById('typingIndicator');
+        if (typingIndicator) {
+            typingIndicator.style.display = 'none';
+        }
+        
+        // Remove empty state if exists
+        const emptyState = messagesDiv.querySelector('.empty-state');
+        if (emptyState) {
+            emptyState.remove();
+        }
+        
+        const messageDiv = document.createElement('div');
+        messageDiv.className = `message ${data.is_from_support ? 'support' : 'user'}`;
+        if (messageId) {
+            messageDiv.setAttribute('data-message-id', messageId);
+        }
+        
+        const bubble = document.createElement('div');
+        bubble.className = 'message-bubble';
+        bubble.textContent = data.message || '';
+        
+        const time = document.createElement('div');
+        time.className = 'message-time';
+        if (data.created_at) {
+            const date = new Date(data.created_at);
+            time.textContent = `${date.toLocaleTimeString('en-US', {hour: '2-digit', minute: '2-digit'})} • ${data.sender_name || data.sender || 'Unknown'}`;
+        } else {
+            time.textContent = `Now • ${data.sender_name || data.sender || 'Unknown'}`;
+        }
+        
+        messageDiv.appendChild(bubble);
+        messageDiv.appendChild(time);
+        
+        if (typingIndicator) {
+            messagesDiv.insertBefore(messageDiv, typingIndicator);
+        } else {
+            messagesDiv.appendChild(messageDiv);
+        }
+        
+        scrollToBottom();
+    }
+    
+    // Connect WebSocket
+    function connectWebSocket(conversationId) {
+        // Close existing connection if any
+        if (chatSocket) {
+            if (chatSocket.readyState === WebSocket.OPEN || chatSocket.readyState === WebSocket.CONNECTING) {
+                console.log('Closing existing WebSocket connection');
+                chatSocket.onclose = null; // Remove close handler to prevent reconnection
+                chatSocket.close();
+            }
+            chatSocket = null;
+        }
+        
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        // For admin panel, use session-based auth (no token needed)
+        // Ensure conversationId is a number
+        const convId = parseInt(conversationId);
+        if (isNaN(convId)) {
+            console.error('Invalid conversation ID:', conversationId);
+            return;
+        }
+        // Use WebSocket URL from settings or fallback to current host
+        // Get websocket_url from Django settings (passed via context)
+        const websocketHost = window.websocketUrl || window.location.host;
+        const wsUrl = `${protocol}//${websocketHost}/ws/chat/${convId}/`;
+        
+        console.log('Connecting to WebSocket:', wsUrl);
+        chatSocket = new WebSocket(wsUrl);
+        
+        chatSocket.onopen = function(e) {
+            console.log('WebSocket connected successfully');
+        };
+        
+        chatSocket.onmessage = function(e) {
+            try {
+                console.log('WebSocket message received:', e.data);
+                const data = JSON.parse(e.data);
+                console.log('Parsed WebSocket data:', data);
+                
+                if (data.type === 'chat_message') {
+                    console.log('Processing chat_message from WebSocket:', data);
+                    // Only add if it's a new message (not already loaded from database)
+                    // Messages loaded from database will have been added already
+                    // WebSocket only sends NEW messages that are created after connection
+                    addMessageToChat(data);
+                } else if (data.type === 'typing') {
+                    showTypingIndicator(data.is_typing);
+                } else if (data.type === 'connection_established') {
+                    console.log('Connection established:', data.message);
+                } else {
+                    console.log('Unknown message type:', data.type);
+                }
+            } catch (error) {
+                console.error('Error parsing WebSocket message:', error, e.data);
+            }
+        };
+        
+        chatSocket.onerror = function(e) {
+            console.error('WebSocket error:', e);
+            // Don't show error to user, just log it
+        };
+        
+        chatSocket.onclose = function(e) {
+            console.log('WebSocket closed:', e.code, e.reason);
+            // Only reconnect if modal is still open and it wasn't a normal closure
+            if (currentConversationId && e.code !== 1000) {
+                console.log('Attempting to reconnect...');
+                setTimeout(() => {
+                    if (currentConversationId) {
+                        connectWebSocket(currentConversationId);
+                    }
+                }, 3000);
+            }
+        };
+    }
+    
+    // Send chat message
+    function sendChatMessage() {
+        const chatInput = document.getElementById('chatModalInput');
+        const message = chatInput.value.trim();
+        
+        if (message && chatSocket && chatSocket.readyState === WebSocket.OPEN) {
+            chatSocket.send(JSON.stringify({
+                'type': 'chat_message',
+                'message': message
+            }));
+            chatInput.value = '';
+            // Don't add message to chat here - wait for WebSocket response
+            // This prevents duplicate messages
+        }
+    }
+    
+    // Typing indicator
+    let typingTimeout = null;
+    document.getElementById('chatModalInput').addEventListener('input', function() {
+        if (chatSocket && chatSocket.readyState === WebSocket.OPEN) {
+            if (!typingTimeout) {
+                chatSocket.send(JSON.stringify({ 'type': 'typing', 'is_typing': true }));
+            }
+            clearTimeout(typingTimeout);
+            typingTimeout = setTimeout(() => {
+                chatSocket.send(JSON.stringify({ 'type': 'typing', 'is_typing': false }));
+                typingTimeout = null;
+            }, 3000); // Send 'not typing' after 3 seconds of no input
+        }
+    });
+    
+    function showTypingIndicator(isTyping) {
+        const typingIndicator = document.getElementById('typingIndicator');
+        if (typingIndicator) {
+            if (isTyping) {
+                typingIndicator.style.display = 'block';
+                typingIndicator.textContent = 'Someone is typing...';
+            } else {
+                typingIndicator.style.display = 'none';
+            }
+        }
+    }
+    
+    // Scroll to bottom
+    function scrollToBottom() {
+        const messagesDiv = document.getElementById('chatModalMessages');
+        if (messagesDiv) {
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+    }
+    
+    // Send message on Enter key
+    document.getElementById('chatModalInput').addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') {
+            e.preventDefault(); // Prevent new line in input
+            sendChatMessage();
+        }
+    });
+</script>
+{% endblock %}
+
