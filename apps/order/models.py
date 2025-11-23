@@ -118,7 +118,6 @@ class OrderItem(models.Model):
         verbose_name='Is Final Stop',
         help_text='Whether this is the final destination'
     )
-    # Ride Type and Pricing
     ride_type = models.ForeignKey(
         'RideType',
         on_delete=models.SET_NULL,
@@ -127,8 +126,6 @@ class OrderItem(models.Model):
         related_name='order_items',
         verbose_name='Ride Type'
     )
-    
-    # Distance and Time
     distance_km = models.DecimalField(
         max_digits=10,
         decimal_places=2,
@@ -142,8 +139,6 @@ class OrderItem(models.Model):
         blank=True,
         verbose_name='Estimated Time'
     )
-    
-    # Pricing Fields
     calculated_price = models.DecimalField(
         max_digits=10,
         decimal_places=2,
@@ -168,8 +163,6 @@ class OrderItem(models.Model):
         verbose_name='Adjusted Price',
         help_text='Price after user adjustment (manage price)'
     )
-    
-    # Price Adjustment Limits
     min_price = models.DecimalField(
         max_digits=10,
         decimal_places=2,
@@ -186,8 +179,6 @@ class OrderItem(models.Model):
         verbose_name='Max Price',
         help_text='Maximum allowed price (e.g., 150% of original)'
     )
-    
-    # Price Adjustment Information
     price_adjustment_percentage = models.DecimalField(
         max_digits=5,
         decimal_places=2,
@@ -229,7 +220,6 @@ class OrderItem(models.Model):
         min_price = self.original_price * (Decimal('1.00') - Decimal(str(min_percentage / 100)))
         max_price = self.original_price * (Decimal('1.00') + Decimal(str(max_percentage / 100)))
         
-        # Round to 2 decimal places using Decimal's quantize
         min_price = min_price.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
         max_price = max_price.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
         
@@ -244,7 +234,6 @@ class OrderItem(models.Model):
         if not self.original_price:
             raise ValueError("Original price not set")
         
-        # Calculate min/max if not set
         if not self.min_price or not self.max_price:
             self.min_price, self.max_price = self.calculate_price_range()
             self.save()
@@ -536,18 +525,15 @@ class SurgePricing(models.Model):
         help_text="1.00 = normal, 1.5 = 50% increase, 0.8 = 20% decrease"
     )
     
-    # Time factors
     start_time = models.TimeField(null=True, blank=True, verbose_name='Start Time')
     end_time = models.TimeField(null=True, blank=True, verbose_name='End Time')
     days_of_week = models.JSONField(default=list, verbose_name='Days of Week', help_text="[0,1,2,3,4] - Monday to Friday")
     
-    # Zone factors
     zone_name = models.CharField(max_length=100, null=True, blank=True, verbose_name='Zone Name')
     latitude = models.DecimalField(max_digits=10, decimal_places=7, null=True, blank=True, verbose_name='Latitude')
     longitude = models.DecimalField(max_digits=10, decimal_places=7, null=True, blank=True, verbose_name='Longitude')
     radius_km = models.DecimalField(max_digits=5, decimal_places=2, default=5.0, verbose_name='Radius (KM)')
     
-    # Driver count factors
     min_available_drivers = models.IntegerField(null=True, blank=True, verbose_name='Min Available Drivers')
     max_available_drivers = models.IntegerField(null=True, blank=True, verbose_name='Max Available Drivers')
     
