@@ -339,7 +339,9 @@
     function connectWebSocket() {
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         // For admin panel, WebSocket will use session authentication
-        const wsUrl = `${protocol}//${window.location.host}/ws/chat/${conversationId}/`;
+        // Use WebSocket URL from settings or fallback to current host
+        const websocketHost = window.websocketUrl || window.location.host;
+        const wsUrl = `${protocol}//${websocketHost}/ws/chat/${conversationId}/`;
         
         chatSocket = new WebSocket(wsUrl);
         
