@@ -79,9 +79,24 @@ class RegistrationView(APIView):
         
         if serializer.is_valid():
             user = serializer.save()
+            
+            # Send verification code to email
+            email = user.email
+            if email:
+                verification_code, success, error = send_verification_code(
+                    user=user,
+                    email=email
+                )
+                
+                if not success:
+                    # Log error but don't fail registration
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.error(f"Failed to send verification code to {email}: {error}")
+            
             return Response(
                 {
-                    'message': 'User registered successfully',
+                    'message': 'User registered successfully. Please check your email for verification code.',
                     'status': 'success',
                     'data': serializer.to_representation(user)
                 },
