@@ -75,30 +75,56 @@ class RegistrationView(APIView):
         """
         Register a new user
         """
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        logger.info("=" * 80)
+        logger.info("REGISTRATION DEBUG: Starting registration process")
+        logger.info(f"REGISTRATION DEBUG: Request data: {request.data}")
+        
         serializer = RegistrationSerializer(data=request.data)
         
         if serializer.is_valid():
+            logger.info("REGISTRATION DEBUG: Serializer is valid")
             user = serializer.save()
+            logger.info(f"REGISTRATION DEBUG: User created - ID: {user.id}, Email: {user.email}")
             
             # Send verification code to email
             email = user.email
             if email:
+                logger.info(f"REGISTRATION DEBUG: Attempting to send verification code to: {email}")
+                logger.info(f"REGISTRATION DEBUG: Email settings - HOST: {settings.EMAIL_HOST}, PORT: {settings.EMAIL_PORT}")
+                logger.info(f"REGISTRATION DEBUG: Email settings - FROM: {settings.DEFAULT_FROM_EMAIL}")
+                logger.info(f"REGISTRATION DEBUG: Email settings - BACKEND: {settings.EMAIL_BACKEND}")
+                
                 verification_code, success, error = send_verification_code(
                     user=user,
                     email=email
                 )
                 
+                logger.info(f"REGISTRATION DEBUG: Verification code created - Code: {verification_code.code}, ID: {verification_code.id}")
+                logger.info(f"REGISTRATION DEBUG: Email send result - Success: {success}, Error: {error}")
+                
                 if not success:
-                    # Log error but don't fail registration
-                    import logging
-                    logger = logging.getLogger(__name__)
-                    logger.error(f"Failed to send verification code to {email}: {error}")
+                    logger.error(f"REGISTRATION DEBUG: Failed to send verification code to {email}: {error}")
+                else:
+                    logger.info(f"REGISTRATION DEBUG: Verification code sent successfully to {email}")
+            else:
+                logger.warning("REGISTRATION DEBUG: No email provided for user")
+            
+            logger.info("REGISTRATION DEBUG: Registration completed successfully")
+            logger.info("=" * 80)
             
             return Response(
                 {
                     'message': 'User registered successfully. Please check your email for verification code.',
                     'status': 'success',
-                    'data': serializer.to_representation(user)
+                    'data': serializer.to_representation(user),
+                    'debug': {
+                        'verification_code_sent': success if email else False,
+                        'verification_code': verification_code.code if email and success else None,
+                        'error': error if email and not success else None
+                    } if settings.DEBUG else None
                 },
                 status=status.HTTP_201_CREATED
             )
