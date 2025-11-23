@@ -292,6 +292,14 @@ CHANNEL_LAYERS = {
 }
 
 # Logging Configuration
+# Create logs directory if it doesn't exist
+LOGS_DIR = os.path.join(BASE_DIR, 'logs')
+if not os.path.exists(LOGS_DIR):
+    try:
+        os.makedirs(LOGS_DIR, exist_ok=True)
+    except Exception:
+        pass  # If we can't create logs directory, just use console logging
+
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
@@ -310,11 +318,6 @@ LOGGING = {
             'class': 'logging.StreamHandler',
             'formatter': 'verbose',
         },
-        'file': {
-            'class': 'logging.FileHandler',
-            'filename': os.path.join(BASE_DIR, 'logs', 'django.log'),
-            'formatter': 'verbose',
-        },
     },
     'root': {
         'handlers': ['console'],
@@ -322,14 +325,24 @@ LOGGING = {
     },
     'loggers': {
         'django': {
-            'handlers': ['console', 'file'],
+            'handlers': ['console'],
             'level': 'INFO',
             'propagate': False,
         },
         'apps.accounts': {
-            'handlers': ['console', 'file'],
+            'handlers': ['console'],
             'level': 'DEBUG' if DEBUG else 'INFO',
             'propagate': False,
         },
     },
 }
+
+# Add file handler only if logs directory exists
+if os.path.exists(LOGS_DIR):
+    LOGGING['handlers']['file'] = {
+        'class': 'logging.FileHandler',
+        'filename': os.path.join(LOGS_DIR, 'django.log'),
+        'formatter': 'verbose',
+    }
+    LOGGING['loggers']['django']['handlers'].append('file')
+    LOGGING['loggers']['apps.accounts']['handlers'].append('file')
