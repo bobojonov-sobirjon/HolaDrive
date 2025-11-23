@@ -3,14 +3,15 @@ from datetime import timedelta
 from pathlib import Path
 
 
+BASE_DIR = Path(__file__).resolve().parent.parent
+
 try:
     from dotenv import load_dotenv
-    load_dotenv()
+    # Load .env file from BASE_DIR explicitly
+    env_path = BASE_DIR / '.env'
+    load_dotenv(dotenv_path=env_path)
 except ImportError:
     load_dotenv = None
-    
-    
-BASE_DIR = Path(__file__).resolve().parent.parent
 
 SECRET_KEY = 'django-insecure-lgro8)#s2x98jg6r4yl0luwyw_k@zbl=8v7-t!7yq#q&nki1iy'
 

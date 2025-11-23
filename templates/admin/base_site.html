@@ -565,6 +565,8 @@
     console.log('✅ base_site.html extrahead loaded');
     console.log('👤 window.currentUserId:', window.currentUserId);
     console.log('🌐 window.websocketUrl:', window.websocketUrl);
+    console.log('🔍 Debug - websocket_url from template:', '{{ websocket_url|default:"NOT_SET" }}');
+    console.log('🔍 Debug - request.get_host():', '{{ request.get_host }}');
     
     // Initialize notification WebSocket connection
     (function() {
