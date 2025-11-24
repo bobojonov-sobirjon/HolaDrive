@@ -75,7 +75,16 @@ class OrderPreferencesCreateView(APIView):
     
     @swagger_auto_schema(
         tags=['Order Preferences'],
-        operation_description="Create or update order preferences",
+        operation_description="Create or update order preferences. Available enum values:\n"
+                              "- chatting_preference: no_communication, casual, friendly\n"
+                              "- temperature_preference: warm, comfortable, cool, cold\n"
+                              "- music_preference: pop, rock, jazz, classical, hip_hop, electronic, country, no_music\n"
+                              "- volume_level: low, medium, high, mute\n"
+                              "- pet_preference: yes, no\n"
+                              "- kids_chair_preference: yes, no\n"
+                              "- wheelchair_preference: yes, no\n"
+                              "- gender_preference: male, female, other\n"
+                              "- favorite_driver_preference: yes, no",
         request_body=OrderPreferencesSerializer,
         responses={
             201: openapi.Response(
@@ -167,7 +176,9 @@ class OrderScheduleCreateView(APIView):
     
     @swagger_auto_schema(
         tags=['Order Schedule'],
-        operation_description="Create order schedule",
+        operation_description="Create order schedule. Available enum values:\n"
+                              "- schedule_type: pickup_at (Pickup At), drop_off_by (Drop Off By)\n"
+                              "- schedule_time_type: today (Today), tomorrow (Tomorrow), select_date (Select Date)",
         request_body=OrderScheduleSerializer,
         responses={
             201: openapi.Response(
