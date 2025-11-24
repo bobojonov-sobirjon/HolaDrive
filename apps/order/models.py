@@ -19,6 +19,7 @@ class Order(models.Model):
     order_code = models.CharField(max_length=255, verbose_name='Order Code', null=True, blank=True)
     user = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='orders')
     status = models.CharField(max_length=20, choices=OrderStatus.choices, default=OrderStatus.PENDING)
+    order_type = models.CharField(max_length=20, choices=OrderType.choices, default=OrderType.PICKUP)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -481,6 +482,48 @@ class AdditionalPassenger(models.Model):
             models.Index(fields=['created_at'], name='add_pass_created_idx'),
         ]
 
+
+class OrderSchedule(models.Model):
+    
+    class ScheduleType(models.TextChoices):
+        PICKUP_AT = 'pickup_at', 'Pickup At'
+        DROP_OFF_BY = 'drop_off_by', 'Drop Off By'
+    
+    class ScheduleTime(models.TextChoices):
+        TODAY = 'today', 'Today'
+        TOMORROW = 'tomorrow', 'Tomorrow'
+        SELECT_DATE = 'select_date', 'Select Date'
+    
+    order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name='order_schedules', verbose_name='Order', null=True, blank=True)
+    schedule_type = models.CharField(max_length=20, choices=ScheduleType.choices, default=ScheduleType.PICKUP_AT)
+    schedule_date = models.DateField(verbose_name='Schedule Date', null=True, blank=True)
+    schedule_time = models.TimeField(verbose_name='Schedule Time', null=True, blank=True)
+    schedule_time_type = models.CharField(max_length=20, choices=ScheduleTime.choices, default=ScheduleTime.TODAY)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    objects = models.Manager()
+    
+    def __str__(self):
+        return f"{self.order.order_code} - {self.schedule_date} - {self.schedule_time}"
+    
+    class Meta:
+        verbose_name = 'Order Schedule'
+        verbose_name_plural = '05 Order Schedules'
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['order'], name='order_schedule_order_idx'),
+            models.Index(fields=['schedule_date'], name='ord_sched_date_idx'),
+            models.Index(fields=['schedule_time'], name='ord_sched_time_idx'),
+            models.Index(fields=['created_at'], name='order_schedule_created_idx'),
+        ]
+
+    def save(self, *args, **kwargs):
+        if not self.schedule_date:
+            self.schedule_date = self.order.created_at.date()
+        if not self.schedule_time:
+            self.schedule_time = self.order.created_at.time()
+        super().save(*args, **kwargs)
 
 class OrderDriver(models.Model):
     order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name='order_drivers')
