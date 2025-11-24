@@ -9,11 +9,11 @@ class OrderPreferencesSerializer(serializers.ModelSerializer):
     order_id = serializers.IntegerField(write_only=True, required=True)
     chatting_preference = serializers.ChoiceField(
         choices=OrderPreferences.ChattingPreference.choices,
-        help_text="Chatting preference: no_communication, casual, friendly"
+        help_text="Chatting preference: no_communication (No Communication), casual (Casual), friendly (Friendly)"
     )
     temperature_preference = serializers.ChoiceField(
         choices=OrderPreferences.TemperaturePreference.choices,
-        help_text="Temperature preference: warm (25°C+), comfortable (22-24°C), cool (18-21°C), cold (<18°C)"
+        help_text="Temperature preference: warm (25°C and above), comfortable (22-24°C), cool (18-21°C), cold (below 18°C)"
     )
     music_preference = serializers.ChoiceField(
         choices=OrderPreferences.MusicPreference.choices,
