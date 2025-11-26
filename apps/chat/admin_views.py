@@ -118,6 +118,8 @@ def send_message_api(request, conversation_id):
             data={'conversation_id': conversation.id, 'message_id': message.id}
         )
         
+        print(f"🔔 ADMIN_VIEWS: Created notification ID={notification.id} for user ID={conversation.user.id} (admin user ID={request.user.id})")
+        
         room_group_name = f'chat_{conversation_id}'
         channel_layer = get_channel_layer()
         
@@ -147,23 +149,25 @@ def send_message_api(request, conversation_id):
                 )
                 
                 notification_group_name = f'notifications_{conversation.user.id}'
+                print(f"🔔 ADMIN_VIEWS: Sending notification to group '{notification_group_name}' (conversation.user.id={conversation.user.id}, admin user.id={request.user.id})")
                 async_to_sync(channel_layer.group_send)(
                     notification_group_name,
                     {
                         'type': 'notification',
                         'notification': {
                             'id': notification.id,
-                            'type': notification.notification_type,
+                            'notification_type': notification.notification_type,  # Fixed: changed 'type' to 'notification_type'
                             'title': notification.title,
                             'message': notification.message,
                             'related_object_type': notification.related_object_type,
                             'related_object_id': notification.related_object_id,
                             'data': notification.data,
                             'created_at': notification.created_at.isoformat(),
-                            'is_read': notification.status == 'read'
+                            'status': notification.status  # Fixed: changed 'is_read' to 'status' to match NotificationConsumer
                         }
                     }
                 )
+                print(f"🔔 ADMIN_VIEWS: Notification sent successfully to group '{notification_group_name}'")
             except Exception as e:
                 print(f"Error sending to WebSocket: {e}")
                 import traceback
