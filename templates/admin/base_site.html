@@ -931,6 +931,7 @@
         let chatModalCurrentConversationId = null;
         let chatModalSocket = null;
         let chatModalDisplayedMessageIds = new Set();
+        let chatModalInitialLoadComplete = false; // Flag to track if initial load is complete
         
         // Open chat modal from notification or anywhere
         window.openChatModal = function(conversationId) {
@@ -965,6 +966,7 @@
             
             chatModalDisplayedMessageIds.clear();
             chatModalCurrentConversationId = conversationId;
+            chatModalInitialLoadComplete = false; // Reset flag when opening new conversation
             let modal = document.getElementById('chatModal');
             
             // Create modal if it doesn't exist
@@ -1086,11 +1088,14 @@
                     });
                 }
                 
-                // Load conversation data
+                // Load conversation data first (this will load all messages from database)
                 loadChatModalConversationData(conversationId);
                 
-                // Connect WebSocket
-                connectChatModalWebSocket(conversationId);
+                // Connect WebSocket after a short delay to ensure initial load starts first
+                // This prevents WebSocket from receiving old messages before initial load completes
+                setTimeout(() => {
+                    connectChatModalWebSocket(conversationId);
+                }, 200);
             }, 10);
         };
         
@@ -1109,6 +1114,8 @@
             }
             
             chatModalCurrentConversationId = null;
+            chatModalInitialLoadComplete = false; // Reset flag when closing
+            chatModalDisplayedMessageIds.clear(); // Clear displayed message IDs
         };
         
         // Load conversation data
@@ -1141,6 +1148,7 @@
             const messagesDiv = document.getElementById('chatModalMessages');
             if (!messagesDiv) return;
             
+            console.log('📥 Loading messages into chat modal:', messages);
             chatModalDisplayedMessageIds.clear();
             messagesDiv.innerHTML = '';
             
@@ -1151,9 +1159,11 @@
                         <div>No messages yet. Start the conversation!</div>
                     </div>
                 `;
+                chatModalInitialLoadComplete = true; // Mark as complete even if no messages
                 return;
             }
             
+            // Load all messages from database
             messages.forEach(msg => {
                 const messageData = {
                     message: msg.message || '',
@@ -1167,16 +1177,22 @@
                     file_type: msg.file_type || null,
                     file_name: msg.file_name || null
                 };
-                addChatModalMessage(messageData);
+                addChatModalMessage(messageData, false); // false = don't check for duplicates during initial load
             });
             
+            chatModalInitialLoadComplete = true; // Mark initial load as complete
+            console.log('✅ Initial load complete, loaded', messages.length, 'messages');
             scrollChatModalToBottom();
         }
         
         // Add message to chat modal
-        function addChatModalMessage(data) {
+        function addChatModalMessage(data, checkDuplicate = true) {
             const messageId = data.message_id || data.id;
-            if (messageId && chatModalDisplayedMessageIds.has(messageId)) {
+            
+            // Only check for duplicates if checkDuplicate is true (for new messages from WebSocket)
+            // During initial load, we don't check duplicates since we're loading all messages
+            if (checkDuplicate && messageId && chatModalDisplayedMessageIds.has(messageId)) {
+                console.log('⚠️ Duplicate message detected, skipping:', messageId);
                 return;
             }
             if (messageId) {
@@ -1435,8 +1451,31 @@
             chatModalSocket.onmessage = function(e) {
                 try {
                     const data = JSON.parse(e.data);
+                    
+                    // Ignore connection_established messages
+                    if (data.type === 'connection_established') {
+                        console.log('✅ WebSocket connection established');
+                        return;
+                    }
+                    
+                    // Only process chat messages after initial load is complete
+                    // This prevents old messages from being displayed before all messages are loaded
                     if (data.type === 'chat_message') {
-                        addChatModalMessage(data);
+                        if (!chatModalInitialLoadComplete) {
+                            console.log('⏳ Initial load not complete yet, queuing message:', data.message_id);
+                            // Wait a bit and try again
+                            setTimeout(() => {
+                                if (chatModalInitialLoadComplete) {
+                                    console.log('✅ Initial load complete, now adding message:', data.message_id);
+                                    addChatModalMessage(data, true); // true = check for duplicates
+                                } else {
+                                    console.log('⚠️ Initial load still not complete, message may be lost');
+                                }
+                            }, 500);
+                        } else {
+                            console.log('📨 Adding new message from WebSocket:', data.message_id);
+                            addChatModalMessage(data, true); // true = check for duplicates
+                        }
                     }
                 } catch (error) {
                     console.error('Error parsing chat modal message:', error);
