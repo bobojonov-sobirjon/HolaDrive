@@ -964,9 +964,23 @@
             }, 100);
             console.log('🔓 openChatModal called with conversationId:', conversationId);
             
+            // Reset all state when opening modal
             chatModalDisplayedMessageIds.clear();
             chatModalCurrentConversationId = conversationId;
             chatModalInitialLoadComplete = false; // Reset flag when opening new conversation
+            
+            // Close existing WebSocket connection if any
+            if (chatModalSocket) {
+                try {
+                    if (chatModalSocket.readyState === WebSocket.OPEN || chatModalSocket.readyState === WebSocket.CONNECTING) {
+                        chatModalSocket.close(1000, 'Opening new conversation');
+                    }
+                } catch (e) {
+                    console.log('⚠️ Error closing existing socket:', e);
+                }
+                chatModalSocket = null;
+            }
+            
             let modal = document.getElementById('chatModal');
             
             // Create modal if it doesn't exist
@@ -1062,6 +1076,17 @@
                 modal.classList.add('show');
                 document.body.style.overflow = 'hidden';
                 
+                // Clear messages div and show loading state
+                const messagesDiv = document.getElementById('chatModalMessages');
+                if (messagesDiv) {
+                    messagesDiv.innerHTML = `
+                        <div class="empty-state">
+                            <div class="empty-state-icon">💬</div>
+                            <div>Loading messages...</div>
+                        </div>
+                    `;
+                }
+                
                 // Re-attach Enter key listener (in case modal already existed)
                 const input = modal.querySelector('#chatModalInput');
                 if (input) {
@@ -1089,13 +1114,15 @@
                 }
                 
                 // Load conversation data first (this will load all messages from database)
+                // Reset flag before loading
+                chatModalInitialLoadComplete = false;
                 loadChatModalConversationData(conversationId);
                 
-                // Connect WebSocket after a short delay to ensure initial load starts first
+                // Connect WebSocket after a delay to ensure initial load starts first
                 // This prevents WebSocket from receiving old messages before initial load completes
                 setTimeout(() => {
                     connectChatModalWebSocket(conversationId);
-                }, 200);
+                }, 500); // Increased delay to ensure API loads first
             }, 10);
         };
         
@@ -1120,9 +1147,17 @@
         
         // Load conversation data
         function loadChatModalConversationData(conversationId) {
+            console.log('📥 Loading conversation data for:', conversationId);
             fetch(`/admin/chat/conversation/${conversationId}/chat/messages/`)
-                .then(response => response.json())
+                .then(response => {
+                    console.log('📥 API response status:', response.status);
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    return response.json();
+                })
                 .then(data => {
+                    console.log('📥 API response data:', data);
                     if (data.success) {
                         const userNameEl = document.getElementById('chatModalUserName');
                         const statusEl = document.getElementById('chatModalStatus');
@@ -1137,20 +1172,42 @@
                             if (infoEl) infoEl.textContent = `${data.conversation.user_type.charAt(0).toUpperCase() + data.conversation.user_type.slice(1)} • ${data.conversation.subject || 'No subject'}`;
                         }
                         
-                        loadChatModalMessages(data.messages);
+                        console.log('📥 Loading', data.messages ? data.messages.length : 0, 'messages from API');
+                        loadChatModalMessages(data.messages || []);
+                    } else {
+                        console.error('❌ API returned success=false:', data);
+                        chatModalInitialLoadComplete = true; // Mark as complete even on error
                     }
                 })
-                .catch(error => console.error('Error loading conversation data:', error));
+                .catch(error => {
+                    console.error('❌ Error loading conversation data:', error);
+                    chatModalInitialLoadComplete = true; // Mark as complete even on error
+                });
         }
         
         // Load messages
         function loadChatModalMessages(messages) {
             const messagesDiv = document.getElementById('chatModalMessages');
-            if (!messagesDiv) return;
+            if (!messagesDiv) {
+                console.error('❌ chatModalMessages element not found!');
+                chatModalInitialLoadComplete = true;
+                return;
+            }
             
-            console.log('📥 Loading messages into chat modal:', messages);
+            console.log('📥 Loading messages into chat modal. Total messages:', messages ? messages.length : 0);
+            console.log('📥 Messages data:', messages);
+            
+            // Clear all previous state
             chatModalDisplayedMessageIds.clear();
+            
+            // Clear the messages div completely
             messagesDiv.innerHTML = '';
+            
+            // Remove any existing empty state or loading indicators
+            const existingEmptyState = messagesDiv.querySelector('.empty-state');
+            if (existingEmptyState) {
+                existingEmptyState.remove();
+            }
             
             if (!messages || messages.length === 0) {
                 messagesDiv.innerHTML = `
@@ -1160,29 +1217,104 @@
                     </div>
                 `;
                 chatModalInitialLoadComplete = true; // Mark as complete even if no messages
+                console.log('✅ Initial load complete, no messages');
                 return;
             }
             
-            // Load all messages from database
-            messages.forEach(msg => {
-                const messageData = {
-                    message: msg.message || '',
-                    sender: msg.sender_id || msg.sender,
-                    sender_name: msg.sender_name || msg.sender || 'Unknown',
-                    is_from_support: msg.is_from_support || false,
-                    created_at: msg.created_at || new Date().toISOString(),
-                    message_id: msg.id || msg.message_id,
-                    id: msg.id || msg.message_id,
-                    attachment: msg.attachment || null,
-                    file_type: msg.file_type || null,
-                    file_name: msg.file_name || null
-                };
-                addChatModalMessage(messageData, false); // false = don't check for duplicates during initial load
+            // Load all messages from database - create DOM elements directly
+            let loadedCount = 0;
+            messages.forEach((msg, index) => {
+                try {
+                    const messageId = msg.id || msg.message_id;
+                    if (messageId && chatModalDisplayedMessageIds.has(messageId)) {
+                        console.log('⚠️ Skipping duplicate message ID:', messageId);
+                        return;
+                    }
+                    
+                    if (messageId) {
+                        chatModalDisplayedMessageIds.add(messageId);
+                    }
+                    
+                    const messageDiv = document.createElement('div');
+                    messageDiv.className = `message ${msg.is_from_support ? 'support' : 'user'}`;
+                    if (messageId) messageDiv.setAttribute('data-message-id', messageId);
+                    
+                    const bubble = document.createElement('div');
+                    bubble.className = 'message-bubble';
+                    
+                    // Add file attachment if exists
+                    if (msg.attachment) {
+                        const attachmentDiv = document.createElement('div');
+                        attachmentDiv.style.marginBottom = '8px';
+                        
+                        if (msg.file_type === 'image') {
+                            const img = document.createElement('img');
+                            img.src = msg.attachment;
+                            img.style.maxWidth = '300px';
+                            img.style.maxHeight = '300px';
+                            img.style.borderRadius = '8px';
+                            img.style.cursor = 'pointer';
+                            img.style.objectFit = 'contain';
+                            img.onclick = () => window.open(msg.attachment, '_blank');
+                            attachmentDiv.appendChild(img);
+                        } else if (msg.file_type === 'audio') {
+                            const audio = document.createElement('audio');
+                            audio.src = msg.attachment;
+                            audio.controls = true;
+                            audio.style.width = '100%';
+                            audio.style.maxWidth = '400px';
+                            attachmentDiv.appendChild(audio);
+                        } else {
+                            const fileLink = document.createElement('a');
+                            fileLink.href = msg.attachment;
+                            fileLink.target = '_blank';
+                            fileLink.style.display = 'inline-flex';
+                            fileLink.style.alignItems = 'center';
+                            fileLink.style.gap = '8px';
+                            fileLink.style.color = 'inherit';
+                            fileLink.style.textDecoration = 'none';
+                            fileLink.innerHTML = `📄 ${msg.file_name || 'Download File'}`;
+                            attachmentDiv.appendChild(fileLink);
+                        }
+                        
+                        bubble.appendChild(attachmentDiv);
+                    }
+                    
+                    // Add message text if exists
+                    if (msg.message) {
+                        const textDiv = document.createElement('div');
+                        textDiv.textContent = msg.message;
+                        bubble.appendChild(textDiv);
+                    }
+                    
+                    const time = document.createElement('div');
+                    time.className = 'message-time';
+                    if (msg.created_at) {
+                        const date = new Date(msg.created_at);
+                        time.textContent = `${date.toLocaleTimeString('en-US', {hour: '2-digit', minute: '2-digit'})} • ${msg.sender_name || msg.sender || 'Unknown'}`;
+                    } else {
+                        time.textContent = `Now • ${msg.sender_name || msg.sender || 'Unknown'}`;
+                    }
+                    
+                    messageDiv.appendChild(bubble);
+                    messageDiv.appendChild(time);
+                    
+                    messagesDiv.appendChild(messageDiv);
+                    loadedCount++;
+                    
+                    console.log(`✅ Loaded message ${index + 1}/${messages.length}: ID=${messageId}, text="${(msg.message || '').substring(0, 50)}..."`);
+                } catch (error) {
+                    console.error(`❌ Error loading message ${index}:`, error, msg);
+                }
             });
             
             chatModalInitialLoadComplete = true; // Mark initial load as complete
-            console.log('✅ Initial load complete, loaded', messages.length, 'messages');
-            scrollChatModalToBottom();
+            console.log(`✅ Initial load complete, loaded ${loadedCount}/${messages.length} messages`);
+            
+            // Scroll to bottom after a short delay to ensure DOM is updated
+            setTimeout(() => {
+                scrollChatModalToBottom();
+            }, 100);
         }
         
         // Add message to chat modal
@@ -1462,17 +1594,17 @@
                     // This prevents old messages from being displayed before all messages are loaded
                     if (data.type === 'chat_message') {
                         if (!chatModalInitialLoadComplete) {
-                            console.log('⏳ Initial load not complete yet, queuing message:', data.message_id);
-                            // Wait a bit and try again
-                            setTimeout(() => {
-                                if (chatModalInitialLoadComplete) {
-                                    console.log('✅ Initial load complete, now adding message:', data.message_id);
-                                    addChatModalMessage(data, true); // true = check for duplicates
-                                } else {
-                                    console.log('⚠️ Initial load still not complete, message may be lost');
-                                }
-                            }, 500);
+                            console.log('⏳ Initial load not complete yet, ignoring WebSocket message:', data.message_id, data.message);
+                            // Don't queue - just ignore until initial load is complete
+                            // The message will be loaded from database anyway
+                            return;
                         } else {
+                            // Check if message is already displayed (from initial load)
+                            const messageId = data.message_id || data.id;
+                            if (messageId && chatModalDisplayedMessageIds.has(messageId)) {
+                                console.log('⚠️ Message already displayed, ignoring duplicate:', messageId);
+                                return;
+                            }
                             console.log('📨 Adding new message from WebSocket:', data.message_id);
                             addChatModalMessage(data, true); // true = check for duplicates
                         }
