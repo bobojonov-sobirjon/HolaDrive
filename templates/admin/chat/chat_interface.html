@@ -327,7 +327,6 @@
     </div>
 </div>
 
-<div id="notificationContainer"></div>
 
 <script>
     const conversationId = {{ conversation_id }};
@@ -350,14 +349,24 @@
         };
         
         chatSocket.onmessage = function(e) {
-            const data = JSON.parse(e.data);
-            
-            if (data.type === 'chat_message') {
-                addMessageToChat(data);
-            } else if (data.type === 'typing') {
-                showTypingIndicator(data.is_typing);
-            } else if (data.type === 'connection_established') {
-                console.log('Connection established');
+            console.log('📨 WebSocket message received:', e.data);
+            try {
+                const data = JSON.parse(e.data);
+                console.log('📨 Parsed message data:', data);
+                
+                if (data.type === 'chat_message') {
+                    console.log('💬 Adding chat message to UI');
+                    addMessageToChat(data);
+                } else if (data.type === 'typing') {
+                    console.log('⌨️ Typing indicator');
+                    showTypingIndicator(data.is_typing);
+                } else if (data.type === 'connection_established') {
+                    console.log('✅ Connection established:', data);
+                } else {
+                    console.log('❓ Unknown message type:', data.type);
+                }
+            } catch (error) {
+                console.error('❌ Error parsing message:', error, e.data);
             }
         };
         
@@ -376,17 +385,45 @@
         const input = document.getElementById('messageInput');
         const message = input.value.trim();
         
-        if (!message || !chatSocket || chatSocket.readyState !== WebSocket.OPEN) {
+        console.log('📤 sendMessage called');
+        console.log('📤 Message:', message);
+        console.log('📤 ChatSocket:', chatSocket);
+        console.log('📤 ChatSocket readyState:', chatSocket ? chatSocket.readyState : 'NULL');
+        
+        if (!message) {
+            console.log('⚠️ Empty message, not sending');
             return;
         }
         
-        // Send via WebSocket
-        chatSocket.send(JSON.stringify({
+        if (!chatSocket) {
+            console.error('❌ ChatSocket is null, reconnecting...');
+            connectWebSocket();
+            return;
+        }
+        
+        if (chatSocket.readyState !== WebSocket.OPEN) {
+            console.error('❌ ChatSocket not open, state:', chatSocket.readyState);
+            console.log('🔄 Attempting to reconnect...');
+            connectWebSocket();
+            return;
+        }
+        
+        const messageData = {
             type: 'chat_message',
             message: message
-        }));
+        };
+        
+        console.log('📤 Sending message via WebSocket:', messageData);
+        
+        try {
+            chatSocket.send(JSON.stringify(messageData));
+            console.log('✅ Message sent via WebSocket');
+        } catch (error) {
+            console.error('❌ Error sending message via WebSocket:', error);
+        }
         
         // Also send via API for backup
+        console.log('📤 Sending message via API...');
         fetch(`/admin/chat/conversation/${conversationId}/chat/send/`, {
             method: 'POST',
             headers: {
@@ -394,12 +431,21 @@
                 'X-CSRFToken': getCookie('csrftoken')
             },
             body: JSON.stringify({ message: message })
-        }).then(response => response.json())
+        }).then(response => {
+            console.log('📨 API response status:', response.status);
+            return response.json();
+        })
         .then(data => {
+            console.log('📨 API response data:', data);
             if (data.success) {
                 input.value = '';
                 scrollToBottom();
+            } else {
+                console.error('❌ API error:', data);
             }
+        })
+        .catch(error => {
+            console.error('❌ API request error:', error);
         });
     }
     
@@ -433,39 +479,15 @@
         messagesDiv.insertBefore(messageDiv, typingIndicator);
         scrollToBottom();
         
-        // Show notification if message is from user (not from support)
-        if (!data.is_from_support) {
-            showNotification('New Message', data.message.substring(0, 50) + (data.message.length > 50 ? '...' : ''));
-        }
+        // Don't show notifications in chat interface - notifications are only for other admin pages
+        // Removed notification display here
     }
     
-    // Show notification
+    // Disabled notification function for chat interface
     function showNotification(title, message) {
-        const container = document.getElementById('notificationContainer');
-        
-        const notification = document.createElement('div');
-        notification.className = 'notification';
-        
-        const titleDiv = document.createElement('div');
-        titleDiv.className = 'notification-title';
-        titleDiv.textContent = title;
-        
-        const messageDiv = document.createElement('div');
-        messageDiv.className = 'notification-message';
-        messageDiv.textContent = message;
-        
-        notification.appendChild(titleDiv);
-        notification.appendChild(messageDiv);
-        
-        container.appendChild(notification);
-        
-        // Remove notification after 4 seconds
-        setTimeout(() => {
-            notification.style.animation = 'slideIn 0.3s ease-out reverse';
-            setTimeout(() => {
-                notification.remove();
-            }, 300);
-        }, 4000);
+        // Notifications are disabled in chat interface
+        console.log('🚫 Notifications disabled in chat interface');
+        return;
     }
     
     // Show typing indicator
@@ -507,21 +529,55 @@
     }
     
     // Disable notification WebSocket on chat interface page
-    if (window.connectNotificationWebSocket) {
+    (function() {
+        console.log('🚫 Chat interface page - disabling all notifications');
+        
         // Override notification WebSocket connection to prevent notifications in chat interface
-        window.connectNotificationWebSocket = function() {
-            console.log('🚫 Notification WebSocket disabled on chat interface page');
-            return;
-        };
-    }
-    
-    // Disable global notification display on chat interface page
-    if (window.showGlobalNotification) {
+        if (window.connectNotificationWebSocket) {
+            window.connectNotificationWebSocket = function() {
+                console.log('🚫 Notification WebSocket disabled on chat interface page');
+                return;
+            };
+        }
+        
+        // Disable global notification display on chat interface page
         window.showGlobalNotification = function() {
             console.log('🚫 Global notifications disabled on chat interface page');
             return;
         };
-    }
+        
+        // Close any existing notification WebSocket connections
+        if (window.notificationSocket) {
+            try {
+                if (window.notificationSocket.readyState === WebSocket.OPEN || window.notificationSocket.readyState === WebSocket.CONNECTING) {
+                    window.notificationSocket.close();
+                    console.log('🚫 Closed existing notification WebSocket connection');
+                }
+            } catch (e) {
+                console.log('🚫 Error closing notification WebSocket:', e);
+            }
+        }
+        
+        // Hide notification container immediately and on DOM ready
+        function hideNotificationContainer() {
+            const notificationContainer = document.getElementById('globalNotificationContainer');
+            if (notificationContainer) {
+                notificationContainer.style.display = 'none';
+                console.log('🚫 Hidden notification container');
+            }
+        }
+        
+        // Hide immediately if DOM is ready
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', hideNotificationContainer);
+        } else {
+            hideNotificationContainer();
+        }
+        
+        // Also hide after a short delay to catch any late-created containers
+        setTimeout(hideNotificationContainer, 100);
+        setTimeout(hideNotificationContainer, 500);
+    })();
     
     // Connect on page load
     connectWebSocket();

@@ -21,9 +21,10 @@ DEBUG = True
 ALLOWED_HOSTS = ["*"]
 
 # WebSocket Configuration
-WEBSOCKET_HOST = os.getenv('WEBSOCKET_HOST', '31.128.43.149')
-WEBSOCKET_PORT = os.getenv('WEBSOCKET_PORT', '8040')
+WEBSOCKET_HOST = os.getenv('WEBSOCKET_HOST', None)
+WEBSOCKET_PORT = os.getenv('WEBSOCKET_PORT', None)
 WEBSOCKET_URL = os.getenv('WEBSOCKET_URL', f'{WEBSOCKET_HOST}:{WEBSOCKET_PORT}')
+
 
 
 # Application definition

@@ -78,10 +78,17 @@ class ChatConsumer(AsyncWebsocketConsumer):
         """
         Receive message from WebSocket
         """
+        print(f"📨 WebSocket receive called with data: {text_data}")
+        print(f"📨 Conversation ID: {getattr(self, 'conversation_id', 'NOT SET')}")
+        print(f"📨 Room group: {getattr(self, 'room_group_name', 'NOT SET')}")
+        print(f"📨 User: {getattr(self, 'user', 'NOT SET')}")
+        
         try:
             try:
                 text_data_json = json.loads(text_data)
+                print(f"📨 Parsed JSON: {text_data_json}")
                 message_type = text_data_json.get('type', 'chat_message')
+                print(f"📨 Message type: {message_type}")
                 
                 if message_type == 'chat_message':
                     message = text_data_json.get('message', '')
@@ -89,20 +96,32 @@ class ChatConsumer(AsyncWebsocketConsumer):
                     file_name = text_data_json.get('file_name', None)
                     file_type = text_data_json.get('file_type', None)
                     
+                    print(f"📨 Chat message received: message='{message}', has_file={bool(file_base64)}")
+                    
                     if file_base64:
+                        print(f"📨 Saving message with file...")
                         await self.save_message_with_file(message, file_base64, file_name, file_type)
                     elif message:
+                        print(f"📨 Saving text message...")
                         await self.save_message(message)
+                    else:
+                        print(f"⚠️ Empty message, not saving")
                 elif message_type == 'typing':
+                    print(f"📨 Typing indicator received")
                     await self.handle_typing(text_data_json)
                 elif message_type == 'read_message':
                     message_id = text_data_json.get('message_id')
+                    print(f"📨 Read message request for ID: {message_id}")
                     await self.mark_message_as_read(message_id)
-            except json.JSONDecodeError:
+                else:
+                    print(f"⚠️ Unknown message type: {message_type}")
+            except json.JSONDecodeError as e:
+                print(f"⚠️ JSON decode error: {e}, treating as plain text")
                 if text_data and text_data.strip():
+                    print(f"📨 Saving as plain text message...")
                     await self.save_message(text_data.strip())
         except Exception as e:
-            print(f"Error in receive: {e}")
+            print(f"❌ Error in receive: {e}")
             import traceback
             traceback.print_exc()
     
@@ -110,9 +129,12 @@ class ChatConsumer(AsyncWebsocketConsumer):
         """
         Send message to WebSocket
         """
-        print(f"chat_message event received in consumer: {event}")
+        print(f"📤 chat_message handler called with event: {event}")
+        print(f"📤 Conversation ID: {getattr(self, 'conversation_id', 'NOT SET')}")
+        print(f"📤 Room group: {getattr(self, 'room_group_name', 'NOT SET')}")
+        
         try:
-            await self.send(text_data=json.dumps({
+            message_payload = {
                 'type': 'chat_message',
                 'message': event.get('message', ''),
                 'sender': event.get('sender', event.get('sender_id')),
@@ -125,10 +147,13 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 'attachment_url': event.get('attachment_url') or event.get('attachment'),
                 'file_type': event.get('file_type'),
                 'file_name': event.get('file_name')
-            }))
-            print(f"Message sent to WebSocket successfully")
+            }
+            
+            print(f"📤 Sending message payload: {message_payload}")
+            await self.send(text_data=json.dumps(message_payload))
+            print(f"✅ Message sent to WebSocket successfully")
         except Exception as e:
-            print(f"Error sending message to WebSocket: {e}")
+            print(f"❌ Error sending message to WebSocket: {e}")
             import traceback
             traceback.print_exc()
     
@@ -181,43 +206,70 @@ class ChatConsumer(AsyncWebsocketConsumer):
         """
         Save message to database and send to room group
         """
+        print(f"💾 save_message called with: '{message_text}'")
+        print(f"💾 Room group: {self.room_group_name}")
+        print(f"💾 Channel layer: {self.channel_layer}")
+        
         try:
+            print(f"💾 Calling _save_message_to_db...")
             message_data = await self._save_message_to_db(message_text)
+            print(f"💾 Message data from DB: {message_data}")
             
             if message_data:
-                print(f"Sending message to room group: {self.room_group_name}")
-                print(f"Message data: {message_data}")
+                print(f"💾 Sending message to room group: {self.room_group_name}")
+                print(f"💾 Message data: {message_data}")
+                
+                event_data = {
+                    'type': 'chat_message',
+                    'message': message_data['message_text'],
+                    'sender': message_data['sender_id'],
+                    'sender_id': message_data['sender_id'],
+                    'sender_name': message_data['sender_name'],
+                    'is_from_support': message_data['is_from_support'],
+                    'created_at': message_data['created_at'],
+                    'message_id': message_data['message_id'],
+                    'attachment': message_data.get('attachment_url'),
+                    'attachment_url': message_data.get('attachment_url'),
+                    'file_type': message_data.get('file_type'),
+                    'file_name': message_data.get('file_name')
+                }
+                
+                print(f"💾 Event data to send: {event_data}")
+                
                 try:
+                    if not self.channel_layer:
+                        print(f"❌ Channel layer is None!")
+                        return
+                    
+                    print(f"💾 Calling channel_layer.group_send...")
                     await self.channel_layer.group_send(
                         self.room_group_name,
-                        {
-                            'type': 'chat_message',
-                            'message': message_data['message_text'],
-                            'sender': message_data['sender_id'],
-                            'sender_id': message_data['sender_id'],
-                            'sender_name': message_data['sender_name'],
-                            'is_from_support': message_data['is_from_support'],
-                            'created_at': message_data['created_at'],
-                            'message_id': message_data['message_id'],
-                            'attachment': message_data.get('attachment_url'),
-                            'attachment_url': message_data.get('attachment_url'),
-                            'file_type': message_data.get('file_type'),
-                            'file_name': message_data.get('file_name')
-                        }
+                        event_data
                     )
-                    print(f"Message sent to room group successfully")
+                    print(f"✅ Message sent to room group successfully")
                     
+                    # Notification yuborish - agar mavjud bo'lsa
                     if '_pending_notification' in message_data and message_data['_pending_notification']:
                         notification = message_data['_pending_notification']
                         user_id = notification.user.id
                         await self.send_notification_via_websocket(user_id, notification)
-                        print(f"Notification sent via WebSocket to user {user_id}")
+                        print(f"✅ Notification sent via WebSocket to user {user_id}")
+                    elif not message_data.get('is_from_support', False):
+                        # User'dan admin'ga xabar - notification yaratishni async qilamiz
+                        print(f"💾 Creating notification for support user (async)...")
+                        await self._create_notification_for_support_async(
+                            message_data['message_id'],
+                            message_data['message_text'],
+                            message_data['sender_name']
+                        )
                 except Exception as e:
-                    print(f"Error sending to room group: {e}")
+                    print(f"❌ Error sending to room group: {e}")
                     import traceback
                     traceback.print_exc()
+            else:
+                print(f"⚠️ message_data is None or empty, not sending")
         except Exception as e:
-            print(f"Error saving message: {e}")
+            print(f"❌ Error saving message: {e}")
             import traceback
             traceback.print_exc()
     
@@ -270,11 +322,19 @@ class ChatConsumer(AsyncWebsocketConsumer):
         """
         Save message to database (sync operation)
         """
+        print(f"💾 _save_message_to_db called with message: '{message_text}'")
+        print(f"💾 Conversation ID: {self.conversation_id}")
+        print(f"💾 User: {self.user} (ID: {self.user.id})")
+        
         try:
+            print(f"💾 Getting conversation from DB...")
             conversation = Conversation.objects.get(id=self.conversation_id)
+            print(f"💾 Conversation found: {conversation.id}")
             
             is_from_support = self.user.is_staff or self.user.is_superuser
+            print(f"💾 Is from support: {is_from_support}")
             
+            print(f"💾 Creating message in DB...")
             message = Message.objects.create(
                 conversation=conversation,
                 sender=self.user,
@@ -283,7 +343,9 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 is_read_by_support=is_from_support,
                 is_read_by_user=not is_from_support
             )
+            print(f"💾 Message created with ID: {message.id}")
             
+            print(f"💾 Updating conversation...")
             conversation.last_message_at = timezone.now()
             
             if is_from_support:
@@ -292,32 +354,31 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 conversation.unread_count_support += 1
             
             conversation.save()
+            print(f"💾 Conversation updated")
             
+            # Notification yaratishni keyingi bosqichga o'tkazamiz (async)
+            # Bu xabar yuborishni bloklamasligi uchun
             notification = None
             if is_from_support:
-                notification = Notification.objects.create(
-                    user=conversation.user,
-                    notification_type='chat_message',
-                    title='New message from support',
-                    message=f'You have a new message: {message_text[:50]}...',
-                    related_object_type='conversation',
-                    related_object_id=conversation.id,
-                    data={'conversation_id': conversation.id, 'message_id': message.id}
-                )
-            else:
-                support_user = get_support_user()
-                if support_user:
+                print(f"💾 Creating notification for user...")
+                try:
                     notification = Notification.objects.create(
-                        user=support_user,
+                        user=conversation.user,
                         notification_type='chat_message',
-                        title=f'New message from {self.user.get_full_name() or self.user.username}',
-                        message=f'New message in conversation: {message_text[:50]}...',
+                        title='New message from support',
+                        message=f'You have a new message: {message_text[:50]}...',
                         related_object_type='conversation',
                         related_object_id=conversation.id,
                         data={'conversation_id': conversation.id, 'message_id': message.id}
                     )
+                    print(f"💾 Notification created with ID: {notification.id}")
+                except Exception as e:
+                    print(f"⚠️ Error creating notification: {e}, continuing without notification")
+            # User'dan admin'ga xabar - notification yaratishni keyingi bosqichga o'tkazamiz
+            # get_support_user() qotib qolmasligi uchun - bu yerda yaratmaymiz
             
             sender_name = self.user.get_full_name() or self.user.username
+            print(f"💾 Sender name: {sender_name}")
             
             result = {
                 'message_text': message_text,
@@ -331,12 +392,16 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 'file_name': message.file_name
             }
             
+            # Faqat admin'dan user'ga xabar bo'lsa, notification qo'shamiz
+            # User'dan admin'ga xabar bo'lsa, notification keyinroq async yaratiladi
             if notification:
                 result['_pending_notification'] = notification
+                print(f"💾 Notification added to result")
             
+            print(f"💾 Returning result: {result}")
             return result
         except Exception as e:
-            print(f"Error saving message to DB: {e}")
+            print(f"❌ Error saving message to DB: {e}")
             import traceback
             traceback.print_exc()
             return None
@@ -427,6 +492,57 @@ class ChatConsumer(AsyncWebsocketConsumer):
             return result
         except Exception as e:
             print(f"Error saving message with file to DB: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
+    
+    async def _create_notification_for_support_async(self, message_id, message_text, sender_name):
+        """
+        Create notification for support user asynchronously (to avoid blocking)
+        """
+        try:
+            print(f"💾 Creating notification for support user (async)...")
+            notification = await self._create_support_notification_db(message_id, message_text, sender_name)
+            if notification:
+                support_user_id = notification.user.id
+                await self.send_notification_via_websocket(support_user_id, notification)
+                print(f"✅ Notification created and sent to support user {support_user_id}")
+        except Exception as e:
+            print(f"⚠️ Error creating notification for support (async): {e}")
+            import traceback
+            traceback.print_exc()
+    
+    @database_sync_to_async
+    def _create_support_notification_db(self, message_id, message_text, sender_name):
+        """
+        Create notification for support user in database (sync operation)
+        """
+        try:
+            print(f"💾 _create_support_notification_db called")
+            print(f"💾 Getting support user...")
+            support_user = get_support_user()
+            print(f"💾 Support user: {support_user}")
+            
+            if support_user:
+                print(f"💾 Getting conversation...")
+                conversation = Conversation.objects.get(id=self.conversation_id)
+                print(f"💾 Creating notification...")
+                notification = Notification.objects.create(
+                    user=support_user,
+                    notification_type='chat_message',
+                    title=f'New message from {sender_name}',
+                    message=f'New message in conversation: {message_text[:50]}...',
+                    related_object_type='conversation',
+                    related_object_id=conversation.id,
+                    data={'conversation_id': conversation.id, 'message_id': message_id}
+                )
+                print(f"💾 Notification created with ID: {notification.id}")
+                return notification
+            else:
+                print(f"⚠️ Support user not found")
+            return None
+        except Exception as e:
+            print(f"❌ Error creating support notification in DB: {e}")
             import traceback
             traceback.print_exc()
             return None

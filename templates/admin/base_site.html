@@ -573,9 +573,31 @@
         console.log('🔧 Initializing notification WebSocket connection...');
         
         // Check if we're on chat interface page - don't show notifications there
-        const isChatInterfacePage = window.location.pathname.includes('/chat/conversation/') && window.location.pathname.includes('/chat/');
+        const currentPath = window.location.pathname;
+        // More specific check: URL pattern is /admin/chat/conversation/{id}/chat/
+        const isChatInterfacePage = /\/admin\/chat\/conversation\/\d+\/chat\/?$/.test(currentPath);
         if (isChatInterfacePage) {
             console.log('🚫 Chat interface page detected - skipping notification WebSocket connection');
+            console.log('🚫 Current path:', currentPath);
+            // Override showGlobalNotification to prevent notifications
+            window.showGlobalNotification = function() {
+                console.log('🚫 Global notifications disabled on chat interface page');
+                return;
+            };
+            // Hide notification container if it exists
+            const notificationContainer = document.getElementById('globalNotificationContainer');
+            if (notificationContainer) {
+                notificationContainer.style.display = 'none';
+            }
+            // Also hide it when DOM is ready
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', function() {
+                    const container = document.getElementById('globalNotificationContainer');
+                    if (container) {
+                        container.style.display = 'none';
+                    }
+                });
+            }
             return;
         }
         
@@ -584,6 +606,14 @@
         
         // Connect to notification WebSocket
         function connectNotificationWebSocket() {
+            // Check if we're on chat interface page - don't connect there
+            const currentPath = window.location.pathname;
+            const isChatInterfacePage = /\/admin\/chat\/conversation\/\d+\/chat\/?$/.test(currentPath);
+            if (isChatInterfacePage) {
+                console.log('🚫 Chat interface page detected in connectNotificationWebSocket - skipping');
+                return;
+            }
+            
             console.log('🔌 connectNotificationWebSocket called');
             console.log('👤 window.currentUserId:', window.currentUserId);
             console.log('🌐 window.websocketUrl:', window.websocketUrl);
@@ -650,13 +680,20 @@
             notificationSocket.onclose = function(e) {
                 console.log('🔌 Notification WebSocket closed:', e.code, e.reason);
                 // Reconnect after 3 seconds if it wasn't a normal closure
+                // BUT only if we're NOT on chat interface page
                 if (e.code !== 1000) {
-                    console.log('🔄 Attempting to reconnect in 3 seconds...');
-                    setTimeout(() => {
-                        if (window.currentUserId && window.currentUserId !== 0) {
-                            connectNotificationWebSocket();
-                        }
-                    }, 3000);
+                    const currentPath = window.location.pathname;
+                    const isChatInterfacePage = /\/admin\/chat\/conversation\/\d+\/chat\/?$/.test(currentPath);
+                    if (!isChatInterfacePage) {
+                        console.log('🔄 Attempting to reconnect in 3 seconds...');
+                        setTimeout(() => {
+                            if (window.currentUserId && window.currentUserId !== 0) {
+                                connectNotificationWebSocket();
+                            }
+                        }, 3000);
+                    } else {
+                        console.log('🚫 Chat interface page - skipping reconnection');
+                    }
                 }
             };
         }
@@ -824,6 +861,14 @@
         let connectionAttempted = false;
         
         function attemptConnection() {
+            // Double-check if we're on chat interface page before attempting connection
+            const currentPath = window.location.pathname;
+            const isChatInterfacePage = /\/admin\/chat\/conversation\/\d+\/chat\/?$/.test(currentPath);
+            if (isChatInterfacePage) {
+                console.log('🚫 Chat interface page detected in attemptConnection - skipping');
+                return;
+            }
+            
             if (connectionAttempted) {
                 console.log('⚠️ Connection already attempted, skipping');
                 return;
@@ -844,31 +889,39 @@
             connectNotificationWebSocket();
         }
         
-        console.log('🔧 Notification WebSocket script loaded in extrahead');
-        console.log('📄 Document ready state:', document.readyState);
+        // Double-check if we're on chat interface page before initializing
+        const currentPathCheck = window.location.pathname;
+        const isChatInterfacePageCheck = /\/admin\/chat\/conversation\/\d+\/chat\/?$/.test(currentPathCheck);
         
-        // Try to connect immediately
-        if (document.readyState === 'complete' || document.readyState === 'interactive') {
-            console.log('✅ Document already ready, connecting WebSocket immediately');
-            setTimeout(attemptConnection, 100);
-        } else {
-            console.log('⏳ Document is loading, waiting for DOMContentLoaded');
-            document.addEventListener('DOMContentLoaded', function() {
-                console.log('✅ DOMContentLoaded fired, connecting WebSocket');
-                attemptConnection();
-            });
-        }
-        
-        // Also try on window load as fallback (only if not already connected)
-        window.addEventListener('load', function() {
-            console.log('✅ Window load event fired');
-            if (!notificationSocket || notificationSocket.readyState !== WebSocket.OPEN) {
-                if (!connectionAttempted) {
-                    console.log('🔄 WebSocket not connected, attempting connection');
+        if (!isChatInterfacePageCheck) {
+            console.log('🔧 Notification WebSocket script loaded in extrahead');
+            console.log('📄 Document ready state:', document.readyState);
+            
+            // Try to connect immediately
+            if (document.readyState === 'complete' || document.readyState === 'interactive') {
+                console.log('✅ Document already ready, connecting WebSocket immediately');
+                setTimeout(attemptConnection, 100);
+            } else {
+                console.log('⏳ Document is loading, waiting for DOMContentLoaded');
+                document.addEventListener('DOMContentLoaded', function() {
+                    console.log('✅ DOMContentLoaded fired, connecting WebSocket');
                     attemptConnection();
-                }
+                });
             }
-        });
+            
+            // Also try on window load as fallback (only if not already connected)
+            window.addEventListener('load', function() {
+                console.log('✅ Window load event fired');
+                if (!notificationSocket || notificationSocket.readyState !== WebSocket.OPEN) {
+                    if (!connectionAttempted) {
+                        console.log('🔄 WebSocket not connected, attempting connection');
+                        attemptConnection();
+                    }
+                }
+            });
+        } else {
+            console.log('🚫 Chat interface page detected - skipping all notification WebSocket initialization');
+        }
         
         // Make functions globally available
         window.connectNotificationWebSocket = connectNotificationWebSocket;
