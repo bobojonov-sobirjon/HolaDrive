@@ -506,6 +506,23 @@
         return cookieValue;
     }
     
+    // Disable notification WebSocket on chat interface page
+    if (window.connectNotificationWebSocket) {
+        // Override notification WebSocket connection to prevent notifications in chat interface
+        window.connectNotificationWebSocket = function() {
+            console.log('🚫 Notification WebSocket disabled on chat interface page');
+            return;
+        };
+    }
+    
+    // Disable global notification display on chat interface page
+    if (window.showGlobalNotification) {
+        window.showGlobalNotification = function() {
+            console.log('🚫 Global notifications disabled on chat interface page');
+            return;
+        };
+    }
+    
     // Connect on page load
     connectWebSocket();
     scrollToBottom();

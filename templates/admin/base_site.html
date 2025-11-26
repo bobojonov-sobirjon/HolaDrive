@@ -572,6 +572,13 @@
     (function() {
         console.log('🔧 Initializing notification WebSocket connection...');
         
+        // Check if we're on chat interface page - don't show notifications there
+        const isChatInterfacePage = window.location.pathname.includes('/chat/conversation/') && window.location.pathname.includes('/chat/');
+        if (isChatInterfacePage) {
+            console.log('🚫 Chat interface page detected - skipping notification WebSocket connection');
+            return;
+        }
+        
         let notificationSocket = null;
         let displayedNotificationIds = new Set();
         
