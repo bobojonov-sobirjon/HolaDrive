@@ -1147,7 +1147,17 @@
         
         // Load conversation data
         function loadChatModalConversationData(conversationId) {
+            console.log('📥 ========================================');
             console.log('📥 Loading conversation data for:', conversationId);
+            console.log('📥 Current conversation ID:', chatModalCurrentConversationId);
+            console.log('📥 Initial load complete flag:', chatModalInitialLoadComplete);
+            
+            // Ensure we're loading for the correct conversation
+            if (chatModalCurrentConversationId !== conversationId) {
+                console.log('⚠️ Conversation ID mismatch! Expected:', conversationId, 'Current:', chatModalCurrentConversationId);
+                return;
+            }
+            
             fetch(`/admin/chat/conversation/${conversationId}/chat/messages/`)
                 .then(response => {
                     console.log('📥 API response status:', response.status);
@@ -1157,7 +1167,19 @@
                     return response.json();
                 })
                 .then(data => {
-                    console.log('📥 API response data:', data);
+                    console.log('📥 ========================================');
+                    console.log('📥 API response received');
+                    console.log('📥 Success:', data.success);
+                    console.log('📥 Messages count:', data.messages ? data.messages.length : 0);
+                    console.log('📥 Messages array:', data.messages);
+                    
+                    if (data.success && data.messages) {
+                        // Log each message
+                        data.messages.forEach((msg, idx) => {
+                            console.log(`📥 Message ${idx + 1}: ID=${msg.id}, text="${(msg.message || '').substring(0, 30)}...", sender=${msg.sender_name}, created_at=${msg.created_at}`);
+                        });
+                    }
+                    
                     if (data.success) {
                         const userNameEl = document.getElementById('chatModalUserName');
                         const statusEl = document.getElementById('chatModalStatus');
@@ -1172,21 +1194,29 @@
                             if (infoEl) infoEl.textContent = `${data.conversation.user_type.charAt(0).toUpperCase() + data.conversation.user_type.slice(1)} • ${data.conversation.subject || 'No subject'}`;
                         }
                         
-                        console.log('📥 Loading', data.messages ? data.messages.length : 0, 'messages from API');
+                        console.log('📥 Calling loadChatModalMessages with', data.messages ? data.messages.length : 0, 'messages');
                         loadChatModalMessages(data.messages || []);
                     } else {
                         console.error('❌ API returned success=false:', data);
                         chatModalInitialLoadComplete = true; // Mark as complete even on error
                     }
+                    console.log('📥 ========================================');
                 })
                 .catch(error => {
                     console.error('❌ Error loading conversation data:', error);
+                    console.error('❌ Error stack:', error.stack);
                     chatModalInitialLoadComplete = true; // Mark as complete even on error
                 });
         }
         
         // Load messages
         function loadChatModalMessages(messages) {
+            console.log('💬 ========================================');
+            console.log('💬 loadChatModalMessages called');
+            console.log('💬 Total messages to load:', messages ? messages.length : 0);
+            console.log('💬 Current conversation ID:', chatModalCurrentConversationId);
+            console.log('💬 Initial load complete flag:', chatModalInitialLoadComplete);
+            
             const messagesDiv = document.getElementById('chatModalMessages');
             if (!messagesDiv) {
                 console.error('❌ chatModalMessages element not found!');
@@ -1194,13 +1224,16 @@
                 return;
             }
             
-            console.log('📥 Loading messages into chat modal. Total messages:', messages ? messages.length : 0);
-            console.log('📥 Messages data:', messages);
-            
             // Clear all previous state
             chatModalDisplayedMessageIds.clear();
+            console.log('💬 Cleared displayed message IDs');
             
             // Clear the messages div completely
+            const previousMessages = messagesDiv.querySelectorAll('.message');
+            console.log('💬 Removing', previousMessages.length, 'previous messages from DOM');
+            previousMessages.forEach(msg => msg.remove());
+            
+            // Clear innerHTML completely
             messagesDiv.innerHTML = '';
             
             // Remove any existing empty state or loading indicators
@@ -1218,26 +1251,38 @@
                 `;
                 chatModalInitialLoadComplete = true; // Mark as complete even if no messages
                 console.log('✅ Initial load complete, no messages');
+                console.log('💬 ========================================');
                 return;
             }
             
             // Load all messages from database - create DOM elements directly
             let loadedCount = 0;
+            let skippedCount = 0;
+            
+            console.log('💬 Starting to load', messages.length, 'messages...');
+            
             messages.forEach((msg, index) => {
                 try {
                     const messageId = msg.id || msg.message_id;
-                    if (messageId && chatModalDisplayedMessageIds.has(messageId)) {
-                        console.log('⚠️ Skipping duplicate message ID:', messageId);
+                    
+                    if (!messageId) {
+                        console.warn(`⚠️ Message ${index + 1} has no ID, skipping:`, msg);
+                        skippedCount++;
                         return;
                     }
                     
-                    if (messageId) {
-                        chatModalDisplayedMessageIds.add(messageId);
+                    if (chatModalDisplayedMessageIds.has(messageId)) {
+                        console.log('⚠️ Skipping duplicate message ID:', messageId);
+                        skippedCount++;
+                        return;
                     }
+                    
+                    // Add to displayed set
+                    chatModalDisplayedMessageIds.add(messageId);
                     
                     const messageDiv = document.createElement('div');
                     messageDiv.className = `message ${msg.is_from_support ? 'support' : 'user'}`;
-                    if (messageId) messageDiv.setAttribute('data-message-id', messageId);
+                    messageDiv.setAttribute('data-message-id', messageId);
                     
                     const bubble = document.createElement('div');
                     bubble.className = 'message-bubble';
@@ -1302,14 +1347,21 @@
                     messagesDiv.appendChild(messageDiv);
                     loadedCount++;
                     
-                    console.log(`✅ Loaded message ${index + 1}/${messages.length}: ID=${messageId}, text="${(msg.message || '').substring(0, 50)}..."`);
+                    if ((index + 1) % 10 === 0 || index === messages.length - 1) {
+                        console.log(`💬 Progress: ${index + 1}/${messages.length} messages processed, ${loadedCount} loaded, ${skippedCount} skipped`);
+                    }
                 } catch (error) {
-                    console.error(`❌ Error loading message ${index}:`, error, msg);
+                    console.error(`❌ Error loading message ${index + 1}:`, error);
+                    console.error('❌ Message data:', msg);
+                    skippedCount++;
                 }
             });
             
             chatModalInitialLoadComplete = true; // Mark initial load as complete
-            console.log(`✅ Initial load complete, loaded ${loadedCount}/${messages.length} messages`);
+            console.log(`✅ Initial load complete!`);
+            console.log(`✅ Total: ${messages.length} messages, Loaded: ${loadedCount}, Skipped: ${skippedCount}`);
+            console.log(`✅ Displayed message IDs count: ${chatModalDisplayedMessageIds.size}`);
+            console.log('💬 ========================================');
             
             // Scroll to bottom after a short delay to ensure DOM is updated
             setTimeout(() => {
@@ -1586,31 +1638,54 @@
                     
                     // Ignore connection_established messages
                     if (data.type === 'connection_established') {
-                        console.log('✅ WebSocket connection established');
+                        console.log('✅ WebSocket connection established for conversation:', conversationId);
                         return;
                     }
                     
                     // Only process chat messages after initial load is complete
                     // This prevents old messages from being displayed before all messages are loaded
                     if (data.type === 'chat_message') {
+                        const messageId = data.message_id || data.id;
+                        const messageText = (data.message || '').substring(0, 50);
+                        
                         if (!chatModalInitialLoadComplete) {
-                            console.log('⏳ Initial load not complete yet, ignoring WebSocket message:', data.message_id, data.message);
+                            console.log('⏳ Initial load not complete yet, IGNORING WebSocket message:', {
+                                messageId: messageId,
+                                text: messageText,
+                                conversationId: conversationId,
+                                currentConversationId: chatModalCurrentConversationId
+                            });
                             // Don't queue - just ignore until initial load is complete
                             // The message will be loaded from database anyway
                             return;
-                        } else {
-                            // Check if message is already displayed (from initial load)
-                            const messageId = data.message_id || data.id;
-                            if (messageId && chatModalDisplayedMessageIds.has(messageId)) {
-                                console.log('⚠️ Message already displayed, ignoring duplicate:', messageId);
-                                return;
-                            }
-                            console.log('📨 Adding new message from WebSocket:', data.message_id);
-                            addChatModalMessage(data, true); // true = check for duplicates
                         }
+                        
+                        // Verify we're still on the same conversation
+                        if (chatModalCurrentConversationId !== conversationId) {
+                            console.log('⚠️ Conversation ID mismatch, ignoring WebSocket message:', {
+                                messageId: messageId,
+                                expectedConversationId: chatModalCurrentConversationId,
+                                receivedConversationId: conversationId
+                            });
+                            return;
+                        }
+                        
+                        // Check if message is already displayed (from initial load)
+                        if (messageId && chatModalDisplayedMessageIds.has(messageId)) {
+                            console.log('⚠️ Message already displayed, ignoring duplicate WebSocket message:', messageId);
+                            return;
+                        }
+                        
+                        console.log('📨 Adding NEW message from WebSocket:', {
+                            messageId: messageId,
+                            text: messageText,
+                            sender: data.sender_name
+                        });
+                        addChatModalMessage(data, true); // true = check for duplicates
                     }
                 } catch (error) {
-                    console.error('Error parsing chat modal message:', error);
+                    console.error('❌ Error parsing chat modal WebSocket message:', error);
+                    console.error('❌ Raw data:', e.data);
                 }
             };
             
