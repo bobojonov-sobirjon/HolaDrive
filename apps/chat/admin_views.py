@@ -156,6 +156,7 @@ def send_message_api(request, conversation_id):
                         'type': 'notification',
                         'notification': {
                             'id': notification.id,
+                            'user_id': conversation.user.id,  # Add user_id to verify in NotificationConsumer
                             'notification_type': notification.notification_type,  # Fixed: changed 'type' to 'notification_type'
                             'title': notification.title,
                             'message': notification.message,
