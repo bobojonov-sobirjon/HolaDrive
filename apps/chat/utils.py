@@ -6,26 +6,50 @@ from datetime import datetime
 import os
 
 
+# Cache for support user to avoid repeated database queries
+_support_user_cache = None
+
 def get_support_user():
     """
     Get or create the support user (admin@admin.com)
+    Uses caching to avoid repeated database queries
     """
+    global _support_user_cache
+    
+    # Return cached user if available
+    if _support_user_cache is not None:
+        try:
+            # Verify user still exists
+            _support_user_cache.refresh_from_db()
+            return _support_user_cache
+        except Exception:
+            # User was deleted, clear cache
+            _support_user_cache = None
+    
     from apps.accounts.models import CustomUser
     
-    support_user, created = CustomUser.objects.get_or_create(
-        email='admin@admin.com',
-        defaults={
-            'username': 'admin',
-            'is_staff': True,
-            'is_superuser': True,
-        }
-    )
-    
-    if created or not support_user.check_password('1'):
-        support_user.set_password('1')
-        support_user.save()
-    
-    return support_user
+    try:
+        support_user, created = CustomUser.objects.get_or_create(
+            email='admin@admin.com',
+            defaults={
+                'username': 'admin',
+                'is_staff': True,
+                'is_superuser': True,
+            }
+        )
+        
+        if created or not support_user.check_password('1'):
+            support_user.set_password('1')
+            support_user.save()
+        
+        # Cache the user
+        _support_user_cache = support_user
+        return support_user
+    except Exception as e:
+        print(f"❌ Error getting support user: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
 
 
 def save_base64_file(base64_string, file_type='file', file_name=None):
