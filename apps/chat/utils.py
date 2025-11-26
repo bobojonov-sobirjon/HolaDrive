@@ -44,7 +44,16 @@ def save_base64_file(base64_string, file_type='file', file_name=None):
         if ',' in base64_string:
             base64_string = base64_string.split(',')[1]
         
-        file_data = base64.b64decode(base64_string)
+        # Remove whitespace and newlines
+        base64_string = base64_string.strip().replace('\n', '').replace('\r', '').replace(' ', '')
+        
+        # Fix padding - base64 strings must be multiple of 4 characters
+        # Add padding if needed
+        missing_padding = len(base64_string) % 4
+        if missing_padding:
+            base64_string += '=' * (4 - missing_padding)
+        
+        file_data = base64.b64decode(base64_string, validate=True)
         
         if file_name:
             _, ext = os.path.splitext(file_name)

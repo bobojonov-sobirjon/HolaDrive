@@ -440,6 +440,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
         if channel_layer:
             notification_data = {
                 'id': notification.id,
+                'user_id': user_id,  # Add user_id to verify in NotificationConsumer
                 'title': notification.title,
                 'message': notification.message,
                 'notification_type': notification.notification_type,
@@ -577,10 +578,26 @@ class NotificationConsumer(AsyncWebsocketConsumer):
     async def notification(self, event):
         """
         Send notification to WebSocket
+        Only send if notification is for this user
         """
+        notification_data = event.get('notification', {})
+        
+        # Verify that notification is for this user
+        # Check if notification has user_id field or if we need to verify from database
+        notification_user_id = notification_data.get('user_id')
+        if notification_user_id:
+            # Convert to int for comparison
+            try:
+                notification_user_id = int(notification_user_id)
+                if notification_user_id != self.user_id:
+                    print(f"⚠️ NotificationConsumer: Skipping notification {notification_data.get('id')} - not for user {self.user_id} (notification is for user {notification_user_id})")
+                    return
+            except (ValueError, TypeError):
+                pass
+        
         await self.send(text_data=json.dumps({
             'type': 'notification',
-            'notification': event['notification']
+            'notification': notification_data
         }))
     
     @database_sync_to_async

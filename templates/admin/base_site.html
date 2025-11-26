@@ -613,8 +613,18 @@
                     console.log('📨 Parsed notification data:', data);
                     
                     if (data.type === 'notification') {
-                        console.log('🔔 Showing notification:', data.notification);
-                        showGlobalNotification(data.notification);
+                        const notification = data.notification || data;
+                        // Verify notification is for current user
+                        const notificationUserId = notification.user_id;
+                        const currentUserId = window.currentUserId;
+                        
+                        if (notificationUserId && currentUserId && parseInt(notificationUserId) !== parseInt(currentUserId)) {
+                            console.log(`⚠️ Skipping notification ${notification.id} - not for current user (notification user: ${notificationUserId}, current user: ${currentUserId})`);
+                            return;
+                        }
+                        
+                        console.log('🔔 Showing notification:', notification);
+                        showGlobalNotification(notification);
                     } else if (data.type === 'connection_established') {
                         console.log('✅ Notification connection established:', data.message);
                     } else {
