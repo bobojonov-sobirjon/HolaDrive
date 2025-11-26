@@ -204,32 +204,69 @@ def get_messages_api(request, conversation_id):
         conversation = get_object_or_404(Conversation, id=conversation_id)
         messages = Message.objects.filter(conversation=conversation).select_related('sender').order_by('created_at')
         
+        print(f"📥 GET_MESSAGES_API: Found {messages.count()} messages for conversation {conversation_id}")
+        
         messages_data = []
         for msg in messages:
+            attachment_url = None
+            try:
+                if msg.attachment:
+                    attachment_url = request.build_absolute_uri(msg.attachment.url)
+            except Exception as e:
+                print(f"⚠️ Error getting attachment URL for message {msg.id}: {e}")
+                attachment_url = None
+            
+            sender_name = 'Unknown'
+            sender_id = None
+            try:
+                if msg.sender:
+                    sender_name = msg.sender.get_full_name() or msg.sender.username or 'Unknown'
+                    sender_id = msg.sender.id
+            except Exception as e:
+                print(f"⚠️ Error getting sender info for message {msg.id}: {e}")
+            
             messages_data.append({
                 'id': msg.id,
-                'message': msg.message,
-                'sender': msg.sender.get_full_name() if msg.sender else 'Unknown',
-                'sender_name': msg.sender.get_full_name() if msg.sender else 'Unknown',
-                'sender_id': msg.sender.id if msg.sender else None,
+                'message': msg.message or '',
+                'sender': sender_name,
+                'sender_name': sender_name,
+                'sender_id': sender_id,
                 'is_from_support': msg.is_from_support,
-                'created_at': msg.created_at.isoformat(),
-                'attachment': msg.attachment.url if msg.attachment else None,
+                'created_at': msg.created_at.isoformat() if msg.created_at else None,
+                'attachment': attachment_url,
                 'file_type': msg.file_type,
                 'file_name': msg.file_name
             })
+        
+        user_name = 'Unknown'
+        try:
+            if conversation.user:
+                user_name = conversation.user.get_full_name() or conversation.user.email or 'Unknown'
+        except Exception as e:
+            print(f"⚠️ Error getting user name: {e}")
+        
+        print(f"📥 GET_MESSAGES_API: Returning {len(messages_data)} messages")
         
         return JsonResponse({
             'success': True,
             'messages': messages_data,
             'conversation': {
                 'id': conversation.id,
-                'user_name': conversation.user.get_full_name() if conversation.user else conversation.user.email,
+                'user_name': user_name,
                 'user_type': conversation.user_type,
                 'status': conversation.status,
                 'subject': conversation.subject or 'No subject'
             }
         })
     except Exception as e:
-        return JsonResponse({'error': str(e)}, status=500)
+        import traceback
+        error_trace = traceback.format_exc()
+        print(f"❌ GET_MESSAGES_API Error: {e}")
+        print(f"❌ Traceback: {error_trace}")
+        return JsonResponse({
+            'success': False,
+            'error': str(e),
+            'messages': [],
+            'conversation': None
+        }, status=500)
 
