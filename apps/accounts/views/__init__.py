@@ -9,13 +9,14 @@ from .authentication import (
 )
 from .user import (
     UserDetailView,
-    CustomUserListView,
-    CustomUserDetailByIdView
 )
 from .user_preferences import (
     UserPreferencesView,
     UserPreferencesDeleteView
 )
+from .driver_preferences import DriverPreferencesView
+from .vehicle import VehicleDetailsView, VehicleDetailView, VehicleImageView
+from .driver_identification import DriverIdentificationView, CheckIdentificationView
 from .invitations import (
     InvitationGenerateView,
     InvitationGetView,
@@ -32,10 +33,14 @@ __all__ = [
     'VerifyResetCodeView',
     'ResetPasswordConfirmView',
     'UserDetailView',
-    'CustomUserListView',
-    'CustomUserDetailByIdView',
     'UserPreferencesView',
     'UserPreferencesDeleteView',
+    'DriverPreferencesView',
+    'VehicleDetailsView',
+    'VehicleDetailView',
+    'VehicleImageView',
+    'DriverIdentificationView',
+    'CheckIdentificationView',
     'InvitationGenerateView',
     'InvitationGetView',
     'InvitedUsersView',

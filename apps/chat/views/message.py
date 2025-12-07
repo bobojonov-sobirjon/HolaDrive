@@ -1,11 +1,12 @@
-from rest_framework.views import APIView
 from rest_framework.response import Response
+from apps.common.views import AsyncAPIView
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 from django.utils import timezone
 from django.db.models import Q
+from asgiref.sync import sync_to_async
 
 from apps.chat.models import Conversation, Message
 from apps.chat.serializers import MessageSerializer, MessageCreateSerializer
@@ -13,7 +14,7 @@ from apps.chat.utils import get_support_user
 from apps.notification.models import Notification
 
 
-class MessageListView(APIView):
+class MessageListView(AsyncAPIView):
     """
     Get messages for a conversation
     """
@@ -42,9 +43,12 @@ class MessageListView(APIView):
         },
         tags=['Chat']
     )
-    def get(self, request, conversation_id):
+    async def get(self, request, conversation_id):
+        """
+        Get messages for a conversation - ASYNC VERSION
+        """
         try:
-            conversation = Conversation.objects.get(id=conversation_id)
+            conversation = await Conversation.objects.aget(id=conversation_id)
             
             user = request.user
             if not (user.is_staff or user.is_superuser) and conversation.user != user:
@@ -56,22 +60,23 @@ class MessageListView(APIView):
                     status=status.HTTP_403_FORBIDDEN
                 )
             
-            messages = Message.objects.filter(conversation=conversation).select_related('sender').order_by('created_at')
+            messages_queryset = Message.objects.filter(conversation=conversation).select_related('sender').order_by('created_at')
             
             page = int(request.query_params.get('page', 1))
             page_size = int(request.query_params.get('page_size', 50))
             start = (page - 1) * page_size
             end = start + page_size
             
-            total_count = messages.count()
-            messages = messages[start:end]
+            total_count = await sync_to_async(messages_queryset.count)()
+            messages = await sync_to_async(list)(messages_queryset[start:end])
             
             serializer = MessageSerializer(messages, many=True, context={'request': request})
+            serializer_data = await sync_to_async(lambda: serializer.data)()
             return Response(
                 {
                     'message': 'Messages retrieved successfully',
                     'status': 'success',
-                    'data': serializer.data,
+                    'data': serializer_data,
                     'pagination': {
                         'page': page,
                         'page_size': page_size,
@@ -91,7 +96,7 @@ class MessageListView(APIView):
             )
 
 
-class MessageCreateView(APIView):
+class MessageCreateView(AsyncAPIView):
     """
     Create a new message
     Only Rider/Driver can create messages via API
@@ -110,9 +115,12 @@ class MessageCreateView(APIView):
         },
         tags=['Chat']
     )
-    def post(self, request, conversation_id):
+    async def post(self, request, conversation_id):
+        """
+        Create a new message - ASYNC VERSION
+        """
         try:
-            conversation = Conversation.objects.get(id=conversation_id)
+            conversation = await Conversation.objects.aget(id=conversation_id)
             
             user = request.user
             if not (user.is_staff or user.is_superuser) and conversation.user != user:
@@ -137,18 +145,20 @@ class MessageCreateView(APIView):
             data['conversation'] = conversation_id
             
             serializer = MessageCreateSerializer(data=data, context={'request': request})
-            if serializer.is_valid():
-                message = serializer.save()
+            is_valid = await sync_to_async(lambda: serializer.is_valid())()
+            
+            if is_valid:
+                message = await sync_to_async(serializer.save)()
                 
                 conversation.last_message_at = timezone.now()
                 conversation.unread_count_support += 1
-                conversation.save()
+                await sync_to_async(conversation.save)()
                 
-                support_user = get_support_user()
-                Notification.objects.create(
+                support_user = await sync_to_async(get_support_user)()
+                await sync_to_async(Notification.objects.create)(
                     user=support_user,
                     notification_type='chat_message',
-                    title=f'New message from {user.get_full_name() or user.username}',
+                    title=f'New message from {await sync_to_async(user.get_full_name)() or user.username}',
                     message=f'New message in conversation: {message.message[:50]}...',
                     related_object_type='conversation',
                     related_object_id=conversation.id,
@@ -156,20 +166,22 @@ class MessageCreateView(APIView):
                 )
                 
                 response_serializer = MessageSerializer(message, context={'request': request})
+                serializer_data = await sync_to_async(lambda: response_serializer.data)()
                 return Response(
                     {
                         'message': 'Message sent successfully',
                         'status': 'success',
-                        'data': response_serializer.data
+                        'data': serializer_data
                     },
                     status=status.HTTP_201_CREATED
                 )
             
+            errors = await sync_to_async(lambda: serializer.errors)()
             return Response(
                 {
                     'message': 'Validation error',
                     'status': 'error',
-                    'errors': serializer.errors
+                    'errors': errors
                 },
                 status=status.HTTP_400_BAD_REQUEST
             )
@@ -183,7 +195,7 @@ class MessageCreateView(APIView):
             )
 
 
-class MessageMarkAsReadView(APIView):
+class MessageMarkAsReadView(AsyncAPIView):
     """
     Mark messages as read
     """
@@ -209,9 +221,12 @@ class MessageMarkAsReadView(APIView):
         },
         tags=['Chat']
     )
-    def post(self, request, conversation_id):
+    async def post(self, request, conversation_id):
+        """
+        Mark messages as read - ASYNC VERSION
+        """
         try:
-            conversation = Conversation.objects.get(id=conversation_id)
+            conversation = await Conversation.objects.aget(id=conversation_id)
             
             user = request.user
             if not (user.is_staff or user.is_superuser) and conversation.user != user:
@@ -221,7 +236,7 @@ class MessageMarkAsReadView(APIView):
                         'status': 'error'
                     },
                     status=status.HTTP_403_FORBIDDEN
-            )
+                )
             
             message_ids = request.data.get('message_ids', [])
             if not message_ids:
@@ -233,10 +248,12 @@ class MessageMarkAsReadView(APIView):
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
-            messages = Message.objects.filter(
+            messages_queryset = Message.objects.filter(
                 id__in=message_ids,
                 conversation=conversation
             )
+            
+            messages = await sync_to_async(list)(messages_queryset)
             
             is_support = user.is_staff or user.is_superuser
             updated_count = 0
@@ -254,9 +271,9 @@ class MessageMarkAsReadView(APIView):
                         if conversation.unread_count_user > 0:
                             conversation.unread_count_user -= 1
                         updated_count += 1
-                message.save()
+                await sync_to_async(message.save)()
             
-            conversation.save()
+            await sync_to_async(conversation.save)()
             
             return Response(
                 {

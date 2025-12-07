@@ -1,11 +1,12 @@
-from rest_framework.views import APIView
 from rest_framework.response import Response
+from apps.common.views import AsyncAPIView
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 from django.utils import timezone
 from django.db.models import Q, Prefetch
+from asgiref.sync import sync_to_async
 
 from apps.chat.models import Conversation, Message
 from apps.chat.serializers import (
@@ -15,7 +16,7 @@ from apps.chat.serializers import (
 )
 
 
-class ConversationCreateView(APIView):
+class ConversationCreateView(AsyncAPIView):
     """
     Create a new conversation
     Only Rider/Driver can create conversations
@@ -32,30 +33,38 @@ class ConversationCreateView(APIView):
         },
         tags=['Chat']
     )
-    def post(self, request):
+    async def post(self, request):
+        """
+        Create a new conversation - ASYNC VERSION
+        """
         serializer = ConversationCreateSerializer(data=request.data, context={'request': request})
-        if serializer.is_valid():
-            conversation = serializer.save()
+        is_valid = await sync_to_async(lambda: serializer.is_valid())()
+        
+        if is_valid:
+            conversation = await sync_to_async(serializer.save)()
             response_serializer = ConversationSerializer(conversation, context={'request': request})
+            serializer_data = await sync_to_async(lambda: response_serializer.data)()
             return Response(
                 {
                     'message': 'Conversation created successfully',
                     'status': 'success',
-                    'data': response_serializer.data
+                    'data': serializer_data
                 },
                 status=status.HTTP_201_CREATED
             )
+        
+        errors = await sync_to_async(lambda: serializer.errors)()
         return Response(
             {
                 'message': 'Validation error',
                 'status': 'error',
-                'errors': serializer.errors
+                'errors': errors
             },
             status=status.HTTP_400_BAD_REQUEST
         )
 
 
-class ConversationListView(APIView):
+class ConversationListView(AsyncAPIView):
     """
     Get list of conversations
     - Rider/Driver: sees only their conversations
@@ -80,19 +89,22 @@ class ConversationListView(APIView):
         },
         tags=['Chat']
     )
-    def get(self, request):
+    async def get(self, request):
+        """
+        Get list of conversations - ASYNC VERSION
+        """
         user = request.user
         status_filter = request.query_params.get('status', None)
         
         if user.is_staff or user.is_superuser:
-            conversations = Conversation.objects.select_related('user').prefetch_related(
+            conversations_queryset = Conversation.objects.select_related('user').prefetch_related(
                 Prefetch(
                     'messages',
                     queryset=Message.objects.select_related('sender').order_by('-created_at')
                 )
             ).all()
         else:
-            conversations = Conversation.objects.select_related('user').prefetch_related(
+            conversations_queryset = Conversation.objects.select_related('user').prefetch_related(
                 Prefetch(
                     'messages',
                     queryset=Message.objects.select_related('sender').order_by('-created_at')
@@ -100,22 +112,26 @@ class ConversationListView(APIView):
             ).filter(user=user)
         
         if status_filter:
-            conversations = conversations.filter(status=status_filter)
+            conversations_queryset = conversations_queryset.filter(status=status_filter)
         
-        conversations = conversations.order_by('-last_message_at', '-created_at')
+        conversations_queryset = conversations_queryset.order_by('-last_message_at', '-created_at')
+        
+        # Convert queryset to list (async)
+        conversations = await sync_to_async(list)(conversations_queryset)
         
         serializer = ConversationListSerializer(conversations, many=True, context={'request': request})
+        serializer_data = await sync_to_async(lambda: serializer.data)()
         return Response(
             {
                 'message': 'Conversations retrieved successfully',
                 'status': 'success',
-                'data': serializer.data
+                'data': serializer_data
             },
             status=status.HTTP_200_OK
         )
 
 
-class ConversationDetailView(APIView):
+class ConversationDetailView(AsyncAPIView):
     """
     Get conversation detail
     """
@@ -130,9 +146,12 @@ class ConversationDetailView(APIView):
         },
         tags=['Chat']
     )
-    def get(self, request, conversation_id):
+    async def get(self, request, conversation_id):
+        """
+        Get conversation detail - ASYNC VERSION
+        """
         try:
-            conversation = Conversation.objects.select_related('user').get(id=conversation_id)
+            conversation = await Conversation.objects.select_related('user').aget(id=conversation_id)
             
             user = request.user
             if not (user.is_staff or user.is_superuser) and conversation.user != user:
@@ -145,11 +164,12 @@ class ConversationDetailView(APIView):
                 )
             
             serializer = ConversationSerializer(conversation, context={'request': request})
+            serializer_data = await sync_to_async(lambda: serializer.data)()
             return Response(
                 {
                     'message': 'Conversation retrieved successfully',
                     'status': 'success',
-                    'data': serializer.data
+                    'data': serializer_data
                 },
                 status=status.HTTP_200_OK
             )
@@ -163,7 +183,7 @@ class ConversationDetailView(APIView):
             )
 
 
-class ConversationUpdateView(APIView):
+class ConversationUpdateView(AsyncAPIView):
     """
     Update conversation (status, etc.)
     Only Support can update conversations
@@ -194,7 +214,10 @@ class ConversationUpdateView(APIView):
         },
         tags=['Chat']
     )
-    def patch(self, request, conversation_id):
+    async def patch(self, request, conversation_id):
+        """
+        Update conversation - ASYNC VERSION
+        """
         if not (request.user.is_staff or request.user.is_superuser):
             return Response(
                 {
@@ -205,7 +228,7 @@ class ConversationUpdateView(APIView):
             )
         
         try:
-            conversation = Conversation.objects.get(id=conversation_id)
+            conversation = await Conversation.objects.aget(id=conversation_id)
             
             if 'status' in request.data:
                 conversation.status = request.data['status']
@@ -213,14 +236,15 @@ class ConversationUpdateView(APIView):
             if 'subject' in request.data:
                 conversation.subject = request.data['subject']
             
-            conversation.save()
+            await sync_to_async(conversation.save)()
             
             serializer = ConversationSerializer(conversation, context={'request': request})
+            serializer_data = await sync_to_async(lambda: serializer.data)()
             return Response(
                 {
                     'message': 'Conversation updated successfully',
                     'status': 'success',
-                    'data': serializer.data
+                    'data': serializer_data
                 },
                 status=status.HTTP_200_OK
             )

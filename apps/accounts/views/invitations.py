@@ -1,15 +1,16 @@
 from rest_framework import status
-from rest_framework.views import APIView
 from rest_framework.response import Response
+from apps.common.views import AsyncAPIView
 from rest_framework.permissions import IsAuthenticated
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
+from asgiref.sync import sync_to_async
 
 from ..serializers import InvitationGenerateSerializer, InvitationUsersSerializer
 from ..models import InvitationGenerate, InvitationUsers
 
 
-class InvitationGenerateView(APIView):
+class InvitationGenerateView(AsyncAPIView):
     """
     Invitation generation endpoint - POST only
     Creates an invitation code for the authenticated user (only once)
@@ -68,43 +69,45 @@ class InvitationGenerateView(APIView):
             401: openapi.Response(description="Unauthorized - Invalid or missing JWT token"),
         }
     )
-    def post(self, request):
+    async def post(self, request):
         """
-        Generate invitation code for the authenticated user
+        Generate invitation code for the authenticated user - ASYNC VERSION
         Only creates once - if already exists, returns existing code
         """
         user = request.user
         
-        # Check if invitation code already exists
-        invitation = InvitationGenerate.objects.filter(user=user).first()
+        # Check if invitation code already exists (async)
+        invitation = await InvitationGenerate.objects.filter(user=user).afirst()
         
         if invitation:
             # Return existing invitation code
             serializer = InvitationGenerateSerializer(invitation)
+            serializer_data = await sync_to_async(lambda: serializer.data)()
             return Response(
                 {
                     'message': 'Invitation code retrieved successfully',
                     'status': 'success',
-                    'data': serializer.data
+                    'data': serializer_data
                 },
                 status=status.HTTP_200_OK
             )
         
-        # Create new invitation code
-        invitation = InvitationGenerate.objects.create(user=user)
+        # Create new invitation code (async)
+        invitation = await sync_to_async(InvitationGenerate.objects.create)(user=user)
         serializer = InvitationGenerateSerializer(invitation)
+        serializer_data = await sync_to_async(lambda: serializer.data)()
         
         return Response(
             {
                 'message': 'Invitation code created successfully',
                 'status': 'success',
-                'data': serializer.data
+                'data': serializer_data
             },
             status=status.HTTP_201_CREATED
         )
 
 
-class InvitationGetView(APIView):
+class InvitationGetView(AsyncAPIView):
     """
     Get invitation code for the authenticated user - GET
     """
@@ -153,13 +156,13 @@ class InvitationGetView(APIView):
             401: openapi.Response(description="Unauthorized - Invalid or missing JWT token"),
         }
     )
-    def get(self, request):
+    async def get(self, request):
         """
-        Get invitation code for the authenticated user
+        Get invitation code for the authenticated user - ASYNC VERSION
         """
         user = request.user
         
-        invitation = InvitationGenerate.objects.filter(user=user).first()
+        invitation = await InvitationGenerate.objects.filter(user=user).afirst()
         
         if not invitation:
             return Response(
@@ -171,17 +174,18 @@ class InvitationGetView(APIView):
             )
         
         serializer = InvitationGenerateSerializer(invitation)
+        serializer_data = await sync_to_async(lambda: serializer.data)()
         return Response(
             {
                 'message': 'Invitation code retrieved successfully',
                 'status': 'success',
-                'data': serializer.data
+                'data': serializer_data
             },
             status=status.HTTP_200_OK
         )
 
 
-class InvitedUsersView(APIView):
+class InvitedUsersView(AsyncAPIView):
     """
     Get all users invited by the authenticated user - GET
     Returns list of users who used the authenticated user's invitation code
@@ -229,25 +233,28 @@ class InvitedUsersView(APIView):
             401: openapi.Response(description="Unauthorized - Invalid or missing JWT token"),
         }
     )
-    def get(self, request):
+    async def get(self, request):
         """
-        Get all users invited by the authenticated user
+        Get all users invited by the authenticated user - ASYNC VERSION
         Filtered by sender (the authenticated user)
         """
         user = request.user
         
-        # Get all invitations where the authenticated user is the sender
-        invited_users = InvitationUsers.objects.filter(
+        # Get all invitations where the authenticated user is the sender (async)
+        invited_users_queryset = InvitationUsers.objects.filter(
             sender=user
         ).select_related('sender', 'receiver').order_by('-created_at')
         
+        invited_users = await sync_to_async(list)(invited_users_queryset)
+        
         serializer = InvitationUsersSerializer(invited_users, many=True)
+        serializer_data = await sync_to_async(lambda: serializer.data)()
         
         return Response(
             {
                 'message': 'Invited users retrieved successfully',
                 'status': 'success',
-                'data': serializer.data
+                'data': serializer_data
             },
             status=status.HTTP_200_OK
         )

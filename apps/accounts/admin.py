@@ -1,19 +1,24 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
 from django.contrib.sites.models import Site
-from .models import CustomUser, VerificationCode, PasswordResetToken, UserPreferences, InvitationGenerate, InvitationUsers, PinVerificationForUser
+from .models import (
+    CustomUser, VerificationCode, PasswordResetToken, UserPreferences,
+    DriverPreferences, VehicleDetails, VehicleImages, DriverIdentification,
+    InvitationGenerate, InvitationUsers, PinVerificationForUser
+)
 
 
 @admin.register(CustomUser)
 class CustomUserAdmin(UserAdmin):
     list_display = ('email', 'username', 'first_name', 'last_name', 'is_verified', 'is_staff', 'is_active', 'created_at')
     list_filter = ('is_verified', 'is_staff', 'is_superuser', 'is_active', 'created_at')
-    search_fields = ('email', 'username', 'first_name', 'last_name', 'phone_number')
+    search_fields = ('email', 'username', 'first_name', 'last_name', 'phone_number', 'tax_number')
     ordering = ('-created_at',)
     
     fieldsets = (
         (None, {'fields': ('username', 'password')}),
         ('Personal Information', {'fields': ('first_name', 'last_name', 'email', 'phone_number', 'date_of_birth', 'avatar')}),
+        ('Additional Information', {'fields': ('address', 'longitude', 'latitude', 'tax_number')}),
         ('Permissions', {'fields': ('is_active', 'is_staff', 'is_superuser', 'groups')}),
         ('Important Dates', {'fields': ('last_login', 'date_joined', 'created_at', 'updated_at')}),
         ('Verification', {'fields': ('is_verified',)}),
@@ -81,6 +86,54 @@ class PinVerificationForUserAdmin(admin.ModelAdmin):
     search_fields = ('user__email', 'user__username', 'pin')
     readonly_fields = ('created_at', 'updated_at')
     ordering = ('-updated_at',)
+
+
+@admin.register(DriverPreferences)
+class DriverPreferencesAdmin(admin.ModelAdmin):
+    list_display = ('user', 'trip_type_preference', 'maximum_pickup_distance', 'preferred_working_hours', 'notification_intensity', 'created_at', 'updated_at')
+    list_filter = ('trip_type_preference', 'maximum_pickup_distance', 'preferred_working_hours', 'notification_intensity', 'created_at', 'updated_at')
+    search_fields = ('user__email', 'user__username', 'user__first_name', 'user__last_name')
+    readonly_fields = ('created_at', 'updated_at')
+    ordering = ('-updated_at',)
+
+
+@admin.register(VehicleDetails)
+class VehicleDetailsAdmin(admin.ModelAdmin):
+    list_display = ('user', 'brand', 'model', 'year_of_manufacture', 'vin', 'created_at', 'updated_at')
+    list_filter = ('brand', 'year_of_manufacture', 'created_at', 'updated_at')
+    search_fields = ('user__email', 'user__username', 'brand', 'model', 'vin')
+    readonly_fields = ('created_at', 'updated_at')
+    ordering = ('-updated_at',)
+
+
+@admin.register(VehicleImages)
+class VehicleImagesAdmin(admin.ModelAdmin):
+    list_display = ('vehicle', 'image', 'created_at')
+    list_filter = ('created_at',)
+    search_fields = ('vehicle__brand', 'vehicle__model', 'vehicle__user__email')
+    readonly_fields = ('created_at',)
+    ordering = ('-created_at',)
+
+
+@admin.register(DriverIdentification)
+class DriverIdentificationAdmin(admin.ModelAdmin):
+    list_display = ('user', 'profile_photo', 'drivers_license', 'terms_and_conditions', 'legal_agreements', 'created_at', 'updated_at')
+    list_filter = ('terms_and_conditions', 'legal_agreements', 'created_at', 'updated_at')
+    search_fields = ('user__email', 'user__username', 'user__first_name', 'user__last_name')
+    readonly_fields = ('created_at', 'updated_at')
+    ordering = ('-updated_at',)
+    fieldsets = (
+        ('Driver Information', {'fields': ('user',)}),
+        ('Image Documents', {
+            'fields': (
+                'proof_of_work_eligibility', 'profile_photo', 'drivers_license',
+                'background_check', 'driver_abstract', 'livery_vehicle_registration',
+                'vehicle_insurance', 'city_tndl', 'elvis_vehicle_inspection'
+            )
+        }),
+        ('Agreements', {'fields': ('terms_and_conditions', 'legal_agreements')}),
+        ('Timestamps', {'fields': ('created_at', 'updated_at')}),
+    )
 
 
 admin.site.unregister(Site)
