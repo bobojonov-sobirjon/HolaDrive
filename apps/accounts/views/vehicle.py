@@ -812,15 +812,16 @@ class VehicleImageView(AsyncAPIView):
         **Authentication Required:** Yes (JWT Token)
         **Role Required:** Driver
         """,
-        manual_parameters=[
-            openapi.Parameter(
-                'image',
-                openapi.IN_FORM,
-                description='New vehicle image file',
-                type=openapi.TYPE_FILE,
-                required=True
-            ),
-        ],
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            required=['image'],
+            properties={
+                'image': openapi.Schema(
+                    type=openapi.TYPE_FILE,
+                    description='New vehicle image file'
+                ),
+            }
+        ),
         responses={
             200: openapi.Response(
                 description="Vehicle image updated successfully",
@@ -838,7 +839,7 @@ class VehicleImageView(AsyncAPIView):
             403: openapi.Response(description="Forbidden - Driver role required"),
             404: openapi.Response(description="Vehicle image not found"),
         },
-        consumes=['multipart/form-data']
+        consumes=['multipart/form-data', 'application/json']
     )
     async def put(self, request, pk):
         """
