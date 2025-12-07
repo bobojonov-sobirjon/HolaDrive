@@ -1,9 +1,10 @@
 from rest_framework import status
-from rest_framework.views import APIView
 from rest_framework.response import Response
+from apps.common.views import AsyncAPIView
 from rest_framework.permissions import IsAuthenticated
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
+from asgiref.sync import sync_to_async
 
 from .serializers import (
     OrderCreateSerializer,
@@ -20,7 +21,7 @@ from .serializers.cancel_order import OrderCancelSerializer
 from .models import Order, OrderItem
 
 
-class OrderCreateView(APIView):
+class OrderCreateView(AsyncAPIView):
     """
     Create Order and OrderItem
     """
@@ -38,36 +39,50 @@ class OrderCreateView(APIView):
             400: openapi.Response(description="Bad request - validation errors"),
         }
     )
-    def post(self, request):
+    async def post(self, request):
         """
-        Create Order and OrderItem
+        Create Order and OrderItem - ASYNC VERSION
         """
         serializer = OrderCreateSerializer(data=request.data, context={'request': request})
         
-        if serializer.is_valid():
-            order = serializer.save()
+        # Validate serializer (sync operation)
+        is_valid = await sync_to_async(lambda: serializer.is_valid())()
+        
+        if is_valid:
+            # Save order (async)
+            order = await sync_to_async(serializer.save)()
+            
+            # Optimize query: prefetch related data to avoid N+1 queries (async)
+            order = await Order.objects.select_related('user').prefetch_related(
+                'order_items__ride_type'
+            ).aget(pk=order.pk)
+            
+            # Serialize order (sync operation wrapped)
             order_serializer = OrderSerializer(order)
+            serializer_data = await sync_to_async(lambda: order_serializer.data)()
             
             return Response(
                 {
                     'message': 'Order created successfully',
                     'status': 'success',
-                    'data': order_serializer.data
+                    'data': serializer_data
                 },
                 status=status.HTTP_201_CREATED
             )
         
+        # Get errors (sync operation)
+        errors = await sync_to_async(lambda: serializer.errors)()
         return Response(
             {
                 'message': 'Validation error',
                 'status': 'error',
-                'errors': serializer.errors
+                'errors': errors
             },
             status=status.HTTP_400_BAD_REQUEST
         )
 
 
-class OrderPreferencesCreateView(APIView):
+class OrderPreferencesCreateView(AsyncAPIView):
     """
     Create or Update Order Preferences
     """
@@ -94,35 +109,45 @@ class OrderPreferencesCreateView(APIView):
             400: openapi.Response(description="Bad request - validation errors"),
         }
     )
-    def post(self, request):
+    async def post(self, request):
         """
-        Create or Update Order Preferences
+        Create or Update Order Preferences - ASYNC VERSION
         """
         serializer = OrderPreferencesSerializer(data=request.data, context={'request': request})
         
-        if serializer.is_valid():
-            preferences = serializer.save()
+        # Validate serializer (sync operation)
+        is_valid = await sync_to_async(lambda: serializer.is_valid())()
+        
+        if is_valid:
+            # Save preferences (async)
+            preferences = await sync_to_async(serializer.save)()
+            
+            # Serialize preferences (sync operation wrapped)
+            pref_serializer = OrderPreferencesSerializer(preferences)
+            serializer_data = await sync_to_async(lambda: pref_serializer.data)()
             
             return Response(
                 {
                     'message': 'Order preferences saved successfully',
                     'status': 'success',
-                    'data': OrderPreferencesSerializer(preferences).data
+                    'data': serializer_data
                 },
                 status=status.HTTP_201_CREATED
             )
         
+        # Get errors (sync operation)
+        errors = await sync_to_async(lambda: serializer.errors)()
         return Response(
             {
                 'message': 'Validation error',
                 'status': 'error',
-                'errors': serializer.errors
+                'errors': errors
             },
             status=status.HTTP_400_BAD_REQUEST
         )
 
 
-class AdditionalPassengerCreateView(APIView):
+class AdditionalPassengerCreateView(AsyncAPIView):
     """
     Create Additional Passenger
     """
@@ -140,35 +165,45 @@ class AdditionalPassengerCreateView(APIView):
             400: openapi.Response(description="Bad request - validation errors"),
         }
     )
-    def post(self, request):
+    async def post(self, request):
         """
-        Create Additional Passenger
+        Create Additional Passenger - ASYNC VERSION
         """
         serializer = AdditionalPassengerSerializer(data=request.data, context={'request': request})
         
-        if serializer.is_valid():
-            passenger = serializer.save()
+        # Validate serializer (sync operation)
+        is_valid = await sync_to_async(lambda: serializer.is_valid())()
+        
+        if is_valid:
+            # Save passenger (async)
+            passenger = await sync_to_async(serializer.save)()
+            
+            # Serialize passenger (sync operation wrapped)
+            pass_serializer = AdditionalPassengerSerializer(passenger)
+            serializer_data = await sync_to_async(lambda: pass_serializer.data)()
             
             return Response(
                 {
                     'message': 'Additional passenger added successfully',
                     'status': 'success',
-                    'data': AdditionalPassengerSerializer(passenger).data
+                    'data': serializer_data
                 },
                 status=status.HTTP_201_CREATED
             )
         
+        # Get errors (sync operation)
+        errors = await sync_to_async(lambda: serializer.errors)()
         return Response(
             {
                 'message': 'Validation error',
                 'status': 'error',
-                'errors': serializer.errors
+                'errors': errors
             },
             status=status.HTTP_400_BAD_REQUEST
         )
 
 
-class OrderScheduleCreateView(APIView):
+class OrderScheduleCreateView(AsyncAPIView):
     """
     Create Order Schedule
     """
@@ -188,35 +223,45 @@ class OrderScheduleCreateView(APIView):
             400: openapi.Response(description="Bad request - validation errors"),
         }
     )
-    def post(self, request):
+    async def post(self, request):
         """
-        Create Order Schedule
+        Create Order Schedule - ASYNC VERSION
         """
         serializer = OrderScheduleSerializer(data=request.data, context={'request': request})
         
-        if serializer.is_valid():
-            schedule = serializer.save()
+        # Validate serializer (sync operation)
+        is_valid = await sync_to_async(lambda: serializer.is_valid())()
+        
+        if is_valid:
+            # Save schedule (async)
+            schedule = await sync_to_async(serializer.save)()
+            
+            # Serialize schedule (sync operation wrapped)
+            sched_serializer = OrderScheduleSerializer(schedule)
+            serializer_data = await sync_to_async(lambda: sched_serializer.data)()
             
             return Response(
                 {
                     'message': 'Order schedule created successfully',
                     'status': 'success',
-                    'data': OrderScheduleSerializer(schedule).data
+                    'data': serializer_data
                 },
                 status=status.HTTP_201_CREATED
             )
         
+        # Get errors (sync operation)
+        errors = await sync_to_async(lambda: serializer.errors)()
         return Response(
             {
                 'message': 'Validation error',
                 'status': 'error',
-                'errors': serializer.errors
+                'errors': errors
             },
             status=status.HTTP_400_BAD_REQUEST
         )
 
 
-class PriceEstimateView(APIView):
+class PriceEstimateView(AsyncAPIView):
     """
     Get price estimates for all ride types
     """
@@ -231,9 +276,9 @@ class PriceEstimateView(APIView):
             400: openapi.Response(description="Bad request - validation errors"),
         }
     )
-    def post(self, request):
+    async def post(self, request):
         """
-        Calculate price estimates for all active ride types
+        Calculate price estimates for all active ride types - ASYNC VERSION
         """
         from apps.order.models import RideType
         from apps.order.services.surge_pricing_service import SurgePricingService, calculate_distance
@@ -241,25 +286,32 @@ class PriceEstimateView(APIView):
         
         serializer = PriceEstimateSerializer(data=request.data)
         
-        if serializer.is_valid():
-            lat_from = float(serializer.validated_data['latitude_from'])
-            lon_from = float(serializer.validated_data['longitude_from'])
-            lat_to = float(serializer.validated_data['latitude_to'])
-            lon_to = float(serializer.validated_data['longitude_to'])
+        # Validate serializer (sync operation)
+        is_valid = await sync_to_async(lambda: serializer.is_valid())()
+        
+        if is_valid:
+            # Get validated data (sync operation)
+            validated_data = await sync_to_async(lambda: serializer.validated_data)()
             
-            # Calculate distance
-            distance_km = calculate_distance(lat_from, lon_from, lat_to, lon_to)
+            lat_from = float(validated_data['latitude_from'])
+            lon_from = float(validated_data['longitude_from'])
+            lat_to = float(validated_data['latitude_to'])
+            lon_to = float(validated_data['longitude_to'])
             
-            # Get surge multiplier
-            surge_multiplier = SurgePricingService.get_multiplier(lat_from, lon_from)
+            # Calculate distance (sync function, but can run in thread)
+            distance_km = await sync_to_async(calculate_distance)(lat_from, lon_from, lat_to, lon_to)
             
-            # Get all active ride types
-            ride_types = RideType.objects.filter(is_active=True)
+            # Get surge multiplier (sync function)
+            surge_multiplier = await sync_to_async(SurgePricingService.get_multiplier)(lat_from, lon_from)
             
+            # Get all active ride types (async query)
+            ride_types = await sync_to_async(list)(RideType.objects.filter(is_active=True))
+            
+            # Process estimates (sync operations in async context)
             estimates = []
             for ride_type in ride_types:
                 if ride_type.base_price and ride_type.price_per_km:
-                    price = ride_type.calculate_price(distance_km, surge_multiplier)
+                    price = await sync_to_async(ride_type.calculate_price)(distance_km, surge_multiplier)
                     estimates.append({
                         'ride_type_id': ride_type.id,
                         'ride_type_name': ride_type.name or ride_type.name_large,
@@ -288,17 +340,19 @@ class PriceEstimateView(APIView):
                 status=status.HTTP_200_OK
             )
         
+        # Get errors (sync operation)
+        errors = await sync_to_async(lambda: serializer.errors)()
         return Response(
             {
                 'message': 'Validation error',
                 'status': 'error',
-                'errors': serializer.errors
+                'errors': errors
             },
             status=status.HTTP_400_BAD_REQUEST
         )
 
 
-class OrderItemUpdateView(APIView):
+class OrderItemUpdateView(AsyncAPIView):
     """
     Update OrderItem with ride_type
     """
@@ -314,12 +368,15 @@ class OrderItemUpdateView(APIView):
             404: openapi.Response(description="Order item not found"),
         }
     )
-    def patch(self, request, order_item_id):
+    async def patch(self, request, order_item_id):
         """
-        Update OrderItem with ride_type
+        Update OrderItem with ride_type - ASYNC VERSION
         """
         try:
-            order_item = OrderItem.objects.get(id=order_item_id)
+            # Optimize query: use select_related to avoid N+1 queries (async)
+            order_item = await OrderItem.objects.select_related(
+                'order__user', 'ride_type'
+            ).aget(id=order_item_id)
             # Check if order belongs to user
             if order_item.order.user != request.user:
                 return Response(
@@ -345,30 +402,41 @@ class OrderItemUpdateView(APIView):
             context={'request': request}
         )
         
-        if serializer.is_valid():
-            updated_item = serializer.save()
+        # Validate serializer (sync operation)
+        is_valid = await sync_to_async(lambda: serializer.is_valid())()
+        
+        if is_valid:
+            # Save updated item (async)
+            updated_item = await sync_to_async(serializer.save)()
+            # Re-fetch with optimized query to avoid N+1 in serializer (async)
+            updated_item = await OrderItem.objects.select_related('ride_type').aget(pk=updated_item.pk)
+            
+            # Serialize order item (sync operation wrapped)
             order_item_serializer = OrderItemSerializer(updated_item)
+            serializer_data = await sync_to_async(lambda: order_item_serializer.data)()
             
             return Response(
                 {
                     'message': 'Order item updated successfully',
                     'status': 'success',
-                    'data': order_item_serializer.data
+                    'data': serializer_data
                 },
                 status=status.HTTP_200_OK
             )
         
+        # Get errors (sync operation)
+        errors = await sync_to_async(lambda: serializer.errors)()
         return Response(
             {
                 'message': 'Validation error',
                 'status': 'error',
-                'errors': serializer.errors
+                'errors': errors
             },
             status=status.HTTP_400_BAD_REQUEST
         )
 
 
-class OrderItemManagePriceView(APIView):
+class OrderItemManagePriceView(AsyncAPIView):
     """
     Manage (adjust) OrderItem price
     """
@@ -384,12 +452,15 @@ class OrderItemManagePriceView(APIView):
             404: openapi.Response(description="Order item not found"),
         }
     )
-    def patch(self, request, order_item_id):
+    async def patch(self, request, order_item_id):
         """
-        Adjust OrderItem price
+        Adjust OrderItem price - ASYNC VERSION
         """
         try:
-            order_item = OrderItem.objects.get(id=order_item_id)
+            # Optimize query: use select_related to avoid N+1 queries (async)
+            order_item = await OrderItem.objects.select_related(
+                'order__user', 'ride_type'
+            ).aget(id=order_item_id)
             # Check if order belongs to user
             if order_item.order.user != request.user:
                 return Response(
@@ -410,8 +481,13 @@ class OrderItemManagePriceView(APIView):
         
         serializer = OrderItemManagePriceSerializer(data=request.data)
         
-        if serializer.is_valid():
-            adjusted_price = serializer.validated_data['adjusted_price']
+        # Validate serializer (sync operation)
+        is_valid = await sync_to_async(lambda: serializer.is_valid())()
+        
+        if is_valid:
+            # Get validated data (sync operation)
+            validated_data = await sync_to_async(lambda: serializer.validated_data)()
+            adjusted_price = validated_data['adjusted_price']
             
             # Check if original_price exists
             if not order_item.original_price:
@@ -423,10 +499,12 @@ class OrderItemManagePriceView(APIView):
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
-            # Ensure min_price and max_price are calculated
+            # Ensure min_price and max_price are calculated (sync method)
             if not order_item.min_price or not order_item.max_price:
-                order_item.min_price, order_item.max_price = order_item.calculate_price_range()
-                order_item.save()
+                min_price, max_price = await sync_to_async(order_item.calculate_price_range)()
+                order_item.min_price = min_price
+                order_item.max_price = max_price
+                await sync_to_async(order_item.save)()
             
             # Validate price range
             from decimal import Decimal
@@ -462,16 +540,21 @@ class OrderItemManagePriceView(APIView):
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
-            # Adjust price using the model method
+            # Adjust price using the model method (sync method)
             try:
-                order_item.adjust_price(float(adjusted_price))
+                await sync_to_async(order_item.adjust_price)(float(adjusted_price))
+                # Re-fetch with optimized query to avoid N+1 in serializer (async)
+                order_item = await OrderItem.objects.select_related('ride_type').aget(pk=order_item.pk)
+                
+                # Serialize order item (sync operation wrapped)
                 order_item_serializer = OrderItemSerializer(order_item)
+                serializer_data = await sync_to_async(lambda: order_item_serializer.data)()
                 
                 return Response(
                     {
                         'message': 'Price adjusted successfully',
                         'status': 'success',
-                        'data': order_item_serializer.data
+                        'data': serializer_data
                     },
                     status=status.HTTP_200_OK
                 )
@@ -484,17 +567,19 @@ class OrderItemManagePriceView(APIView):
                     status=status.HTTP_400_BAD_REQUEST
                 )
         
+        # Get errors (sync operation)
+        errors = await sync_to_async(lambda: serializer.errors)()
         return Response(
             {
                 'message': 'Validation error',
                 'status': 'error',
-                'errors': serializer.errors
+                'errors': errors
             },
             status=status.HTTP_400_BAD_REQUEST
         )
 
 
-class OrderCancelView(APIView):
+class OrderCancelView(AsyncAPIView):
     """
     Cancel an order
     """
@@ -518,12 +603,13 @@ class OrderCancelView(APIView):
             404: openapi.Response(description="Order not found"),
         }
     )
-    def post(self, request, order_id):
+    async def post(self, request, order_id):
         """
-        Cancel an order
+        Cancel an order - ASYNC VERSION
         """
         try:
-            order = Order.objects.get(id=order_id)
+            # Optimize query: use select_related to avoid N+1 queries (async)
+            order = await Order.objects.select_related('user').aget(id=order_id)
             # Check if order belongs to user
             if order.user != request.user:
                 return Response(
@@ -563,48 +649,65 @@ class OrderCancelView(APIView):
         
         serializer = OrderCancelSerializer(data=request.data)
         
-        if serializer.is_valid():
-            reason = serializer.validated_data['reason']
-            other_reason = serializer.validated_data.get('other_reason', '')
+        # Validate serializer (sync operation)
+        is_valid = await sync_to_async(lambda: serializer.is_valid())()
+        
+        if is_valid:
+            # Get validated data (sync operation)
+            validated_data = await sync_to_async(lambda: serializer.validated_data)()
+            reason = validated_data['reason']
+            other_reason = validated_data.get('other_reason', '')
             
-            # Update order status to cancelled
+            # Update order status to cancelled (async)
             order.status = Order.OrderStatus.CANCELLED
-            order.save()
+            await sync_to_async(order.save)()
             
             # Create CancelOrder record if driver exists
             from .models import OrderDriver, CancelOrder
-            order_driver = OrderDriver.objects.filter(order=order).first()
+            order_driver = await sync_to_async(
+                lambda: OrderDriver.objects.select_related('driver').filter(order=order).first()
+            )()
             
             if order_driver:
-                CancelOrder.objects.create(
+                await sync_to_async(CancelOrder.objects.create)(
                     order=order,
                     driver=order_driver,
                     reason=reason,
                     other_reason=other_reason if reason == CancelOrder.CancelReason.OTHER else None
                 )
             
+            # Re-fetch order with optimized query to avoid N+1 in serializer (async)
+            order = await Order.objects.select_related('user').prefetch_related(
+                'order_items__ride_type',
+                'order_drivers__driver'
+            ).aget(pk=order.pk)
+            
+            # Serialize order (sync operation wrapped)
             order_serializer = OrderSerializer(order)
+            serializer_data = await sync_to_async(lambda: order_serializer.data)()
             
             return Response(
                 {
                     'message': 'Order cancelled successfully',
                     'status': 'success',
-                    'data': order_serializer.data
+                    'data': serializer_data
                 },
                 status=status.HTTP_200_OK
             )
         
+        # Get errors (sync operation)
+        errors = await sync_to_async(lambda: serializer.errors)()
         return Response(
             {
                 'message': 'Validation error',
                 'status': 'error',
-                'errors': serializer.errors
+                'errors': errors
             },
             status=status.HTTP_400_BAD_REQUEST
         )
 
 
-class MyOrderListView(APIView):
+class MyOrderListView(AsyncAPIView):
     """
     Get current user's orders
     """
@@ -649,27 +752,36 @@ class MyOrderListView(APIView):
             200: openapi.Response(description="Orders retrieved successfully"),
         }
     )
-    def get(self, request):
+    async def get(self, request):
         """
-        Get current user's orders with optional filtering
+        Get current user's orders with optional filtering - ASYNC VERSION
+        Optimized with select_related and prefetch_related to avoid N+1 queries
         """
         from rest_framework.pagination import PageNumberPagination
         
-        # Get user's orders
-        orders = Order.objects.filter(user=request.user).order_by('-created_at')
+        # Get user's orders with optimized queries to avoid N+1 problem (async)
+        orders_queryset = Order.objects.filter(user=request.user).select_related(
+            'user'  # Optimize user foreign key access
+        ).prefetch_related(
+            'order_items__ride_type',  # Optimize order_items and ride_type access
+            'order_preferences',  # Optimize order preferences access
+            'order_drivers__driver',  # Optimize order drivers and driver access
+            'additional_passengers',  # Optimize additional passengers access
+        ).order_by('-created_at')
         
         # Filter by status if provided
         status_filter = request.query_params.get('status', None)
         if status_filter:
-            if status_filter in [choice[0] for choice in Order.OrderStatus.choices]:
-                orders = orders.filter(status=status_filter)
+            status_choices = await sync_to_async(lambda: [choice[0] for choice in Order.OrderStatus.choices])()
+            if status_filter in status_choices:
+                orders_queryset = orders_queryset.filter(status=status_filter)
             else:
                 return Response(
                     {
                         'message': 'Invalid status value',
                         'status': 'error',
                         'errors': {
-                            'status': f'Must be one of: {", ".join([choice[0] for choice in Order.OrderStatus.choices])}'
+                            'status': f'Must be one of: {", ".join(status_choices)}'
                         }
                     },
                     status=status.HTTP_400_BAD_REQUEST
@@ -678,28 +790,36 @@ class MyOrderListView(APIView):
         # Filter by order_type if provided
         order_type_filter = request.query_params.get('order_type', None)
         if order_type_filter:
-            if order_type_filter in [choice[0] for choice in Order.OrderType.choices]:
-                orders = orders.filter(order_type=order_type_filter)
+            order_type_choices = await sync_to_async(lambda: [choice[0] for choice in Order.OrderType.choices])()
+            if order_type_filter in order_type_choices:
+                orders_queryset = orders_queryset.filter(order_type=order_type_filter)
             else:
                 return Response(
                     {
                         'message': 'Invalid order_type value',
                         'status': 'error',
                         'errors': {
-                            'order_type': f'Must be one of: {", ".join([choice[0] for choice in Order.OrderType.choices])}'
+                            'order_type': f'Must be one of: {", ".join(order_type_choices)}'
                         }
                     },
                     status=status.HTTP_400_BAD_REQUEST
                 )
         
-        # Pagination
+        # Convert queryset to list (async)
+        orders = await sync_to_async(list)(orders_queryset)
+        
+        # Pagination (sync operation wrapped)
         paginator = PageNumberPagination()
         paginator.page_size = int(request.query_params.get('page_size', 10))
-        paginated_orders = paginator.paginate_queryset(orders, request)
+        paginated_orders = await sync_to_async(paginator.paginate_queryset)(orders, request)
         
         if paginated_orders is not None:
+            # Serialize orders (sync operation wrapped)
             serializer = OrderSerializer(paginated_orders, many=True)
-            response = paginator.get_paginated_response(serializer.data)
+            serializer_data = await sync_to_async(lambda: serializer.data)()
+            
+            # Get paginated response (sync operation)
+            response = await sync_to_async(paginator.get_paginated_response)(serializer_data)
             # Add custom message and status to paginated response
             response.data['message'] = 'Orders retrieved successfully'
             response.data['status'] = 'success'
@@ -708,12 +828,15 @@ class MyOrderListView(APIView):
         
         # If no pagination
         serializer = OrderSerializer(orders, many=True)
+        serializer_data = await sync_to_async(lambda: serializer.data)()
+        orders_count = await sync_to_async(len)(orders)
+        
         return Response(
             {
                 'message': 'Orders retrieved successfully',
                 'status': 'success',
-                'count': orders.count(),
-                'data': serializer.data
+                'count': orders_count,
+                'data': serializer_data
             },
             status=status.HTTP_200_OK
         )

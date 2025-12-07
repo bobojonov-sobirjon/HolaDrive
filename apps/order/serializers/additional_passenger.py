@@ -27,7 +27,8 @@ class AdditionalPassengerSerializer(serializers.ModelSerializer):
         """
         user = self.context['request'].user
         try:
-            order = Order.objects.get(id=value, user=user)
+            # Optimize query: use select_related to avoid N+1 queries
+            order = Order.objects.select_related('user').get(id=value, user=user)
         except Order.DoesNotExist:
             raise serializers.ValidationError("Order not found or you don't have permission to access it.")
         return value
@@ -37,7 +38,8 @@ class AdditionalPassengerSerializer(serializers.ModelSerializer):
         Create AdditionalPassenger
         """
         order_id = validated_data.pop('order_id')
-        order = Order.objects.get(id=order_id)
+        # Optimize query: use select_related to avoid N+1 queries
+        order = Order.objects.select_related('user').get(id=order_id)
         
         passenger = AdditionalPassenger.objects.create(
             order=order,

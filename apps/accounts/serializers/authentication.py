@@ -26,10 +26,16 @@ class RegistrationSerializer(serializers.ModelSerializer):
         required=False,
         help_text="List of group IDs to assign to the user"
     )
+    invitation_code = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=20,
+        help_text="Optional invitation code to use when registering"
+    )
 
     class Meta:
         model = CustomUser
-        fields = ('full_name', 'email', 'password', 'groups')
+        fields = ('full_name', 'email', 'password', 'groups', 'invitation_code')
         extra_kwargs = {
             'email': {'required': True}
         }
@@ -49,6 +55,8 @@ class RegistrationSerializer(serializers.ModelSerializer):
         full_name = validated_data.pop('full_name', '')
         groups = validated_data.pop('groups', [])
         password = validated_data.pop('password')
+        # Remove invitation_code as it's not a model field (will be processed in view)
+        validated_data.pop('invitation_code', None)
         
         name_parts = full_name.strip().split(' ', 1)
         first_name = name_parts[0] if name_parts else ''
@@ -102,12 +110,6 @@ class LoginSerializer(serializers.Serializer):
         required=True,
         style={'input_type': 'password'},
         help_text="User password"
-    )
-    invitation_code = serializers.CharField(
-        required=False,
-        allow_blank=True,
-        max_length=20,
-        help_text="Optional invitation code to use when logging in"
     )
 
     def validate(self, attrs):
@@ -179,12 +181,6 @@ class VerifyCodeSerializer(serializers.Serializer):
         max_length=4,
         min_length=4,
         help_text="4-digit verification code"
-    )
-    invitation_code = serializers.CharField(
-        required=False,
-        allow_blank=True,
-        max_length=20,
-        help_text="Optional invitation code to use when verifying"
     )
 
     def validate(self, attrs):

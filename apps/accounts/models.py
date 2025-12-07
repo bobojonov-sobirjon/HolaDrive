@@ -71,6 +71,13 @@ class CustomUser(AbstractUser):
         verbose_name="Latitude",
         help_text="Optional. Latitude of your location."
     )
+    tax_number = models.CharField(
+        max_length=15,
+        blank=True,
+        null=True,
+        verbose_name="Tax Number (GST/HST)",
+        help_text="Optional. Enter your tax number (GST/HST)."
+    )
     is_verified = models.BooleanField(
         default=False,
         verbose_name="Email Verified",
@@ -497,3 +504,339 @@ class PinVerificationForUser(models.Model):
 
     def __str__(self):
         return f"PIN for {self.user.email}"
+
+
+class DriverPreferences(models.Model):
+    """
+    Model for storing driver ride preferences
+    """
+    
+    class TripTypePreference(models.TextChoices):
+        SHORT_TRIPS = 'short_trips', 'Short trips (under 5 km)'
+        MEDIUM_TRIPS = 'medium_trips', 'Medium trips (5-15 km)'
+        LONG_TRIPS = 'long_trips', 'Long trips (over 15 km)'
+        ANY = 'any', 'Any trip length'
+    
+    class MaximumPickupDistance(models.TextChoices):
+        ONE_KM = '1', '1 km'
+        THREE_KM = '3', '3 km'
+        FIVE_KM = '5', '5 km'
+        TEN_KM = '10', '10 km'
+        FIFTEEN_KM = '15', '15 km'
+        TWENTY_KM = '20', '20 km'
+    
+    class PreferredWorkingHours(models.TextChoices):
+        MORNING = 'morning', 'Morning (6 AM - 12 PM)'
+        AFTERNOON = 'afternoon', 'Afternoon (12 PM - 6 PM)'
+        EVENING = 'evening', 'Evening (6 PM - 12 AM)'
+        NIGHT = 'night', 'Night (12 AM - 6 AM)'
+        ANY = 'any', 'Any time'
+    
+    class NotificationIntensity(models.TextChoices):
+        MINIMAL = 'minimal', 'Minimal (only ride requests)'
+        MODERATE = 'moderate', 'Moderate (ride requests + updates)'
+        HIGH = 'high', 'High (all notifications)'
+    
+    user = models.ForeignKey(
+        CustomUser,
+        on_delete=models.CASCADE,
+        related_name='driver_preferences',
+        verbose_name="User",
+        help_text="Driver who owns these preferences"
+    )
+    trip_type_preference = models.CharField(
+        max_length=20,
+        choices=TripTypePreference.choices,
+        default=TripTypePreference.ANY,
+        verbose_name="Trip Type Preference",
+        help_text="Preferred trip length"
+    )
+    maximum_pickup_distance = models.CharField(
+        max_length=10,
+        choices=MaximumPickupDistance.choices,
+        default=MaximumPickupDistance.FIVE_KM,
+        verbose_name="Maximum Pickup Distance",
+        help_text="Maximum distance driver is willing to travel for pickup"
+    )
+    preferred_working_hours = models.CharField(
+        max_length=20,
+        choices=PreferredWorkingHours.choices,
+        default=PreferredWorkingHours.ANY,
+        verbose_name="Preferred Working Hours",
+        help_text="Preferred time of day to work"
+    )
+    notification_intensity = models.CharField(
+        max_length=20,
+        choices=NotificationIntensity.choices,
+        default=NotificationIntensity.MINIMAL,
+        verbose_name="Notification Intensity",
+        help_text="How many notifications to receive"
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name="Created At"
+    )
+    updated_at = models.DateTimeField(
+        auto_now=True,
+        verbose_name="Updated At"
+    )
+
+    class Meta:
+        verbose_name = "Driver Preference"
+        verbose_name_plural = "Driver Preferences"
+        ordering = ['-updated_at']
+        indexes = [
+            models.Index(fields=['user'], name='driver_pref_user_idx'),
+            models.Index(fields=['updated_at'], name='driver_pref_updated_idx'),
+            models.Index(fields=['user', 'updated_at'], name='driver_pref_user_updated_idx'),
+            models.Index(fields=['trip_type_preference'], name='driver_pref_trip_type_idx'),
+            models.Index(fields=['preferred_working_hours'], name='driver_pref_working_hours_idx'),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=['user'],
+                name='unique_driver_preferences'
+            )
+        ]
+
+    def __str__(self):
+        return f"Driver preferences for {self.user.email}"
+
+
+class VehicleDetails(models.Model):
+    """
+    Model for storing vehicle details for drivers
+    """
+    user = models.ForeignKey(
+        CustomUser,
+        on_delete=models.CASCADE,
+        related_name='vehicle_details',
+        verbose_name="Driver",
+        help_text="Driver who owns this vehicle"
+    )
+    brand = models.CharField(
+        max_length=100,
+        verbose_name="Brand of car",
+        help_text="Vehicle brand (e.g., Toyota, Honda, etc.)"
+    )
+    model = models.CharField(
+        max_length=100,
+        verbose_name="Model of car",
+        help_text="Vehicle model (e.g., Camry, Accord, etc.)"
+    )
+    year_of_manufacture = models.IntegerField(
+        verbose_name="Year of Manufacture",
+        help_text="Year the vehicle was manufactured (2015 or newer)"
+    )
+    vin = models.CharField(
+        max_length=17,
+        unique=True,
+        verbose_name="Vehicle Identification Number (VIN)",
+        help_text="Unique vehicle identification number"
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name="Created At"
+    )
+    updated_at = models.DateTimeField(
+        auto_now=True,
+        verbose_name="Updated At"
+    )
+
+    class Meta:
+        verbose_name = "Vehicle Detail"
+        verbose_name_plural = "Vehicle Details"
+        ordering = ['-updated_at']
+        indexes = [
+            models.Index(fields=['user'], name='vehicle_user_idx'),
+            models.Index(fields=['vin'], name='vehicle_vin_idx'),
+            models.Index(fields=['brand'], name='vehicle_brand_idx'),
+            models.Index(fields=['model'], name='vehicle_model_idx'),
+            models.Index(fields=['year_of_manufacture'], name='vehicle_year_idx'),
+            models.Index(fields=['updated_at'], name='vehicle_updated_idx'),
+            models.Index(fields=['user', 'updated_at'], name='vehicle_user_updated_idx'),
+        ]
+
+    def __str__(self):
+        return f"{self.brand} {self.model} ({self.year_of_manufacture}) - {self.user.email}"
+
+
+class VehicleImages(models.Model):
+    """
+    Model for storing vehicle images
+    """
+    vehicle = models.ForeignKey(
+        VehicleDetails,
+        on_delete=models.CASCADE,
+        related_name='images',
+        verbose_name="Vehicle",
+        help_text="Vehicle these images belong to"
+    )
+    image = models.ImageField(
+        upload_to='vehicles/',
+        verbose_name="Vehicle Image",
+        help_text="Image of the vehicle"
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name="Created At"
+    )
+
+    class Meta:
+        verbose_name = "Vehicle Image"
+        verbose_name_plural = "Vehicle Images"
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['vehicle'], name='veh_img_vehicle_idx'),
+            models.Index(fields=['created_at'], name='veh_img_created_idx'),
+            models.Index(fields=['vehicle', 'created_at'], name='veh_img_veh_created_idx'),
+        ]
+
+    def __str__(self):
+        return f"Image for {self.vehicle.brand} {self.vehicle.model}"
+
+
+class DriverIdentification(models.Model):
+    """
+    Model for storing driver identification documents and verification status
+    """
+    user = models.OneToOneField(
+        CustomUser,
+        on_delete=models.CASCADE,
+        related_name='driver_identification',
+        verbose_name="Driver",
+        help_text="Driver who owns these identification documents"
+    )
+    
+    # Image fields (documents)
+    proof_of_work_eligibility = models.ImageField(
+        upload_to='driver_documents/proof_of_work/',
+        blank=True,
+        null=True,
+        verbose_name="Proof of Work Eligibility",
+        help_text="Photo of proof of work eligibility document"
+    )
+    profile_photo = models.ImageField(
+        upload_to='driver_documents/profile_photos/',
+        blank=True,
+        null=True,
+        verbose_name="Profile Photo",
+        help_text="Driver profile photo (verified by Veriff)"
+    )
+    drivers_license = models.ImageField(
+        upload_to='driver_documents/drivers_license/',
+        blank=True,
+        null=True,
+        verbose_name="Driver's License",
+        help_text="Photo of driver's license (Class 1, 2, or 4 required)"
+    )
+    background_check = models.ImageField(
+        upload_to='driver_documents/background_check/',
+        blank=True,
+        null=True,
+        verbose_name="Background Check",
+        help_text="Photo of background check results"
+    )
+    driver_abstract = models.ImageField(
+        upload_to='driver_documents/driver_abstract/',
+        blank=True,
+        null=True,
+        verbose_name="Driver Abstract",
+        help_text="Photo of province driver abstract (3-year Personal Driver Abstract)"
+    )
+    livery_vehicle_registration = models.ImageField(
+        upload_to='driver_documents/livery_registration/',
+        blank=True,
+        null=True,
+        verbose_name="Livery Vehicle Registration",
+        help_text="Photo of livery vehicle registration (Class 1-55 or Class 1-66)"
+    )
+    vehicle_insurance = models.ImageField(
+        upload_to='driver_documents/vehicle_insurance/',
+        blank=True,
+        null=True,
+        verbose_name="Vehicle Insurance",
+        help_text="Photo of vehicle insurance document"
+    )
+    city_tndl = models.ImageField(
+        upload_to='driver_documents/city_tndl/',
+        blank=True,
+        null=True,
+        verbose_name="City TNDL",
+        help_text="Photo of City TNDL (Taxi Network Driver License)"
+    )
+    elvis_vehicle_inspection = models.ImageField(
+        upload_to='driver_documents/elvis_inspection/',
+        blank=True,
+        null=True,
+        verbose_name="ELVIS Vehicle Inspection Form",
+        help_text="Photo of ELVIS (Enhanced Livery Vehicle Inspection Standards) certificate"
+    )
+    
+    # Boolean fields (agreements)
+    terms_and_conditions = models.BooleanField(
+        default=False,
+        verbose_name="Terms and Conditions",
+        help_text="Whether driver has agreed to terms and conditions"
+    )
+    legal_agreements = models.BooleanField(
+        default=False,
+        verbose_name="Legal Agreements",
+        help_text="Whether driver has agreed to legal agreements"
+    )
+    
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name="Created At"
+    )
+    updated_at = models.DateTimeField(
+        auto_now=True,
+        verbose_name="Updated At"
+    )
+
+    class Meta:
+        verbose_name = "Driver Identification"
+        verbose_name_plural = "Driver Identifications"
+        ordering = ['-updated_at']
+        indexes = [
+            models.Index(fields=['user'], name='driver_id_user_idx'),
+            models.Index(fields=['updated_at'], name='driver_id_updated_idx'),
+            models.Index(fields=['user', 'updated_at'], name='driver_id_user_updated_idx'),
+            models.Index(fields=['terms_and_conditions'], name='driver_id_terms_idx'),
+            models.Index(fields=['legal_agreements'], name='driver_id_legal_idx'),
+        ]
+
+    def __str__(self):
+        return f"Identification for {self.user.email}"
+    
+    def get_completion_status(self):
+        """
+        Get completion status for each identification step
+        Returns a dictionary with True/False for each step
+        """
+        return {
+            'proof_of_work_eligibility': bool(self.proof_of_work_eligibility),
+            'profile_photo': bool(self.profile_photo),
+            'drivers_license': bool(self.drivers_license),
+            'background_check': bool(self.background_check),
+            'driver_abstract': bool(self.driver_abstract),
+            'livery_vehicle_registration': bool(self.livery_vehicle_registration),
+            'vehicle_insurance': bool(self.vehicle_insurance),
+            'city_tndl': bool(self.city_tndl),
+            'elvis_vehicle_inspection': bool(self.elvis_vehicle_inspection),
+            'terms_and_conditions': self.terms_and_conditions,
+            'legal_agreements': self.legal_agreements,
+        }
+    
+    def get_completion_count(self):
+        """
+        Get count of completed steps
+        """
+        status = self.get_completion_status()
+        return sum(1 for value in status.values() if value)
+    
+    def get_total_steps(self):
+        """
+        Get total number of steps
+        """
+        return 11

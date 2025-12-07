@@ -108,6 +108,11 @@ DATABASES = {
         'PASSWORD': os.getenv('DB_PASSWORD', '0576'),
         'HOST': os.getenv('DB_HOST', 'localhost'),
         'PORT': os.getenv('DB_PORT', '5432'),
+        # Connection pooling - connections 10 minut davomida saqlanadi
+        'CONN_MAX_AGE': 600,  # 10 minut (sekundlarda)
+        'OPTIONS': {
+            'connect_timeout': 10,  # Connection timeout 10 sekund
+        }
     }
 }
 

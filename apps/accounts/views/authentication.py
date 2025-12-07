@@ -1,11 +1,12 @@
 from rest_framework import status
-from rest_framework.views import APIView
 from rest_framework.response import Response
+from apps.common.views import AsyncAPIView
 from rest_framework.permissions import AllowAny
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.conf import settings
+from asgiref.sync import sync_to_async
 
 from ..serializers import (
     RegistrationSerializer, LoginSerializer, SendVerificationCodeSerializer,
@@ -16,7 +17,7 @@ from ..models import VerificationCode, PasswordResetToken, InvitationGenerate, I
 from ..services import send_verification_code
 
 
-class RegistrationView(APIView):
+class RegistrationView(AsyncAPIView):
     """
     User registration endpoint
     """
@@ -71,9 +72,9 @@ class RegistrationView(APIView):
             ),
         }
     )
-    def post(self, request):
+    async def post(self, request):
         """
-        Register a new user
+        Register a new user - ASYNC VERSION
         """
         import logging
         logger = logging.getLogger(__name__)
@@ -84,12 +85,49 @@ class RegistrationView(APIView):
         
         serializer = RegistrationSerializer(data=request.data)
         
-        if serializer.is_valid():
+        is_valid = await sync_to_async(lambda: serializer.is_valid())()
+        
+        if is_valid:
             logger.info("REGISTRATION DEBUG: Serializer is valid")
-            user = serializer.save()
+            
+            # Get invitation_code from request data (before saving user)
+            invitation_code = request.data.get('invitation_code', '').strip() if request.data.get('invitation_code') else ''
+            
+            # Save user (invitation_code will be ignored by serializer.create as it's not a model field)
+            user = await sync_to_async(serializer.save)()
             logger.info(f"REGISTRATION DEBUG: User created - ID: {user.id}, Email: {user.email}")
             
-            # Send verification code to email
+            # Process invitation code if provided
+            invitation_message = None
+            if invitation_code:
+                # Check if user has already been invited before (async)
+                already_invited = await sync_to_async(InvitationUsers.objects.filter(receiver=user).exists)()
+                
+                if already_invited:
+                    # User has already been invited before, cannot use invitation code again
+                    invitation_message = "Bu invitation code bilan kirib bo'lmaydi, oldin kirgansiz"
+                else:
+                    # User hasn't been invited before, can use invitation code
+                    try:
+                        invitation_generate = await InvitationGenerate.objects.select_related('user').aget(
+                            invite_code=invitation_code
+                        )
+                        sender = invitation_generate.user
+                        
+                        # Don't allow user to invite themselves
+                        if sender.id == user.id:
+                            invitation_message = "O'zingizni taklif qila olmaysiz"
+                        else:
+                            await sync_to_async(InvitationUsers.objects.create)(
+                                sender=sender,
+                                receiver=user,
+                                is_active=True
+                            )
+                            invitation_message = "Invitation code muvaffaqiyatli qo'llanildi"
+                    except InvitationGenerate.DoesNotExist:
+                        invitation_message = "Noto'g'ri invitation code"
+            
+            # Send verification code to email (sync function)
             email = user.email
             if email:
                 logger.info(f"REGISTRATION DEBUG: Attempting to send verification code to: {email}")
@@ -97,7 +135,7 @@ class RegistrationView(APIView):
                 logger.info(f"REGISTRATION DEBUG: Email settings - FROM: {settings.DEFAULT_FROM_EMAIL}")
                 logger.info(f"REGISTRATION DEBUG: Email settings - BACKEND: {settings.EMAIL_BACKEND}")
                 
-                verification_code, success, error = send_verification_code(
+                verification_code, success, error = await sync_to_async(send_verification_code)(
                     user=user,
                     email=email
                 )
@@ -115,31 +153,40 @@ class RegistrationView(APIView):
             logger.info("REGISTRATION DEBUG: Registration completed successfully")
             logger.info("=" * 80)
             
+            user_data = await sync_to_async(serializer.to_representation)(user)
+            
+            response_data = {
+                'message': 'User registered successfully. Please check your email for verification code.',
+                'status': 'success',
+                'data': user_data,
+                'debug': {
+                    'verification_code_sent': success if email else False,
+                    'verification_code': verification_code.code if email and success else None,
+                    'error': error if email and not success else None
+                } if settings.DEBUG else None
+            }
+            
+            # Add invitation message if there is one
+            if invitation_message:
+                response_data['data']['invitation_message'] = invitation_message
+            
             return Response(
-                {
-                    'message': 'User registered successfully. Please check your email for verification code.',
-                    'status': 'success',
-                    'data': serializer.to_representation(user),
-                    'debug': {
-                        'verification_code_sent': success if email else False,
-                        'verification_code': verification_code.code if email and success else None,
-                        'error': error if email and not success else None
-                    } if settings.DEBUG else None
-                },
+                response_data,
                 status=status.HTTP_201_CREATED
             )
         
+        errors = await sync_to_async(lambda: serializer.errors)()
         return Response(
             {
                 'message': 'Validation error',
                 'status': 'error',
-                'errors': serializer.errors
+                'errors': errors
             },
             status=status.HTTP_400_BAD_REQUEST
         )
 
 
-class LoginView(APIView):
+class LoginView(AsyncAPIView):
     """
     User login endpoint
     """
@@ -154,20 +201,23 @@ class LoginView(APIView):
             400: openapi.Response(description="Bad request - validation errors"),
         }
     )
-    def post(self, request):
+    async def post(self, request):
         """
-        Login user with email/phone and password, then send verification code
+        Login user with email/phone and password, then send verification code - ASYNC VERSION
         """
         serializer = LoginSerializer(data=request.data)
         
-        if serializer.is_valid():
-            user = serializer.validated_data['user']
-            email = serializer.validated_data.get('email')
-            phone_number = serializer.validated_data.get('phone_number')
+        is_valid = await sync_to_async(lambda: serializer.is_valid())()
+        
+        if is_valid:
+            validated_data = await sync_to_async(lambda: serializer.validated_data)()
+            user = validated_data['user']
+            email = validated_data.get('email')
+            phone_number = validated_data.get('phone_number')
             
             contact_email = email or user.email
             contact_phone = phone_number or user.phone_number
-            verification_code, success, error = send_verification_code(
+            verification_code, success, error = await sync_to_async(send_verification_code)(
                 user=user,
                 email=contact_email if email or (not phone_number and user.email) else None,
                 phone_number=contact_phone if phone_number or (not email and user.phone_number) else None
@@ -198,17 +248,18 @@ class LoginView(APIView):
             
             return Response(response_data, status=status.HTTP_200_OK)
         
+        errors = await sync_to_async(lambda: serializer.errors)()
         return Response(
             {
                 'message': 'Validation error',
                 'status': 'error',
-                'errors': serializer.errors
+                'errors': errors
             },
             status=status.HTTP_400_BAD_REQUEST
         )
 
 
-class SendVerificationCodeView(APIView):
+class SendVerificationCodeView(AsyncAPIView):
     """
     Send verification code endpoint
     """
@@ -223,18 +274,21 @@ class SendVerificationCodeView(APIView):
             400: openapi.Response(description="Bad request - validation errors"),
         }
     )
-    def post(self, request):
+    async def post(self, request):
         """
-        Send verification code to user's email or phone
+        Send verification code to user's email or phone - ASYNC VERSION
         """
         serializer = SendVerificationCodeSerializer(data=request.data)
         
-        if serializer.is_valid():
-            user = serializer.validated_data['user']
-            email = serializer.validated_data.get('email')
-            phone_number = serializer.validated_data.get('phone_number')
+        is_valid = await sync_to_async(lambda: serializer.is_valid())()
+        
+        if is_valid:
+            validated_data = await sync_to_async(lambda: serializer.validated_data)()
+            user = validated_data['user']
+            email = validated_data.get('email')
+            phone_number = validated_data.get('phone_number')
             
-            verification_code, success, error = send_verification_code(
+            verification_code, success, error = await sync_to_async(send_verification_code)(
                 user=user,
                 email=email,
                 phone_number=phone_number
@@ -266,17 +320,18 @@ class SendVerificationCodeView(APIView):
                 status=status.HTTP_200_OK
             )
         
+        errors = await sync_to_async(lambda: serializer.errors)()
         return Response(
             {
                 'message': 'Validation error',
                 'status': 'error',
-                'errors': serializer.errors
+                'errors': errors
             },
             status=status.HTTP_400_BAD_REQUEST
         )
 
 
-class VerifyCodeView(APIView):
+class VerifyCodeView(AsyncAPIView):
     """
     Verify code endpoint
     """
@@ -291,91 +346,60 @@ class VerifyCodeView(APIView):
             400: openapi.Response(description="Bad request - validation errors"),
         }
     )
-    def post(self, request):
+    async def post(self, request):
         """
-        Verify code and login user
+        Verify code and login user - ASYNC VERSION
         """
         serializer = VerifyCodeSerializer(data=request.data)
         
-        if serializer.is_valid():
-            user = serializer.validated_data['user']
-            verification_code = serializer.validated_data['verification_code']
-            invitation_code = serializer.validated_data.get('invitation_code', '').strip()
+        is_valid = await sync_to_async(lambda: serializer.is_valid())()
+        
+        if is_valid:
+            validated_data = await sync_to_async(lambda: serializer.validated_data)()
+            user = validated_data['user']
+            verification_code = validated_data['verification_code']
             
             verification_code.is_used = True
-            verification_code.save()
+            await sync_to_async(verification_code.save)()
             
             user.is_verified = True
-            user.save()
+            await sync_to_async(user.save)()
             
-            # Check if user has already been invited before
-            already_invited = InvitationUsers.objects.filter(receiver=user).exists()
-            
-            invitation_message = None
-            if invitation_code:
-                if already_invited:
-                    # User has already been invited before, cannot use invitation code again
-                    invitation_message = "Bu invitation code bilan kirib bo'lmaydi, oldin kirgansiz"
-                else:
-                    # User hasn't been invited before, can use invitation code
-                    try:
-                        invitation_generate = InvitationGenerate.objects.select_related('user').get(
-                            invite_code=invitation_code
-                        )
-                        sender = invitation_generate.user
-                        
-                        # Don't allow user to invite themselves
-                        if sender.id == user.id:
-                            invitation_message = "O'zingizni taklif qila olmaysiz"
-                        else:
-                            InvitationUsers.objects.create(
-                                sender=sender,
-                                receiver=user,
-                                is_active=True
-                            )
-                    except InvitationGenerate.DoesNotExist:
-                        invitation_message = "Noto'g'ri invitation code"
-            
-            refresh = RefreshToken.for_user(user)
+            refresh = await sync_to_async(RefreshToken.for_user)(user)
             access_token = str(refresh.access_token)
             refresh_token = str(refresh)
             
-            response_data = {
-                'message': 'Code verified successfully',
-                'status': 'success',
-                'data': {
-                    'access_token': access_token,
-                    'refresh_token': refresh_token,
-                    'user': {
-                        'id': user.id,
-                        'email': user.email,
-                        'full_name': user.get_full_name(),
-                        'username': user.username,
-                        'is_verified': user.is_verified,
-                    }
-                }
-            }
-            
-            # Add invitation message if there is one
-            if invitation_message:
-                response_data['data']['invitation_message'] = invitation_message
-            
             return Response(
-                response_data,
+                {
+                    'message': 'Code verified successfully',
+                    'status': 'success',
+                    'data': {
+                        'access_token': access_token,
+                        'refresh_token': refresh_token,
+                        'user': {
+                            'id': user.id,
+                            'email': user.email,
+                            'full_name': await sync_to_async(user.get_full_name)(),
+                            'username': user.username,
+                            'is_verified': user.is_verified,
+                        }
+                    }
+                },
                 status=status.HTTP_200_OK
             )
         
+        errors = await sync_to_async(lambda: serializer.errors)()
         return Response(
             {
                 'message': 'Validation error',
                 'status': 'error',
-                'errors': serializer.errors
+                'errors': errors
             },
             status=status.HTTP_400_BAD_REQUEST
         )
 
 
-class ResetPasswordRequestView(APIView):
+class ResetPasswordRequestView(AsyncAPIView):
     """
     Request password reset endpoint
     """
@@ -390,20 +414,23 @@ class ResetPasswordRequestView(APIView):
             400: openapi.Response(description="Bad request - validation errors"),
         }
     )
-    def post(self, request):
+    async def post(self, request):
         """
-        Send password reset code via email or SMS
+        Send password reset code via email or SMS - ASYNC VERSION
         """
         serializer = ResetPasswordRequestSerializer(data=request.data)
         
-        if serializer.is_valid():
-            user = serializer.validated_data['user']
-            email = serializer.validated_data.get('email')
-            phone_number = serializer.validated_data.get('phone_number')
+        is_valid = await sync_to_async(lambda: serializer.is_valid())()
+        
+        if is_valid:
+            validated_data = await sync_to_async(lambda: serializer.validated_data)()
+            user = validated_data['user']
+            email = validated_data.get('email')
+            phone_number = validated_data.get('phone_number')
             
             contact_email = email or user.email
             contact_phone = phone_number or user.phone_number
-            verification_code, success, error = send_verification_code(
+            verification_code, success, error = await sync_to_async(send_verification_code)(
                 user=user,
                 email=contact_email if (email or (not phone_number and user.email)) else None,
                 phone_number=contact_phone if (phone_number or (not email and user.phone_number)) else None
@@ -436,17 +463,18 @@ class ResetPasswordRequestView(APIView):
                 status=status.HTTP_200_OK
             )
         
+        errors = await sync_to_async(lambda: serializer.errors)()
         return Response(
             {
                 'message': 'Validation error',
                 'status': 'error',
-                'errors': serializer.errors
+                'errors': errors
             },
             status=status.HTTP_400_BAD_REQUEST
         )
 
 
-class VerifyResetCodeView(APIView):
+class VerifyResetCodeView(AsyncAPIView):
     """
     Verify reset password code endpoint
     """
@@ -461,20 +489,23 @@ class VerifyResetCodeView(APIView):
             400: openapi.Response(description="Bad request - validation errors"),
         }
     )
-    def post(self, request):
+    async def post(self, request):
         """
-        Verify reset password code and generate reset token
+        Verify reset password code and generate reset token - ASYNC VERSION
         """
         serializer = VerifyResetCodeSerializer(data=request.data)
         
-        if serializer.is_valid():
-            user = serializer.validated_data['user']
-            verification_code = serializer.validated_data['verification_code']
+        is_valid = await sync_to_async(lambda: serializer.is_valid())()
+        
+        if is_valid:
+            validated_data = await sync_to_async(lambda: serializer.validated_data)()
+            user = validated_data['user']
+            verification_code = validated_data['verification_code']
             
             verification_code.is_used = True
-            verification_code.save()
+            await sync_to_async(verification_code.save)()
             
-            reset_token = PasswordResetToken.objects.create(user=user)
+            reset_token = await sync_to_async(PasswordResetToken.objects.create)(user=user)
             
             return Response(
                 {
@@ -488,17 +519,18 @@ class VerifyResetCodeView(APIView):
                 status=status.HTTP_200_OK
             )
         
+        errors = await sync_to_async(lambda: serializer.errors)()
         return Response(
             {
                 'message': 'Validation error',
                 'status': 'error',
-                'errors': serializer.errors
+                'errors': errors
             },
             status=status.HTTP_400_BAD_REQUEST
         )
 
 
-class ResetPasswordConfirmView(APIView):
+class ResetPasswordConfirmView(AsyncAPIView):
     """
     Confirm password reset endpoint
     """
@@ -513,22 +545,25 @@ class ResetPasswordConfirmView(APIView):
             400: openapi.Response(description="Bad request - validation errors"),
         }
     )
-    def post(self, request):
+    async def post(self, request):
         """
-        Reset password with reset token
+        Reset password with reset token - ASYNC VERSION
         """
         serializer = ResetPasswordConfirmSerializer(data=request.data)
         
-        if serializer.is_valid():
-            user = serializer.validated_data['user']
-            reset_token = serializer.validated_data['reset_token']
-            new_password = serializer.validated_data['new_password']
+        is_valid = await sync_to_async(lambda: serializer.is_valid())()
+        
+        if is_valid:
+            validated_data = await sync_to_async(lambda: serializer.validated_data)()
+            user = validated_data['user']
+            reset_token = validated_data['reset_token']
+            new_password = validated_data['new_password']
             
-            user.set_password(new_password)
-            user.save()
+            await sync_to_async(user.set_password)(new_password)
+            await sync_to_async(user.save)()
             
             reset_token.is_used = True
-            reset_token.save()
+            await sync_to_async(reset_token.save)()
             
             return Response(
                 {
@@ -541,11 +576,12 @@ class ResetPasswordConfirmView(APIView):
                 status=status.HTTP_200_OK
             )
         
+        errors = await sync_to_async(lambda: serializer.errors)()
         return Response(
             {
                 'message': 'Validation error',
                 'status': 'error',
-                'errors': serializer.errors
+                'errors': errors
             },
             status=status.HTTP_400_BAD_REQUEST
         )
