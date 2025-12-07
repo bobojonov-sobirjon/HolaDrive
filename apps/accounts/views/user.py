@@ -98,8 +98,7 @@ class UserDetailView(AsyncAPIView):
             200: openapi.Response(description="User details updated successfully"),
             400: openapi.Response(description="Bad request - validation errors"),
             401: openapi.Response(description="Unauthorized"),
-        },
-        consumes=['multipart/form-data', 'application/json']
+        }
     )
     async def put(self, request):
         """
@@ -191,8 +190,7 @@ class UserDetailView(AsyncAPIView):
             200: openapi.Response(description="User details updated successfully"),
             400: openapi.Response(description="Bad request - validation errors"),
             401: openapi.Response(description="Unauthorized"),
-        },
-        consumes=['multipart/form-data', 'application/json']
+        }
     )
     async def patch(self, request): 
         """

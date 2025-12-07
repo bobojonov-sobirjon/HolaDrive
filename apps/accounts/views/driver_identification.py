@@ -138,8 +138,7 @@ class DriverIdentificationView(AsyncAPIView):
             400: openapi.Response(description="Bad request - validation errors"),
             401: openapi.Response(description="Unauthorized"),
             403: openapi.Response(description="Forbidden - Driver role required"),
-        },
-        consumes=['multipart/form-data', 'application/json']
+        }
     )
     async def post(self, request):
         """
@@ -211,8 +210,7 @@ class DriverIdentificationView(AsyncAPIView):
             401: openapi.Response(description="Unauthorized"),
             403: openapi.Response(description="Forbidden - Driver role required"),
             404: openapi.Response(description="Identification not found"),
-        },
-        consumes=['multipart/form-data', 'application/json']
+        }
     )
     async def put(self, request):
         """
@@ -280,8 +278,7 @@ class DriverIdentificationView(AsyncAPIView):
             401: openapi.Response(description="Unauthorized"),
             403: openapi.Response(description="Forbidden - Driver role required"),
             404: openapi.Response(description="Identification not found"),
-        },
-        consumes=['multipart/form-data', 'application/json']
+        }
     )
     async def patch(self, request):
         """
