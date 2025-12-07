@@ -156,7 +156,7 @@ class VehicleDetailsView(AsyncAPIView):
             401: openapi.Response(description="Unauthorized"),
             403: openapi.Response(description="Forbidden - Driver role required"),
         },
-        consumes=['application/json']
+        consumes=['multipart/form-data', 'application/json']
     )
     async def post(self, request):
         """
@@ -462,7 +462,7 @@ class VehicleDetailView(AsyncAPIView):
             403: openapi.Response(description="Forbidden - Driver role required"),
             404: openapi.Response(description="Vehicle details not found"),
         },
-        consumes=['application/json']
+        consumes=['multipart/form-data', 'application/json']
     )
     async def put(self, request, pk):
         """
@@ -812,16 +812,16 @@ class VehicleImageView(AsyncAPIView):
         **Authentication Required:** Yes (JWT Token)
         **Role Required:** Driver
         """,
-        manual_parameters=[
-            openapi.Parameter(
-                'image',
-                openapi.IN_FORM,
-                description='New vehicle image file',
-                type=openapi.TYPE_FILE,
-                required=True
-            ),
-        ],
-        request_body=None,
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            required=['image'],
+            properties={
+                'image': openapi.Schema(
+                    type=openapi.TYPE_FILE,
+                    description='New vehicle image file'
+                ),
+            }
+        ),
         responses={
             200: openapi.Response(
                 description="Vehicle image updated successfully",
@@ -839,7 +839,7 @@ class VehicleImageView(AsyncAPIView):
             403: openapi.Response(description="Forbidden - Driver role required"),
             404: openapi.Response(description="Vehicle image not found"),
         },
-        consumes=['application/json']
+        consumes=['multipart/form-data', 'application/json']
     )
     async def put(self, request, pk):
         """
