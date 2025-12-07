@@ -156,7 +156,7 @@ class VehicleDetailsView(AsyncAPIView):
             401: openapi.Response(description="Unauthorized"),
             403: openapi.Response(description="Forbidden - Driver role required"),
         },
-        consumes=['multipart/form-data']
+        consumes=['application/json']
     )
     async def post(self, request):
         """
@@ -462,7 +462,7 @@ class VehicleDetailView(AsyncAPIView):
             403: openapi.Response(description="Forbidden - Driver role required"),
             404: openapi.Response(description="Vehicle details not found"),
         },
-        consumes=['multipart/form-data']
+        consumes=['application/json']
     )
     async def put(self, request, pk):
         """
@@ -839,7 +839,7 @@ class VehicleImageView(AsyncAPIView):
             403: openapi.Response(description="Forbidden - Driver role required"),
             404: openapi.Response(description="Vehicle image not found"),
         },
-        consumes=['multipart/form-data']
+        consumes=['application/json']
     )
     async def put(self, request, pk):
         """
