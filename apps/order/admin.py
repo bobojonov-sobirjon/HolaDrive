@@ -1,7 +1,10 @@
 from django.contrib import admin
+from django.db import models
+from django import forms
 from .models import (
     Order, OrderItem, OrderPreferences, AdditionalPassenger, OrderDriver, 
-    CancelOrder, RideType, SurgePricing, OrderPaymentSplit, PromoCode, OrderPromoCode
+    CancelOrder, RideType, SurgePricing, OrderPaymentSplit, PromoCode, OrderPromoCode,
+    RatingFeedbackTag, TripRating
 )
 
 
@@ -12,6 +15,16 @@ class OrderAdmin(admin.ModelAdmin):
     search_fields = ('order_code', 'user__email', 'user__username')
     readonly_fields = ('order_code', 'created_at', 'updated_at')
     ordering = ('-created_at',)
+    
+    # CharField va TextField uchun kengaytirilgan ko'rinish
+    formfield_overrides = {
+        models.CharField: {
+            'widget': forms.TextInput(attrs={'style': 'width: 100%; min-width: 300px;'}),
+        },
+        models.TextField: {
+            'widget': forms.Textarea(attrs={'rows': 4, 'cols': 80, 'style': 'width: 100%; min-width: 500px;'}),
+        },
+    }
 
 
 @admin.register(OrderItem)
@@ -31,6 +44,16 @@ class OrderItemAdmin(admin.ModelAdmin):
         'distance_km'  # Also readonly since it's auto-calculated
     )
     ordering = ('-created_at',)
+    
+    # CharField va TextField uchun kengaytirilgan ko'rinish
+    formfield_overrides = {
+        models.CharField: {
+            'widget': forms.TextInput(attrs={'style': 'width: 100%; min-width: 300px;'}),
+        },
+        models.TextField: {
+            'widget': forms.Textarea(attrs={'rows': 4, 'cols': 80, 'style': 'width: 100%; min-width: 500px;'}),
+        },
+    }
     fieldsets = (
         ('Order Information', {
             'fields': ('order', 'ride_type')
@@ -69,6 +92,16 @@ class OrderPreferencesAdmin(admin.ModelAdmin):
     search_fields = ('order__order_code',)
     readonly_fields = ('created_at', 'updated_at')
     ordering = ('-created_at',)
+    
+    # CharField va TextField uchun kengaytirilgan ko'rinish
+    formfield_overrides = {
+        models.CharField: {
+            'widget': forms.TextInput(attrs={'style': 'width: 100%; min-width: 300px;'}),
+        },
+        models.TextField: {
+            'widget': forms.Textarea(attrs={'rows': 4, 'cols': 80, 'style': 'width: 100%; min-width: 500px;'}),
+        },
+    }
     fieldsets = (
         ('Order Information', {
             'fields': ('order',)
@@ -93,6 +126,19 @@ class AdditionalPassengerAdmin(admin.ModelAdmin):
     search_fields = ('order__order_code', 'full_name', 'phone_number', 'email')
     readonly_fields = ('created_at',)
     ordering = ('-created_at',)
+    
+    # CharField va TextField uchun kengaytirilgan ko'rinish
+    formfield_overrides = {
+        models.CharField: {
+            'widget': forms.TextInput(attrs={'style': 'width: 100%; min-width: 300px;'}),
+        },
+        models.TextField: {
+            'widget': forms.Textarea(attrs={'rows': 4, 'cols': 80, 'style': 'width: 100%; min-width: 500px;'}),
+        },
+        models.EmailField: {
+            'widget': forms.EmailInput(attrs={'style': 'width: 100%; min-width: 300px;'}),
+        },
+    }
 
 
 @admin.register(OrderDriver)
@@ -102,6 +148,13 @@ class OrderDriverAdmin(admin.ModelAdmin):
     search_fields = ('order__order_code', 'driver__email', 'driver__username', 'pin_code')
     readonly_fields = ('created_at',)
     ordering = ('-created_at',)
+    
+    # CharField va TextField uchun kengaytirilgan ko'rinish
+    formfield_overrides = {
+        models.CharField: {
+            'widget': forms.TextInput(attrs={'style': 'width: 100%; min-width: 300px;'}),
+        },
+    }
 
 
 @admin.register(CancelOrder)
@@ -111,6 +164,16 @@ class CancelOrderAdmin(admin.ModelAdmin):
     search_fields = ('order__order_code', 'other_reason')
     readonly_fields = ('created_at',)
     ordering = ('-created_at',)
+    
+    # CharField va TextField uchun kengaytirilgan ko'rinish
+    formfield_overrides = {
+        models.CharField: {
+            'widget': forms.TextInput(attrs={'style': 'width: 100%; min-width: 300px;'}),
+        },
+        models.TextField: {
+            'widget': forms.Textarea(attrs={'rows': 4, 'cols': 80, 'style': 'width: 100%; min-width: 500px;'}),
+        },
+    }
 
 
 @admin.register(RideType)
@@ -120,6 +183,16 @@ class RideTypeAdmin(admin.ModelAdmin):
     search_fields = ('name', 'name_large')
     readonly_fields = ('created_at',)
     ordering = ('name',)
+    
+    # CharField va TextField uchun kengaytirilgan ko'rinish
+    formfield_overrides = {
+        models.CharField: {
+            'widget': forms.TextInput(attrs={'style': 'width: 100%; min-width: 300px;'}),
+        },
+        models.TextField: {
+            'widget': forms.Textarea(attrs={'rows': 4, 'cols': 80, 'style': 'width: 100%; min-width: 500px;'}),
+        },
+    }
 
 
 @admin.register(SurgePricing)
@@ -129,6 +202,16 @@ class SurgePricingAdmin(admin.ModelAdmin):
     search_fields = ('name', 'zone_name')
     readonly_fields = ('created_at', 'updated_at')
     ordering = ('-priority', 'name')
+    
+    # CharField va TextField uchun kengaytirilgan ko'rinish
+    formfield_overrides = {
+        models.CharField: {
+            'widget': forms.TextInput(attrs={'style': 'width: 100%; min-width: 300px;'}),
+        },
+        models.TextField: {
+            'widget': forms.Textarea(attrs={'rows': 4, 'cols': 80, 'style': 'width: 100%; min-width: 500px;'}),
+        },
+    }
     fieldsets = (
         ('Basic Information', {
             'fields': ('name', 'multiplier', 'is_active', 'priority')
@@ -159,6 +242,16 @@ class OrderPaymentSplitAdmin(admin.ModelAdmin):
     search_fields = ('order__order_code', 'user__email', 'user__username', 'invitation_token')
     readonly_fields = ('created_at', 'updated_at', 'invitation_token', 'payment_confirmed_at')
     ordering = ('-created_at',)
+    
+    # CharField va TextField uchun kengaytirilgan ko'rinish
+    formfield_overrides = {
+        models.CharField: {
+            'widget': forms.TextInput(attrs={'style': 'width: 100%; min-width: 300px;'}),
+        },
+        models.TextField: {
+            'widget': forms.Textarea(attrs={'rows': 4, 'cols': 80, 'style': 'width: 100%; min-width: 500px;'}),
+        },
+    }
     fieldsets = (
         ('Order and User Information', {
             'fields': ('order', 'user')
@@ -186,6 +279,16 @@ class PromoCodeAdmin(admin.ModelAdmin):
     search_fields = ('code', 'description', 'user__email', 'user__username')
     readonly_fields = ('created_at', 'updated_at', 'current_uses')
     ordering = ('-created_at',)
+    
+    # CharField va TextField uchun kengaytirilgan ko'rinish
+    formfield_overrides = {
+        models.CharField: {
+            'widget': forms.TextInput(attrs={'style': 'width: 100%; min-width: 300px;'}),
+        },
+        models.TextField: {
+            'widget': forms.Textarea(attrs={'rows': 4, 'cols': 80, 'style': 'width: 100%; min-width: 500px;'}),
+        },
+    }
     fieldsets = (
         ('Basic Information', {
             'fields': ('code', 'description', 'is_active')
@@ -217,6 +320,16 @@ class OrderPromoCodeAdmin(admin.ModelAdmin):
     search_fields = ('order__order_code', 'promo_code__code', 'applied_by__email', 'applied_by__username')
     readonly_fields = ('created_at',)
     ordering = ('-created_at',)
+    
+    # CharField va TextField uchun kengaytirilgan ko'rinish
+    formfield_overrides = {
+        models.CharField: {
+            'widget': forms.TextInput(attrs={'style': 'width: 100%; min-width: 300px;'}),
+        },
+        models.TextField: {
+            'widget': forms.Textarea(attrs={'rows': 4, 'cols': 80, 'style': 'width: 100%; min-width: 500px;'}),
+        },
+    }
     fieldsets = (
         ('Order and Promo Code', {
             'fields': ('order', 'promo_code', 'applied_by')
@@ -230,6 +343,66 @@ class OrderPromoCodeAdmin(admin.ModelAdmin):
         }),
         ('Timestamps', {
             'fields': ('created_at',),
+            'classes': ('collapse',)
+        }),
+    )
+
+
+@admin.register(RatingFeedbackTag)
+class RatingFeedbackTagAdmin(admin.ModelAdmin):
+    list_display = ('name', 'tag_type', 'is_active', 'created_at', 'updated_at')
+    list_filter = ('tag_type', 'is_active', 'created_at')
+    search_fields = ('name',)
+    readonly_fields = ('created_at', 'updated_at')
+    ordering = ('tag_type', 'name')
+    
+    # CharField va TextField uchun kengaytirilgan ko'rinish
+    formfield_overrides = {
+        models.CharField: {
+            'widget': forms.TextInput(attrs={'style': 'width: 100%; min-width: 300px;'}),
+        },
+        models.TextField: {
+            'widget': forms.Textarea(attrs={'rows': 4, 'cols': 80, 'style': 'width: 100%; min-width: 500px;'}),
+        },
+    }
+    fieldsets = (
+        ('Tag Information', {
+            'fields': ('name', 'tag_type', 'is_active')
+        }),
+        ('Timestamps', {
+            'fields': ('created_at', 'updated_at'),
+            'classes': ('collapse',)
+        }),
+    )
+
+
+@admin.register(TripRating)
+class TripRatingAdmin(admin.ModelAdmin):
+    list_display = ('order', 'rider', 'driver', 'rating', 'tip_amount', 'status', 'created_at')
+    list_filter = ('rating', 'status', 'created_at')
+    search_fields = ('order__order_code', 'rider__email', 'driver__email', 'comment')
+    readonly_fields = ('created_at', 'updated_at')
+    ordering = ('-created_at',)
+    filter_horizontal = ('feedback_tags',)
+    
+    # CharField va TextField uchun kengaytirilgan ko'rinish
+    formfield_overrides = {
+        models.CharField: {
+            'widget': forms.TextInput(attrs={'style': 'width: 100%; min-width: 300px;'}),
+        },
+        models.TextField: {
+            'widget': forms.Textarea(attrs={'rows': 4, 'cols': 80, 'style': 'width: 100%; min-width: 500px;'}),
+        },
+    }
+    fieldsets = (
+        ('Order and Users', {
+            'fields': ('order', 'rider', 'driver')
+        }),
+        ('Rating Information', {
+            'fields': ('rating', 'comment', 'tip_amount', 'feedback_tags', 'status')
+        }),
+        ('Timestamps', {
+            'fields': ('created_at', 'updated_at'),
             'classes': ('collapse',)
         }),
     )

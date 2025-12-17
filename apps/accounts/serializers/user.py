@@ -15,10 +15,10 @@ class UserDetailSerializer(serializers.ModelSerializer):
         fields = (
             'id', 'email', 'username', 'full_name', 'phone_number',
             'date_of_birth', 'gender', 'avatar', 'address',
-            'longitude', 'latitude', 'tax_number', 'is_verified', 'is_active',
+            'longitude', 'latitude', 'tax_number', 'id_identification', 'is_verified', 'is_active',
             'groups', 'created_at', 'updated_at', 'last_login'
         )
-        read_only_fields = ('id', 'email', 'username', 'is_verified', 'created_at', 'updated_at', 'last_login')
+        read_only_fields = ('id', 'email', 'username', 'id_identification', 'is_verified', 'created_at', 'updated_at', 'last_login')
 
     def get_full_name(self, obj):
         return obj.get_full_name()

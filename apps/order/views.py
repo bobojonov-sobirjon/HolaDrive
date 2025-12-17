@@ -15,10 +15,24 @@ from .serializers import (
     OrderItemManagePriceSerializer,
     OrderPreferencesSerializer,
     AdditionalPassengerSerializer,
-    OrderScheduleSerializer
+    OrderScheduleSerializer,
+    DriverNearbyOrderSerializer,
+    DriverOrderActionSerializer,
+    DriverLocationUpdateSerializer,
+    DriverLocationSerializer,
+    DriverInfoSerializer,
+    DriverEarningsSerializer,
+    DriverRideHistorySerializer,
+    DriverOnlineStatusSerializer,
+    TripRatingCreateSerializer,
+    TripRatingSerializer,
+    RatingFeedbackTagSerializer,
 )
 from .serializers.cancel_order import OrderCancelSerializer
-from .models import Order, OrderItem
+from .models import Order, OrderItem, OrderDriver, OrderPreferences, TripRating
+from apps.accounts.models import CustomUser, DriverPreferences
+from .services.surge_pricing_service import calculate_distance
+from .services.driver_assignment_service import DriverAssignmentService
 
 
 class OrderCreateView(AsyncAPIView):
@@ -30,7 +44,44 @@ class OrderCreateView(AsyncAPIView):
     @swagger_auto_schema(
         tags=['Order'],
         operation_description="Create a new order with order item",
-        request_body=OrderCreateSerializer,
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            required=['address_from', 'address_to', 'latitude_from', 'longitude_from', 'latitude_to', 'longitude_to', 'order_type'],
+            properties={
+                'address_from': openapi.Schema(
+                    type=openapi.TYPE_STRING,
+                    description='Pickup address'
+                ),
+                'address_to': openapi.Schema(
+                    type=openapi.TYPE_STRING,
+                    description='Destination address'
+                ),
+                'latitude_from': openapi.Schema(
+                    type=openapi.TYPE_NUMBER,
+                    format=openapi.FORMAT_DOUBLE,
+                    description='Pickup latitude (decimal number)'
+                ),
+                'longitude_from': openapi.Schema(
+                    type=openapi.TYPE_NUMBER,
+                    format=openapi.FORMAT_DOUBLE,
+                    description='Pickup longitude (decimal number)'
+                ),
+                'latitude_to': openapi.Schema(
+                    type=openapi.TYPE_NUMBER,
+                    format=openapi.FORMAT_DOUBLE,
+                    description='Destination latitude (decimal number)'
+                ),
+                'longitude_to': openapi.Schema(
+                    type=openapi.TYPE_NUMBER,
+                    format=openapi.FORMAT_DOUBLE,
+                    description='Destination longitude (decimal number)'
+                ),
+                'order_type': openapi.Schema(
+                    type=openapi.TYPE_INTEGER,
+                    description='Order type: 1 = PICKUP (Pickup), 2 = FOR_ME (For Me)'
+                ),
+            }
+        ),
         responses={
             201: openapi.Response(
                 description="Order created successfully",
@@ -79,6 +130,198 @@ class OrderCreateView(AsyncAPIView):
                 'errors': errors
             },
             status=status.HTTP_400_BAD_REQUEST
+        )
+
+
+class OrderPreferencesGetView(AsyncAPIView):
+    """
+    Get Order Preferences by Order ID
+    """
+    permission_classes = [IsAuthenticated]
+    
+    @swagger_auto_schema(
+        tags=['Order Preferences'],
+        operation_description="Get order preferences by order ID. Returns preferences for the specified order if it belongs to the authenticated user.",
+        manual_parameters=[
+            openapi.Parameter(
+                'order_id',
+                openapi.IN_QUERY,
+                description="Order ID to get preferences for",
+                type=openapi.TYPE_INTEGER,
+                required=True
+            ),
+        ],
+        responses={
+            200: openapi.Response(
+                description="Order preferences retrieved successfully",
+                schema=OrderPreferencesSerializer
+            ),
+            404: openapi.Response(description="Order preferences not found"),
+            403: openapi.Response(description="Forbidden - Order does not belong to user"),
+        }
+    )
+    async def get(self, request):
+        """
+        Get Order Preferences by Order ID - ASYNC VERSION
+        """
+        order_id = request.query_params.get('order_id')
+        
+        if not order_id:
+            return Response(
+                {
+                    'message': 'order_id parameter is required',
+                    'status': 'error'
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            order_id = int(order_id)
+        except (ValueError, TypeError):
+            return Response(
+                {
+                    'message': 'Invalid order_id. Must be an integer.',
+                    'status': 'error'
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Check if order exists and belongs to user
+        try:
+            order = await Order.objects.select_related('user').aget(
+                id=order_id,
+                user=request.user
+            )
+        except Order.DoesNotExist:
+            return Response(
+                {
+                    'message': 'Order not found or you do not have permission to access it',
+                    'status': 'error'
+                },
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Get preferences for this order
+        preferences = await OrderPreferences.objects.filter(
+            order=order
+        ).select_related('order').afirst()
+        
+        if not preferences:
+            return Response(
+                {
+                    'message': 'Order preferences not found for this order',
+                    'status': 'error'
+                },
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Serialize preferences (sync operation wrapped)
+        serializer = OrderPreferencesSerializer(preferences, context={'request': request})
+        serializer_data = await sync_to_async(lambda: serializer.data)()
+        
+        return Response(
+            {
+                'message': 'Order preferences retrieved successfully',
+                'status': 'success',
+                'data': serializer_data
+            },
+            status=status.HTTP_200_OK
+        )
+
+
+class OrderPreferencesGetView(AsyncAPIView):
+    """
+    Get Order Preferences by Order ID
+    """
+    permission_classes = [IsAuthenticated]
+    
+    @swagger_auto_schema(
+        tags=['Order Preferences'],
+        operation_description="Get order preferences by order ID. Returns preferences for the specified order if it belongs to the authenticated user.",
+        manual_parameters=[
+            openapi.Parameter(
+                'order_id',
+                openapi.IN_QUERY,
+                description="Order ID to get preferences for",
+                type=openapi.TYPE_INTEGER,
+                required=True
+            ),
+        ],
+        responses={
+            200: openapi.Response(
+                description="Order preferences retrieved successfully",
+                schema=OrderPreferencesSerializer
+            ),
+            400: openapi.Response(description="Bad request - order_id parameter missing or invalid"),
+            404: openapi.Response(description="Order preferences not found or order does not belong to user"),
+        }
+    )
+    async def get(self, request):
+        """
+        Get Order Preferences by Order ID - ASYNC VERSION
+        """
+        order_id = request.query_params.get('order_id')
+        
+        if not order_id:
+            return Response(
+                {
+                    'message': 'order_id parameter is required',
+                    'status': 'error'
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            order_id = int(order_id)
+        except (ValueError, TypeError):
+            return Response(
+                {
+                    'message': 'Invalid order_id. Must be an integer.',
+                    'status': 'error'
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Check if order exists and belongs to user
+        try:
+            order = await Order.objects.select_related('user').aget(
+                id=order_id,
+                user=request.user
+            )
+        except Order.DoesNotExist:
+            return Response(
+                {
+                    'message': 'Order not found or you do not have permission to access it',
+                    'status': 'error'
+                },
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Get preferences for this order
+        preferences = await OrderPreferences.objects.filter(
+            order=order
+        ).select_related('order').afirst()
+        
+        if not preferences:
+            return Response(
+                {
+                    'message': 'Order preferences not found for this order',
+                    'status': 'error'
+                },
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Serialize preferences (sync operation wrapped)
+        serializer = OrderPreferencesSerializer(preferences, context={'request': request})
+        serializer_data = await sync_to_async(lambda: serializer.data)()
+        
+        return Response(
+            {
+                'message': 'Order preferences retrieved successfully',
+                'status': 'success',
+                'data': serializer_data
+            },
+            status=status.HTTP_200_OK
         )
 
 
@@ -261,6 +504,502 @@ class OrderScheduleCreateView(AsyncAPIView):
         )
 
 
+class DriverNearbyOrdersView(AsyncAPIView):
+    """
+    List nearby pending orders for authenticated driver.
+    Uses driver's current location (CustomUser.latitude/longitude)
+    and driver preferences (maximum_pickup_distance) to filter orders.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    async def _check_driver_role(self, user):
+        groups = await sync_to_async(list)(user.groups.all())
+        names = [g.name for g in groups]
+        return 'Driver' in names
+
+    @swagger_auto_schema(
+        tags=['Driver Orders'],
+        operation_description="""
+        Get list of orders assigned to this driver (Uber model).
+
+        Logic:
+        - Only returns orders where OrderDriver.status = 'requested' for this driver.
+        - Orders are automatically assigned to nearest driver when created.
+        - Driver has 5 minutes (300 seconds) to accept/reject before timeout.
+        - After timeout, order is reassigned to next nearest driver.
+
+        Authentication: JWT, Driver role required.
+        """,
+        responses={
+            200: openapi.Response(
+                description="Assigned orders retrieved successfully",
+                schema=DriverNearbyOrderSerializer(many=True),
+            ),
+            401: openapi.Response(description="Unauthorized"),
+            403: openapi.Response(description="Forbidden - Driver role required"),
+        },
+    )
+    async def get(self, request):
+        user = request.user
+
+        is_driver = await self._check_driver_role(user)
+        if not is_driver:
+            return Response(
+                {
+                    'message': 'Only drivers can access this endpoint',
+                    'status': 'error',
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        # Get orders assigned to this driver with status=requested (Uber model)
+        order_drivers_qs = (
+            OrderDriver.objects.filter(
+                driver=user,
+                status=OrderDriver.DriverRequestStatus.REQUESTED
+            )
+            .select_related('order', 'order__user')
+            .prefetch_related('order__order_items')
+        )
+        order_drivers = await sync_to_async(list)(order_drivers_qs)
+
+        # Filter only pending orders (not yet accepted by another driver)
+        nearby_orders = []
+        for order_driver in order_drivers:
+            order = order_driver.order
+            
+            # Only include if order is still pending
+            if order.status != Order.OrderStatus.PENDING:
+                continue
+            
+            # Check timeout (5 minutes = 300 seconds)
+            from django.utils import timezone
+            from apps.order.services.driver_assignment_service import DriverAssignmentService
+            
+            if order_driver.requested_at:
+                time_elapsed = timezone.now() - order_driver.requested_at
+                if time_elapsed.total_seconds() >= DriverAssignmentService.TIMEOUT_SECONDS:  # Timeout
+                    # Mark as timeout
+                    order_driver.status = OrderDriver.DriverRequestStatus.TIMEOUT
+                    await sync_to_async(order_driver.save)()
+                    
+                    # Reassign to next driver (MUHIM: oldingi driver exclude qilinadi)
+                    try:
+                        next_order_driver = await sync_to_async(DriverAssignmentService.assign_to_next_driver)(order)
+                        if next_order_driver:
+                            # Keyingi driverga yuborildi, bu driver endi ko'rmaydi
+                            pass
+                    except Exception as e:
+                        import logging
+                        logger = logging.getLogger(__name__)
+                        logger.error(f"Failed to reassign order {order.id} after timeout: {e}")
+                    
+                    # Bu driver endi bu orderni ko'rmaydi (timeout bo'lgan)
+                    continue
+            
+            first_item = order.order_items.first()
+            if not first_item or not first_item.latitude_from or not first_item.longitude_from:
+                continue
+
+            # Calculate distance if driver location is available
+            if user.latitude and user.longitude:
+                distance = calculate_distance(
+                    user.latitude,
+                    user.longitude,
+                    first_item.latitude_from,
+                    first_item.longitude_from,
+                )
+                order.distance_to_pickup_km = round(float(distance), 2)
+            else:
+                order.distance_to_pickup_km = None
+
+            nearby_orders.append(order)
+
+        serializer = DriverNearbyOrderSerializer(nearby_orders, many=True)
+        data = await sync_to_async(lambda: serializer.data)()
+        return Response(
+            {
+                'message': 'Assigned orders retrieved successfully',
+                'status': 'success',
+                'data': data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class DriverOrderActionView(AsyncAPIView):
+    """
+    Driver can accept or reject a pending order.
+    - accept: creates/updates OrderDriver with status='accepted' and sets Order.status='confirmed'
+    - reject: creates/updates OrderDriver with status='rejected' (Order stays pending)
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    async def _check_driver_role(self, user):
+        groups = await sync_to_async(list)(user.groups.all())
+        names = [g.name for g in groups]
+        return 'Driver' in names
+
+    @swagger_auto_schema(
+        tags=['Driver Orders'],
+        operation_description="""
+        Driver accepts or rejects a ride request (Uber model).
+
+        - action = 'accept': order will be assigned to this driver (Order.status → confirmed)
+        - action = 'reject': driver rejects, order will be reassigned to next nearest driver
+
+        Note: Only works if order was assigned to this driver (status=requested).
+        If driver rejects or times out, order is automatically reassigned to next driver.
+
+        Authentication: JWT, Driver role required.
+        """,
+        request_body=DriverOrderActionSerializer,
+        responses={
+            200: openapi.Response(description="Action processed successfully"),
+            400: openapi.Response(description="Bad request - validation errors"),
+            401: openapi.Response(description="Unauthorized"),
+            403: openapi.Response(description="Forbidden - Driver role required"),
+        },
+    )
+    async def post(self, request):
+        user = request.user
+
+        is_driver = await self._check_driver_role(user)
+        if not is_driver:
+            return Response(
+                {
+                    'message': 'Only drivers can access this endpoint',
+                    'status': 'error',
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        serializer = DriverOrderActionSerializer(data=request.data)
+        is_valid = await sync_to_async(lambda: serializer.is_valid())()
+        if not is_valid:
+            errors = await sync_to_async(lambda: serializer.errors)()
+            return Response(
+                {
+                    'message': 'Validation error',
+                    'status': 'error',
+                    'errors': errors,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        data = await sync_to_async(lambda: serializer.validated_data)()
+        order_id = data['order_id']
+        action = data['action']
+
+        order = await Order.objects.select_related('user').aget(id=order_id)
+
+        # Check if order is assigned to this driver
+        order_driver = await OrderDriver.objects.filter(
+            order=order,
+            driver=user,
+            status=OrderDriver.DriverRequestStatus.REQUESTED
+        ).afirst()
+
+        if not order_driver:
+            return Response(
+                {
+                    'message': 'This order is not assigned to you or has already been processed',
+                    'status': 'error',
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Only allow actions on pending orders
+        if order.status != Order.OrderStatus.PENDING and action == 'accept':
+            return Response(
+                {
+                    'message': 'Order is not available for accepting',
+                    'status': 'error',
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        from django.utils import timezone
+
+        # Update status based on action
+        if action == 'accept':
+            # Accept: assign to this driver
+            order_driver.status = OrderDriver.DriverRequestStatus.ACCEPTED
+            order.status = Order.OrderStatus.CONFIRMED
+            order_driver.responded_at = timezone.now()
+            await sync_to_async(order_driver.save)()
+            await sync_to_async(order.save)()
+            
+            # Send push notification to rider
+            try:
+                from apps.notification.services import send_push_to_user
+                send_push_to_user(
+                    user=order.user,
+                    title="Driver found",
+                    body=f"Your ride has been accepted. Driver is on the way.",
+                    data={
+                        "order_id": order.id,
+                        "order_code": order.order_code,
+                        "type": "driver_accepted"
+                    }
+                )
+            except Exception as e:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error(f"Failed to send push notification to rider {order.user.id}: {e}")
+        else:
+            # Reject: mark as rejected and reassign to next driver
+            order_driver.status = OrderDriver.DriverRequestStatus.REJECTED
+            order_driver.responded_at = timezone.now()
+            await sync_to_async(order_driver.save)()
+            
+            # Reassign to next nearest driver
+            try:
+                next_order_driver = await sync_to_async(DriverAssignmentService.assign_to_next_driver)(order)
+                if next_order_driver:
+                    message = "Order rejected. Reassigned to next driver."
+                else:
+                    message = "Order rejected. No more drivers available at the moment."
+            except Exception as e:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error(f"Failed to reassign order {order.id} after rejection: {e}")
+                message = "Order rejected successfully."
+
+        return Response(
+            {
+                'message': message if action == 'reject' else f"Order {action}ed successfully",
+                'status': 'success',
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class DriverLocationUpdateView(AsyncAPIView):
+    """
+    Update driver's current GPS location.
+    Stores latitude/longitude on CustomUser model.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    async def _check_driver_role(self, user):
+        groups = await sync_to_async(list)(user.groups.all())
+        names = [g.name for g in groups]
+        return 'Driver' in names
+
+    @swagger_auto_schema(
+        tags=['Driver Tracking'],
+        operation_description="""
+        Update current GPS location for authenticated driver.
+
+        Location will be used for:
+        - finding nearby orders
+        - showing driver's live location to rider for active orders
+
+        Authentication: JWT, Driver role required.
+        """,
+        request_body=DriverLocationUpdateSerializer,
+        responses={
+            200: openapi.Response(
+                description="Location updated successfully",
+                schema=DriverLocationSerializer,
+            ),
+            400: openapi.Response(description="Bad request - validation errors"),
+            401: openapi.Response(description="Unauthorized"),
+            403: openapi.Response(description="Forbidden - Driver role required"),
+        },
+    )
+    async def post(self, request):
+        user = request.user
+
+        is_driver = await self._check_driver_role(user)
+        if not is_driver:
+            return Response(
+                {
+                    'message': 'Only drivers can access this endpoint',
+                    'status': 'error',
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        serializer = DriverLocationUpdateSerializer(data=request.data)
+        is_valid = await sync_to_async(lambda: serializer.is_valid())()
+        if not is_valid:
+            errors = await sync_to_async(lambda: serializer.errors)()
+            return Response(
+                {
+                    'message': 'Validation error',
+                    'status': 'error',
+                    'errors': errors,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        data = await sync_to_async(lambda: serializer.validated_data)()
+
+        user.latitude = data['latitude']
+        user.longitude = data['longitude']
+        await sync_to_async(user.save)(update_fields=['latitude', 'longitude'])
+
+        response_data = {
+            'driver_id': user.id,
+            'latitude': user.latitude,
+            'longitude': user.longitude,
+            'updated_at': user.updated_at,
+        }
+        out_serializer = DriverLocationSerializer(response_data)
+        serialized = await sync_to_async(lambda: out_serializer.data)()
+
+        return Response(
+            {
+                'message': 'Location updated successfully',
+                'status': 'success',
+                'data': serialized,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class DriverLocationForOrderView(AsyncAPIView):
+    """
+    Rider can get driver's current location for a specific order.
+    Only works if order is assigned to a driver (OrderDriver with status=accepted).
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(
+        tags=['Driver Tracking'],
+        operation_description="""
+        Get driver's complete information for a specific order (for rider).
+
+        - Only the rider who created the order can call this.
+        - Requires that a driver has accepted the order.
+        - Returns driver profile, vehicle info, rating, trips count, and current location.
+
+        Authentication: JWT, Rider required (order owner).
+        """,
+        responses={
+            200: openapi.Response(
+                description="Driver information retrieved successfully",
+                schema=DriverInfoSerializer,
+            ),
+            400: openapi.Response(description="Bad request"),
+            401: openapi.Response(description="Unauthorized"),
+            403: openapi.Response(description="Forbidden"),
+            404: openapi.Response(description="Order or driver not found"),
+        },
+    )
+    async def get(self, request, order_id: int):
+        user = request.user
+
+        try:
+            order = await Order.objects.select_related('user').aget(id=order_id)
+        except Order.DoesNotExist:
+            return Response(
+                {
+                    'message': 'Order not found',
+                    'status': 'error',
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if order.user != user:
+            return Response(
+                {
+                    'message': 'You do not have permission to view this order',
+                    'status': 'error',
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        # Get accepted driver
+        order_driver = await OrderDriver.objects.filter(
+            order=order,
+            status=OrderDriver.DriverRequestStatus.ACCEPTED,
+        ).select_related('driver').afirst()
+
+        if not order_driver or not order_driver.driver:
+            return Response(
+                {
+                    'message': 'No driver assigned yet',
+                    'status': 'error',
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        driver = order_driver.driver
+        if driver.latitude is None or driver.longitude is None:
+            return Response(
+                {
+                    'message': 'Driver location is not available',
+                    'status': 'error',
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Get driver's vehicle details (first vehicle)
+        from apps.accounts.models import VehicleDetails
+        vehicle = await sync_to_async(
+            lambda: VehicleDetails.objects.filter(user=driver).select_related('default_ride_type').first()
+        )()
+
+        # Get completed trips count
+        completed_trips_count = await sync_to_async(
+            lambda: Order.objects.filter(
+                order_drivers__driver=driver,
+                order_drivers__status=OrderDriver.DriverRequestStatus.ACCEPTED,
+                status=Order.OrderStatus.COMPLETED
+            ).count()
+        )()
+
+        # Calculate average rating
+        ratings = await sync_to_async(list)(
+            TripRating.objects.filter(driver=driver, status='approved').values_list('rating', flat=True)
+        )
+        average_rating = 0.0
+        if ratings:
+            average_rating = round(sum(ratings) / len(ratings), 2)
+
+        # Build driver info data
+        # Get avatar URL
+        avatar_url = None
+        if driver.avatar:
+            request_obj = request
+            avatar_url = request_obj.build_absolute_uri(driver.avatar.url) if hasattr(request_obj, 'build_absolute_uri') else driver.avatar.url
+
+        driver_info_data = {
+            'name': driver.get_full_name(),
+            'avatar': avatar_url,
+            'rating': average_rating,
+            'trips_count': completed_trips_count,
+            'member_since': driver.created_at.date() if driver.created_at else None,
+            'car_model': f"{vehicle.brand} {vehicle.model}" if vehicle else None,
+            'color': vehicle.color if vehicle else None,
+            'plate_number': vehicle.plate_number if vehicle else None,
+            'location': {
+                'latitude': str(driver.latitude),
+                'longitude': str(driver.longitude),
+                'updated_at': driver.updated_at.isoformat() if driver.updated_at else None,
+            }
+        }
+
+        serializer = DriverInfoSerializer(driver_info_data)
+        serialized = await sync_to_async(lambda: serializer.data)()
+
+        return Response(
+            {
+                'message': 'Driver information retrieved successfully',
+                'status': 'success',
+                'data': serialized,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
 class PriceEstimateView(AsyncAPIView):
     """
     Get price estimates for all ride types
@@ -270,7 +1009,32 @@ class PriceEstimateView(AsyncAPIView):
     @swagger_auto_schema(
         tags=['Order'],
         operation_description="Get price estimates for all active ride types based on coordinates",
-        request_body=PriceEstimateSerializer,
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            required=['latitude_from', 'longitude_from', 'latitude_to', 'longitude_to'],
+            properties={
+                'latitude_from': openapi.Schema(
+                    type=openapi.TYPE_NUMBER,
+                    format=openapi.FORMAT_DOUBLE,
+                    description='Pickup latitude (decimal number)'
+                ),
+                'longitude_from': openapi.Schema(
+                    type=openapi.TYPE_NUMBER,
+                    format=openapi.FORMAT_DOUBLE,
+                    description='Pickup longitude (decimal number)'
+                ),
+                'latitude_to': openapi.Schema(
+                    type=openapi.TYPE_NUMBER,
+                    format=openapi.FORMAT_DOUBLE,
+                    description='Destination latitude (decimal number)'
+                ),
+                'longitude_to': openapi.Schema(
+                    type=openapi.TYPE_NUMBER,
+                    format=openapi.FORMAT_DOUBLE,
+                    description='Destination longitude (decimal number)'
+                ),
+            }
+        ),
         responses={
             200: openapi.Response(description="Price estimates retrieved successfully"),
             400: openapi.Response(description="Bad request - validation errors"),
@@ -839,4 +1603,625 @@ class MyOrderListView(AsyncAPIView):
                 'data': serializer_data
             },
             status=status.HTTP_200_OK
+        )
+
+
+class DriverEarningsView(AsyncAPIView):
+    """
+    Get driver earnings summary (today, weekly, monthly, total).
+    """
+    permission_classes = [IsAuthenticated]
+
+    async def _check_driver_role(self, user):
+        groups = await sync_to_async(list)(user.groups.all())
+        names = [g.name for g in groups]
+        return 'Driver' in names
+
+    @swagger_auto_schema(
+        tags=['Driver Earnings'],
+        operation_description="""
+        Get driver earnings summary including:
+        - Today earnings, rides count, and distance (km)
+        - Weekly earnings, rides count, and distance (km)
+        - Monthly earnings, rides count, and distance (km)
+        - Total earnings, rides count, and distance (km)
+        - Today target (number of rides)
+        
+        Distance is calculated from OrderItem.distance_km field (A to B distance for each order item).
+
+        Authentication: JWT, Driver role required.
+        """,
+        responses={
+            200: openapi.Response(
+                description="Earnings retrieved successfully",
+                schema=DriverEarningsSerializer,
+            ),
+            401: openapi.Response(description="Unauthorized"),
+            403: openapi.Response(description="Forbidden - Driver role required"),
+        },
+    )
+    async def get(self, request):
+        user = request.user
+
+        is_driver = await self._check_driver_role(user)
+        if not is_driver:
+            return Response(
+                {
+                    'message': 'Only drivers can access this endpoint',
+                    'status': 'error',
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        from django.utils import timezone
+        from datetime import timedelta
+        from decimal import Decimal
+
+        now = timezone.now()
+        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        week_start = today_start - timedelta(days=now.weekday())
+        month_start = today_start.replace(day=1)
+
+        # Get completed orders for this driver
+        completed_orders = Order.objects.filter(
+            order_drivers__driver=user,
+            order_drivers__status=OrderDriver.DriverRequestStatus.ACCEPTED,
+            status=Order.OrderStatus.COMPLETED
+        ).prefetch_related('order_items')
+
+        # Today earnings and distance
+        today_orders = await sync_to_async(list)(
+            completed_orders.filter(updated_at__gte=today_start)
+        )
+        today_earnings = Decimal('0.00')
+        today_distance_km = Decimal('0.00')
+        for order in today_orders:
+            for item in order.order_items.all():
+                if item.calculated_price:
+                    today_earnings += Decimal(str(item.calculated_price))
+                if item.distance_km:
+                    today_distance_km += Decimal(str(item.distance_km))
+        today_rides_count = len(today_orders)
+
+        # Weekly earnings and distance
+        week_orders = await sync_to_async(list)(
+            completed_orders.filter(updated_at__gte=week_start)
+        )
+        weekly_earnings = Decimal('0.00')
+        weekly_distance_km = Decimal('0.00')
+        for order in week_orders:
+            for item in order.order_items.all():
+                if item.calculated_price:
+                    weekly_earnings += Decimal(str(item.calculated_price))
+                if item.distance_km:
+                    weekly_distance_km += Decimal(str(item.distance_km))
+        weekly_rides_count = len(week_orders)
+
+        # Monthly earnings and distance
+        month_orders = await sync_to_async(list)(
+            completed_orders.filter(updated_at__gte=month_start)
+        )
+        monthly_earnings = Decimal('0.00')
+        monthly_distance_km = Decimal('0.00')
+        for order in month_orders:
+            for item in order.order_items.all():
+                if item.calculated_price:
+                    monthly_earnings += Decimal(str(item.calculated_price))
+                if item.distance_km:
+                    monthly_distance_km += Decimal(str(item.distance_km))
+        monthly_rides_count = len(month_orders)
+
+        # Total earnings and distance
+        all_orders = await sync_to_async(list)(completed_orders)
+        total_earnings = Decimal('0.00')
+        total_distance_km = Decimal('0.00')
+        for order in all_orders:
+            for item in order.order_items.all():
+                if item.calculated_price:
+                    total_earnings += Decimal(str(item.calculated_price))
+                if item.distance_km:
+                    total_distance_km += Decimal(str(item.distance_km))
+        total_rides_count = len(all_orders)
+
+        # Today target (default: 6 rides, can be configured)
+        today_target = 6  # Can be made configurable via DriverPreferences
+
+        earnings_data = {
+            'today_earnings': float(today_earnings),
+            'today_rides_count': today_rides_count,
+            'today_distance_km': float(today_distance_km),
+            'today_target': today_target,
+            'weekly_earnings': float(weekly_earnings),
+            'weekly_rides_count': weekly_rides_count,
+            'weekly_distance_km': float(weekly_distance_km),
+            'monthly_earnings': float(monthly_earnings),
+            'monthly_rides_count': monthly_rides_count,
+            'monthly_distance_km': float(monthly_distance_km),
+            'total_earnings': float(total_earnings),
+            'total_rides_count': total_rides_count,
+            'total_distance_km': float(total_distance_km),
+        }
+
+        serializer = DriverEarningsSerializer(earnings_data)
+        data = await sync_to_async(lambda: serializer.data)()
+
+        return Response(
+            {
+                'message': 'Earnings retrieved successfully',
+                'status': 'success',
+                'data': data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class DriverRideHistoryView(AsyncAPIView):
+    """
+    Get driver ride history (completed orders).
+    """
+    permission_classes = [IsAuthenticated]
+
+    async def _check_driver_role(self, user):
+        groups = await sync_to_async(list)(user.groups.all())
+        names = [g.name for g in groups]
+        return 'Driver' in names
+
+    @swagger_auto_schema(
+        tags=['Driver Earnings'],
+        operation_description="""
+        Get driver ride history (completed orders).
+
+        Returns list of completed rides with:
+        - Destination address
+        - Date and time
+        - Distance (km)
+        - Duration (minutes)
+        - Earnings
+
+        Query Parameters:
+        - page: Page number (optional)
+        - page_size: Items per page (optional, default: 10)
+
+        Authentication: JWT, Driver role required.
+        """,
+        manual_parameters=[
+            openapi.Parameter(
+                'page',
+                openapi.IN_QUERY,
+                description="Page number for pagination",
+                type=openapi.TYPE_INTEGER,
+                required=False
+            ),
+            openapi.Parameter(
+                'page_size',
+                openapi.IN_QUERY,
+                description="Number of items per page",
+                type=openapi.TYPE_INTEGER,
+                required=False
+            ),
+        ],
+        responses={
+            200: openapi.Response(
+                description="Ride history retrieved successfully",
+                schema=DriverRideHistorySerializer(many=True),
+            ),
+            401: openapi.Response(description="Unauthorized"),
+            403: openapi.Response(description="Forbidden - Driver role required"),
+        },
+    )
+    async def get(self, request):
+        user = request.user
+
+        is_driver = await self._check_driver_role(user)
+        if not is_driver:
+            return Response(
+                {
+                    'message': 'Only drivers can access this endpoint',
+                    'status': 'error',
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        from rest_framework.pagination import PageNumberPagination
+
+        # Get completed orders for this driver
+        completed_orders = Order.objects.filter(
+            order_drivers__driver=user,
+            order_drivers__status=OrderDriver.DriverRequestStatus.ACCEPTED,
+            status=Order.OrderStatus.COMPLETED
+        ).select_related('user').prefetch_related('order_items').order_by('-updated_at')
+
+        # Convert to list (async)
+        orders = await sync_to_async(list)(completed_orders)
+
+        # Pagination
+        paginator = PageNumberPagination()
+        paginator.page_size = int(request.query_params.get('page_size', 10))
+        paginated_orders = await sync_to_async(paginator.paginate_queryset)(orders, request)
+
+        if paginated_orders is not None:
+            serializer = DriverRideHistorySerializer(paginated_orders, many=True)
+            serializer_data = await sync_to_async(lambda: serializer.data)()
+            
+            response = await sync_to_async(paginator.get_paginated_response)(serializer_data)
+            response.data['message'] = 'Ride history retrieved successfully'
+            response.data['status'] = 'success'
+            response.data['data'] = response.data.pop('results')
+            return response
+
+        # If no pagination
+        serializer = DriverRideHistorySerializer(orders, many=True)
+        serializer_data = await sync_to_async(lambda: serializer.data)()
+        count = await sync_to_async(len)(orders)
+
+        return Response(
+            {
+                'message': 'Ride history retrieved successfully',
+                'status': 'success',
+                'count': count,
+                'data': serializer_data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class DriverOnlineStatusView(AsyncAPIView):
+    """
+    Get or update driver online/offline status.
+    """
+    permission_classes = [IsAuthenticated]
+
+    async def _check_driver_role(self, user):
+        groups = await sync_to_async(list)(user.groups.all())
+        names = [g.name for g in groups]
+        return 'Driver' in names
+
+    @swagger_auto_schema(
+        tags=['Driver Earnings'],
+        operation_description="""
+        Get driver online/offline status.
+
+        Authentication: JWT, Driver role required.
+        """,
+        responses={
+            200: openapi.Response(
+                description="Status retrieved successfully",
+                schema=DriverOnlineStatusSerializer,
+            ),
+            401: openapi.Response(description="Unauthorized"),
+            403: openapi.Response(description="Forbidden - Driver role required"),
+        },
+    )
+    async def get(self, request):
+        user = request.user
+
+        is_driver = await self._check_driver_role(user)
+        if not is_driver:
+            return Response(
+                {
+                    'message': 'Only drivers can access this endpoint',
+                    'status': 'error',
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        # Refresh user from database to get latest is_online status
+        user = await CustomUser.objects.aget(id=user.id)
+
+        serializer = DriverOnlineStatusSerializer({'is_online': user.is_online})
+        data = await sync_to_async(lambda: serializer.data)()
+
+        return Response(
+            {
+                'message': 'Status retrieved successfully',
+                'status': 'success',
+                'data': data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    @swagger_auto_schema(
+        tags=['Driver Earnings'],
+        operation_description="""
+        Update driver online/offline status.
+
+        Request body:
+        {
+            "is_online": true  // or false
+        }
+
+        Authentication: JWT, Driver role required.
+        """,
+        request_body=DriverOnlineStatusSerializer,
+        responses={
+            200: openapi.Response(
+                description="Status updated successfully",
+                schema=DriverOnlineStatusSerializer,
+            ),
+            400: openapi.Response(description="Bad request - validation errors"),
+            401: openapi.Response(description="Unauthorized"),
+            403: openapi.Response(description="Forbidden - Driver role required"),
+        },
+    )
+    async def post(self, request):
+        user = request.user
+
+        is_driver = await self._check_driver_role(user)
+        if not is_driver:
+            return Response(
+                {
+                    'message': 'Only drivers can access this endpoint',
+                    'status': 'error',
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        serializer = DriverOnlineStatusSerializer(data=request.data)
+        is_valid = await sync_to_async(lambda: serializer.is_valid())()
+        
+        if not is_valid:
+            errors = await sync_to_async(lambda: serializer.errors)()
+            return Response(
+                {
+                    'message': 'Validation error',
+                    'status': 'error',
+                    'errors': errors,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        data = await sync_to_async(lambda: serializer.validated_data)()
+        is_online = data['is_online']
+
+        # Update user's online status
+        user.is_online = is_online
+        await sync_to_async(user.save)(update_fields=['is_online'])
+
+        response_serializer = DriverOnlineStatusSerializer({'is_online': user.is_online})
+        response_data = await sync_to_async(lambda: response_serializer.data)()
+
+        return Response(
+            {
+                'message': 'Status updated successfully',
+                'status': 'success',
+                'data': response_data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class TripRatingCreateView(AsyncAPIView):
+    """
+    Create a rating for a completed trip.
+    """
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(
+        tags=['Trip Rating'],
+        operation_description="""
+        Create a rating for a completed trip.
+
+        - Only the rider who created the order can rate.
+        - Order must be completed.
+        - Rating must be between 1 and 5 stars.
+        - Feedback tags must match rating type:
+          * 4-5 stars: Use positive tags (Professionalism, Driving, Clean, etc.)
+          * 1-3 stars: Use negative tags (Poor route, Dirty, Loud music, etc.)
+        - Optional tip amount can be included.
+        - Driver will receive a push notification when rated.
+
+        Authentication: JWT, Rider required (order owner).
+        """,
+        request_body=TripRatingCreateSerializer,
+        responses={
+            201: openapi.Response(
+                description="Rating created successfully",
+                schema=TripRatingSerializer,
+            ),
+            400: openapi.Response(description="Bad request - validation errors"),
+            401: openapi.Response(description="Unauthorized"),
+            403: openapi.Response(description="Forbidden - Not the order owner"),
+            404: openapi.Response(description="Order not found"),
+        },
+    )
+    async def post(self, request):
+        user = request.user
+
+        serializer = TripRatingCreateSerializer(data=request.data)
+        is_valid = await sync_to_async(lambda: serializer.is_valid())()
+        
+        if not is_valid:
+            errors = await sync_to_async(lambda: serializer.errors)()
+            return Response(
+                {
+                    'message': 'Validation error',
+                    'status': 'error',
+                    'errors': errors,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        validated_data = await sync_to_async(lambda: serializer.validated_data)()
+        order_id = validated_data['order_id']
+        rating = validated_data['rating']
+        comment = validated_data.get('comment')
+        tip_amount = validated_data.get('tip_amount', 0)
+        feedback_tag_ids = validated_data.get('feedback_tag_ids', [])
+
+        # Get order and verify ownership
+        try:
+            order = await Order.objects.select_related('user').prefetch_related(
+                'order_drivers__driver'
+            ).aget(id=order_id)
+        except Order.DoesNotExist:
+            return Response(
+                {
+                    'message': 'Order not found',
+                    'status': 'error',
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if order.user != user:
+            return Response(
+                {
+                    'message': 'You can only rate your own orders',
+                    'status': 'error',
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        # Get driver from order
+        order_driver = await sync_to_async(
+            lambda: order.order_drivers.filter(status=OrderDriver.DriverRequestStatus.ACCEPTED).first()
+        )()
+        
+        if not order_driver or not order_driver.driver:
+            return Response(
+                {
+                    'message': 'No driver found for this order',
+                    'status': 'error',
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        driver = order_driver.driver
+
+        # Create rating
+        trip_rating = await sync_to_async(TripRating.objects.create)(
+            order=order,
+            rider=user,
+            driver=driver,
+            rating=rating,
+            comment=comment,
+            tip_amount=tip_amount or 0,
+        )
+
+        # Add feedback tags if provided
+        if feedback_tag_ids:
+            from apps.order.models import RatingFeedbackTag
+            tags = await sync_to_async(list)(
+                RatingFeedbackTag.objects.filter(id__in=feedback_tag_ids, is_active=True)
+            )
+            await sync_to_async(trip_rating.feedback_tags.set)(tags)
+
+        # Re-fetch with tags
+        trip_rating = await TripRating.objects.select_related(
+            'order', 'rider', 'driver'
+        ).prefetch_related('feedback_tags').aget(pk=trip_rating.pk)
+
+        response_serializer = TripRatingSerializer(trip_rating, context={'request': request})
+        response_data = await sync_to_async(lambda: response_serializer.data)()
+
+        return Response(
+            {
+                'message': 'Rating created successfully. Driver has been notified.',
+                'status': 'success',
+                'data': response_data,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class RatingFeedbackTagsListView(AsyncAPIView):
+    """
+    Get available feedback tags based on rating value.
+    """
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(
+        tags=['Trip Rating'],
+        operation_description="""
+        Get available feedback tags based on rating value.
+
+        - For 4-5 star ratings: Returns positive tags (Professionalism, Driving, Clean, etc.)
+        - For 1-3 star ratings: Returns negative tags (Poor route, Dirty, Loud music, etc.)
+
+        Query Parameters:
+        - rating: Rating value (1-5) to determine which tags to show
+
+        Authentication: JWT required.
+        """,
+        manual_parameters=[
+            openapi.Parameter(
+                'rating',
+                openapi.IN_QUERY,
+                description="Rating value (1-5) to determine tag type",
+                type=openapi.TYPE_INTEGER,
+                required=True,
+                enum=[1, 2, 3, 4, 5]
+            ),
+        ],
+        responses={
+            200: openapi.Response(
+                description="Feedback tags retrieved successfully",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        'tags': openapi.Schema(
+                            type=openapi.TYPE_ARRAY,
+                            items=openapi.Schema(type=openapi.TYPE_OBJECT)
+                        ),
+                        'tag_type': openapi.Schema(type=openapi.TYPE_STRING),
+                    }
+                ),
+            ),
+            400: openapi.Response(description="Bad request - invalid rating"),
+        },
+    )
+    async def get(self, request):
+        rating = request.query_params.get('rating')
+        
+        if not rating:
+            return Response(
+                {
+                    'message': 'Rating parameter is required',
+                    'status': 'error',
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            rating = int(rating)
+        except (ValueError, TypeError):
+            return Response(
+                {
+                    'message': 'Rating must be a number between 1 and 5',
+                    'status': 'error',
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if rating < 1 or rating > 5:
+            return Response(
+                {
+                    'message': 'Rating must be between 1 and 5',
+                    'status': 'error',
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Determine tag type based on rating
+        tag_type = 'positive' if rating >= 4 else 'negative'
+
+        # Get tags
+        from apps.order.models import RatingFeedbackTag
+        tags = await sync_to_async(list)(
+            RatingFeedbackTag.objects.filter(tag_type=tag_type, is_active=True).order_by('name')
+        )
+
+        tag_serializer = RatingFeedbackTagSerializer(tags, many=True)
+        tag_data = await sync_to_async(lambda: tag_serializer.data)()
+
+        return Response(
+            {
+                'message': 'Feedback tags retrieved successfully',
+                'status': 'success',
+                'data': {
+                    'tags': tag_data,
+                    'tag_type': tag_type,
+                    'rating': rating,
+                },
+            },
+            status=status.HTTP_200_OK,
         )

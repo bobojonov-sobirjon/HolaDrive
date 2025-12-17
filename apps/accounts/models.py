@@ -78,10 +78,23 @@ class CustomUser(AbstractUser):
         verbose_name="Tax Number (GST/HST)",
         help_text="Optional. Enter your tax number (GST/HST)."
     )
+    id_identification = models.CharField(
+        max_length=9,
+        unique=True,
+        blank=True,
+        null=True,
+        verbose_name="ID Identification",
+        help_text="Unique 9-digit identification number (auto-generated)"
+    )
     is_verified = models.BooleanField(
         default=False,
         verbose_name="Email Verified",
         help_text="Indicates whether this user's email is verified."
+    )
+    is_online = models.BooleanField(
+        default=False,
+        verbose_name="Driver Online Status",
+        help_text="Indicates whether driver is online and available for orders."
     )
     created_at = models.DateTimeField(
         auto_now_add=True,
@@ -92,17 +105,17 @@ class CustomUser(AbstractUser):
         verbose_name="Updated At"
     )
 
-    # Use email as the username field
     USERNAME_FIELD = 'email'
     REQUIRED_FIELDS = ['username', 'first_name', 'last_name']
 
     class Meta:
         verbose_name = "User"
-        verbose_name_plural = "Users"
+        verbose_name_plural = "01. Users"
         ordering = ['-created_at']
         indexes = [
             models.Index(fields=['email'], name='user_email_idx'),
             models.Index(fields=['phone_number'], name='user_phone_idx'),
+            models.Index(fields=['id_identification'], name='user_id_identification_idx'),
             models.Index(fields=['is_verified'], name='user_verified_idx'),
             models.Index(fields=['is_active'], name='user_active_idx'),
             models.Index(fields=['created_at'], name='user_created_idx'),
@@ -124,6 +137,26 @@ class CustomUser(AbstractUser):
         Return the short name for the user.
         """
         return self.first_name if self.first_name else self.email
+    
+    @staticmethod
+    def generate_id_identification():
+        """
+        Generate a unique 9-digit identification number
+        """
+        while True:
+            # Generate 9-digit number (100000000 to 999999999)
+            id_number = str(random.randint(100000000, 999999999))
+            # Check if it already exists
+            if not CustomUser.objects.filter(id_identification=id_number).exists():
+                return id_number
+    
+    def save(self, *args, **kwargs):
+        """
+        Override save to auto-generate id_identification if not set
+        """
+        if not self.id_identification:
+            self.id_identification = self.generate_id_identification()
+        super().save(*args, **kwargs)
 
 
 class VerificationCode(models.Model):
@@ -343,7 +376,7 @@ class UserPreferences(models.Model):
 
     class Meta:
         verbose_name = "User Preference"
-        verbose_name_plural = "User Preferences"
+        verbose_name_plural = "02. Rider Preferences"
         ordering = ['-updated_at']
         indexes = [
             models.Index(fields=['user'], name='pref_user_idx'),
@@ -493,7 +526,7 @@ class PinVerificationForUser(models.Model):
 
     class Meta:
         verbose_name = "PIN Verification For User"
-        verbose_name_plural = "PIN Verifications For Users"
+        verbose_name_plural = "04. PIN Verifications For Riders"
         ordering = ['-updated_at']
         indexes = [
             models.Index(fields=['user'], name='pin_user_idx'),
@@ -583,7 +616,7 @@ class DriverPreferences(models.Model):
 
     class Meta:
         verbose_name = "Driver Preference"
-        verbose_name_plural = "Driver Preferences"
+        verbose_name_plural = "03. Driver Preferences"
         ordering = ['-updated_at']
         indexes = [
             models.Index(fields=['user'], name='driver_pref_user_idx'),
@@ -606,7 +639,14 @@ class DriverPreferences(models.Model):
 class VehicleDetails(models.Model):
     """
     Model for storing vehicle details for drivers
+    Supports multiple ride types (like Uber/Yandex Go)
     """
+    
+    class VehicleCondition(models.TextChoices):
+        EXCELLENT = 'excellent', 'Excellent'
+        GOOD = 'good', 'Good'
+        FAIR = 'fair', 'Fair'
+    
     user = models.ForeignKey(
         CustomUser,
         on_delete=models.CASCADE,
@@ -634,6 +674,43 @@ class VehicleDetails(models.Model):
         verbose_name="Vehicle Identification Number (VIN)",
         help_text="Unique vehicle identification number"
     )
+    plate_number = models.CharField(
+        max_length=20,
+        blank=True,
+        null=True,
+        verbose_name="Plate Number",
+        help_text="Vehicle license plate number (e.g., NYC 560)"
+    )
+    color = models.CharField(
+        max_length=50,
+        blank=True,
+        null=True,
+        verbose_name="Color",
+        help_text="Vehicle color (e.g., White, Black, Red)"
+    )
+    vehicle_condition = models.CharField(
+        max_length=20,
+        choices=VehicleCondition.choices,
+        default=VehicleCondition.GOOD,
+        verbose_name="Vehicle Condition",
+        help_text="Condition of the vehicle (affects ride type suggestions)"
+    )
+    default_ride_type = models.ForeignKey(
+        'order.RideType',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='default_vehicles',
+        verbose_name="Default Ride Type",
+        help_text="Primary/default ride type for this vehicle (shown first)"
+    )
+    supported_ride_types = models.ManyToManyField(
+        'order.RideType',
+        related_name='supported_vehicles',
+        blank=True,
+        verbose_name="Supported Ride Types",
+        help_text="Ride types this vehicle can support (e.g., Standard, Premium, Eco). One vehicle can support multiple types."
+    )
     created_at = models.DateTimeField(
         auto_now_add=True,
         verbose_name="Created At"
@@ -653,12 +730,106 @@ class VehicleDetails(models.Model):
             models.Index(fields=['brand'], name='vehicle_brand_idx'),
             models.Index(fields=['model'], name='vehicle_model_idx'),
             models.Index(fields=['year_of_manufacture'], name='vehicle_year_idx'),
+            models.Index(fields=['vehicle_condition'], name='vehicle_condition_idx'),
             models.Index(fields=['updated_at'], name='vehicle_updated_idx'),
             models.Index(fields=['user', 'updated_at'], name='vehicle_user_updated_idx'),
         ]
 
     def __str__(self):
         return f"{self.brand} {self.model} ({self.year_of_manufacture}) - {self.user.email}"
+    
+    def is_electric_vehicle(self):
+        """
+        Determine if vehicle is electric based on brand and model.
+        Returns True if vehicle is electric/hybrid, False otherwise.
+        """
+        electric_keywords = [
+            'tesla', 'nissan leaf', 'bmw i', 'audi e', 'hyundai ioniq',
+            'kia ev', 'volkswagen id', 'electric', 'ev', 'hybrid',
+            'prius', 'bolt', 'volt', 'model 3', 'model s', 'model x', 'model y'
+        ]
+        
+        brand_model = f"{self.brand} {self.model}".lower()
+        return any(keyword in brand_model for keyword in electric_keywords)
+    
+    def suggest_ride_types(self):
+        """
+        Automatically suggest ride types based on vehicle characteristics.
+        Similar to how Uber/Yandex Go work.
+        
+        Returns:
+            list: List of RideType objects that are suggested for this vehicle
+        """
+        from apps.order.models import RideType
+        
+        suggestions = []
+        
+        # 1. Standard (Hola) - always available
+        standard = RideType.objects.filter(
+            is_premium=False,
+            is_ev=False,
+            is_active=True
+        ).first()
+        if standard:
+            suggestions.append(standard)
+        
+        # 2. Premium - if vehicle meets premium criteria
+        is_premium_brand = self.brand.lower() in [
+            'mercedes', 'mercedes-benz', 'bmw', 'audi', 'lexus', 'porsche',
+            'tesla', 'jaguar', 'land rover', 'range rover', 'bentley',
+            'rolls-royce', 'maserati', 'ferrari', 'lamborghini', 'mclaren'
+        ]
+        
+        is_recent_and_excellent = (
+            self.year_of_manufacture >= 2020 and
+            self.vehicle_condition == self.VehicleCondition.EXCELLENT
+        )
+        
+        if is_premium_brand or is_recent_and_excellent:
+            premium = RideType.objects.filter(
+                is_premium=True,
+                is_active=True
+            ).first()
+            if premium and premium not in suggestions:
+                suggestions.append(premium)
+        
+        # 3. Eco - if vehicle is electric
+        if self.is_electric_vehicle():
+            eco = RideType.objects.filter(
+                is_ev=True,
+                is_active=True
+            ).first()
+            if eco and eco not in suggestions:
+                suggestions.append(eco)
+        
+        # Ensure we have at least one suggestion (Standard)
+        if not suggestions and standard:
+            suggestions.append(standard)
+        
+        return suggestions
+    
+    def save(self, *args, **kwargs):
+        """
+        Override save to automatically set ride types if not set.
+        Only applies suggestions if supported_ride_types is empty (new vehicle or manually cleared).
+        """
+        is_new = self.pk is None
+        
+        super().save(*args, **kwargs)
+        
+        # Only auto-suggest if supported_ride_types is empty
+        # This allows admin/driver to manually set ride types without auto-override
+        if not self.supported_ride_types.exists():
+            suggestions = self.suggest_ride_types()
+            if suggestions:
+                # Set suggested ride types
+                self.supported_ride_types.set(suggestions)
+                
+                # Set default_ride_type to first suggestion if not set
+                if not self.default_ride_type and suggestions:
+                    self.default_ride_type = suggestions[0]
+                    # Save again to update default_ride_type
+                    super().save(update_fields=['default_ride_type'])
 
 
 class VehicleImages(models.Model):
@@ -698,93 +869,38 @@ class VehicleImages(models.Model):
 
 class DriverIdentification(models.Model):
     """
-    Model for storing driver identification documents and verification status
+    Model for storing driver identification types (dynamic identification items)
+    Admin can create different identification types like Driver's License, Profile Photo, etc.
     """
-    user = models.OneToOneField(
-        CustomUser,
-        on_delete=models.CASCADE,
-        related_name='driver_identification',
-        verbose_name="Driver",
-        help_text="Driver who owns these identification documents"
+    name = models.CharField(
+        max_length=255,
+        unique=True,
+        verbose_name="Name",
+        help_text="Unique name for the identification type (e.g., 'Driver License', 'Profile Photo')"
     )
-    
-    # Image fields (documents)
-    proof_of_work_eligibility = models.ImageField(
-        upload_to='driver_documents/proof_of_work/',
+    image = models.ImageField(
+        upload_to='driver_identification_icons/',
         blank=True,
         null=True,
-        verbose_name="Proof of Work Eligibility",
-        help_text="Photo of proof of work eligibility document"
+        verbose_name="Icon Image",
+        help_text="Icon image for the identification type"
     )
-    profile_photo = models.ImageField(
-        upload_to='driver_documents/profile_photos/',
+    title = models.CharField(
+        max_length=255,
+        verbose_name="Title",
+        help_text="Title to display (e.g., 'Take a photo of your Driver's License')"
+    )
+    description = models.TextField(
         blank=True,
         null=True,
-        verbose_name="Profile Photo",
-        help_text="Driver profile photo (verified by Veriff)"
+        verbose_name="Description",
+        help_text="Detailed description/instructions for the user"
     )
-    drivers_license = models.ImageField(
-        upload_to='driver_documents/drivers_license/',
-        blank=True,
-        null=True,
-        verbose_name="Driver's License",
-        help_text="Photo of driver's license (Class 1, 2, or 4 required)"
+    is_active = models.BooleanField(
+        default=True,
+        verbose_name="Is Active",
+        help_text="Whether this identification type is active and visible to users"
     )
-    background_check = models.ImageField(
-        upload_to='driver_documents/background_check/',
-        blank=True,
-        null=True,
-        verbose_name="Background Check",
-        help_text="Photo of background check results"
-    )
-    driver_abstract = models.ImageField(
-        upload_to='driver_documents/driver_abstract/',
-        blank=True,
-        null=True,
-        verbose_name="Driver Abstract",
-        help_text="Photo of province driver abstract (3-year Personal Driver Abstract)"
-    )
-    livery_vehicle_registration = models.ImageField(
-        upload_to='driver_documents/livery_registration/',
-        blank=True,
-        null=True,
-        verbose_name="Livery Vehicle Registration",
-        help_text="Photo of livery vehicle registration (Class 1-55 or Class 1-66)"
-    )
-    vehicle_insurance = models.ImageField(
-        upload_to='driver_documents/vehicle_insurance/',
-        blank=True,
-        null=True,
-        verbose_name="Vehicle Insurance",
-        help_text="Photo of vehicle insurance document"
-    )
-    city_tndl = models.ImageField(
-        upload_to='driver_documents/city_tndl/',
-        blank=True,
-        null=True,
-        verbose_name="City TNDL",
-        help_text="Photo of City TNDL (Taxi Network Driver License)"
-    )
-    elvis_vehicle_inspection = models.ImageField(
-        upload_to='driver_documents/elvis_inspection/',
-        blank=True,
-        null=True,
-        verbose_name="ELVIS Vehicle Inspection Form",
-        help_text="Photo of ELVIS (Enhanced Livery Vehicle Inspection Standards) certificate"
-    )
-    
-    # Boolean fields (agreements)
-    terms_and_conditions = models.BooleanField(
-        default=False,
-        verbose_name="Terms and Conditions",
-        help_text="Whether driver has agreed to terms and conditions"
-    )
-    legal_agreements = models.BooleanField(
-        default=False,
-        verbose_name="Legal Agreements",
-        help_text="Whether driver has agreed to legal agreements"
-    )
-    
     created_at = models.DateTimeField(
         auto_now_add=True,
         verbose_name="Created At"
@@ -796,47 +912,338 @@ class DriverIdentification(models.Model):
 
     class Meta:
         verbose_name = "Driver Identification"
-        verbose_name_plural = "Driver Identifications"
-        ordering = ['-updated_at']
+        verbose_name_plural = "03. Driver Identifications"
+        ordering = ['-created_at']
         indexes = [
-            models.Index(fields=['user'], name='driver_id_user_idx'),
-            models.Index(fields=['updated_at'], name='driver_id_updated_idx'),
-            models.Index(fields=['user', 'updated_at'], name='driver_id_user_updated_idx'),
-            models.Index(fields=['terms_and_conditions'], name='driver_id_terms_idx'),
-            models.Index(fields=['legal_agreements'], name='driver_id_legal_idx'),
+            models.Index(fields=['name'], name='driver_id_name_idx'),
+            models.Index(fields=['is_active'], name='driver_id_active_idx'),
+            models.Index(fields=['created_at'], name='driver_id_created_idx'),
+            models.Index(fields=['is_active', 'created_at'], name='driver_id_active_created_idx'),
         ]
 
     def __str__(self):
-        return f"Identification for {self.user.email}"
+        return self.name
+
+
+class DriverIdentificationItems(models.Model):
+    """
+    Model for storing items related to driver identifications (many-to-many relationship)
+    This allows linking multiple items to a single identification type
+    """
+    driver_identification = models.ForeignKey(
+        DriverIdentification,
+        on_delete=models.CASCADE,
+        related_name='items',
+        verbose_name="Driver Identification",
+        help_text="The identification type this item belongs to"
+    )
+    item = models.CharField(
+        max_length=255,
+        verbose_name="Item",
+        help_text="Item name or description"
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name="Created At"
+    )
+
+    class Meta:
+        verbose_name = "Driver Identification Item"
+        verbose_name_plural = "Driver Identification Items"
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['driver_identification'], name='driver_id_item_id_idx'),
+            models.Index(fields=['created_at'], name='driver_id_item_created_idx'),
+        ]
+
+    def __str__(self):
+        return f"{self.driver_identification.name} - {self.item}"
+
+
+class DriverIdentificationUploadDocument(models.Model):
+    """
+    Model for storing user-uploaded documents for driver identifications
+    """
+    user = models.ForeignKey(
+        CustomUser,
+        on_delete=models.CASCADE,
+        related_name='driver_identification_uploads',
+        verbose_name="User",
+        help_text="User who uploaded the document"
+    )
+    driver_identification = models.ForeignKey(
+        DriverIdentification,
+        on_delete=models.CASCADE,
+        related_name='uploaded_documents',
+        verbose_name="Driver Identification",
+        help_text="The identification type this document is for"
+    )
+    document_file = models.FileField(
+        upload_to='driver_documents/',
+        verbose_name="Document File",
+        help_text="Uploaded document file (any file type)"
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name="Created At"
+    )
+    updated_at = models.DateTimeField(
+        auto_now=True,
+        verbose_name="Updated At"
+    )
+
+    class Meta:
+        verbose_name = "Driver Identification Upload Document"
+        verbose_name_plural = "Driver Identification Upload Documents"
+        ordering = ['-updated_at']
+        indexes = [
+            models.Index(fields=['user'], name='driver_upload_user_idx'),
+            models.Index(fields=['driver_identification'], name='driver_upload_id_idx'),
+            models.Index(fields=['user', 'driver_identification'], name='driver_upload_user_id_idx'),
+            models.Index(fields=['updated_at'], name='driver_upload_updated_idx'),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=['user', 'driver_identification'],
+                name='unique_user_driver_identification'
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.user.email} - {self.driver_identification.name}"
+
+
+class DriverVerification(models.Model):
+    """
+    Model for tracking overall driver verification status.
+    Used to show 'In review / Approved / Rejected' screen and
+    to trigger notifications when status changes.
+    """
+
+    class Status(models.TextChoices):
+        NOT_SUBMITTED = 'not_submitted', 'Not submitted'
+        IN_REVIEW = 'in_review', 'In review'
+        APPROVED = 'approved', 'Approved'
+        REJECTED = 'rejected', 'Rejected'
+
+    user = models.OneToOneField(
+        CustomUser,
+        on_delete=models.CASCADE,
+        related_name='driver_verification',
+        verbose_name="Driver",
+        help_text="Driver this verification belongs to"
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.NOT_SUBMITTED,
+        verbose_name="Status",
+        help_text="Current verification status"
+    )
+    reviewer = models.ForeignKey(
+        CustomUser,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='reviewed_drivers',
+        verbose_name="Reviewer",
+        help_text="Admin/staff user who last reviewed this driver"
+    )
+    comment = models.TextField(
+        null=True,
+        blank=True,
+        verbose_name="Comment",
+        help_text="Optional reviewer comment"
+    )
+    estimated_review_hours = models.IntegerField(
+        default=48,
+        verbose_name="Estimated Review Hours",
+        help_text="Estimated review time in hours"
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name="Created At"
+    )
+    updated_at = models.DateTimeField(
+        auto_now=True,
+        verbose_name="Updated At"
+    )
+    reviewed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name="Reviewed At",
+        help_text="Timestamp when status was last set to Approved/Rejected"
+    )
+
+    class Meta:
+        verbose_name = "Driver Verification"
+        verbose_name_plural = "04. Driver Verifications"
+        ordering = ['-updated_at']
+        indexes = [
+            models.Index(fields=['user'], name='driver_ver_user_idx'),
+            models.Index(fields=['status'], name='driver_ver_status_idx'),
+            models.Index(fields=['updated_at'], name='driver_ver_updated_idx'),
+            models.Index(fields=['user', 'status'], name='driver_ver_user_status_idx'),
+        ]
+
+    def __str__(self):
+        return f"{self.user.email} - {self.get_status_display()}"
+
+    def save(self, *args, **kwargs):
+        """
+        Override save to detect status changes and create Notification.
+        """
+        import logging
+        from apps.notification.models import Notification  # local import to avoid circular
+        from apps.notification.services import send_push_to_user
+
+        logger = logging.getLogger(__name__)
+
+        old_status = None
+        if self.pk:
+            old_status = (
+                DriverVerification.objects.filter(pk=self.pk)
+                .values_list('status', flat=True)
+                .first()
+            )
+
+        # Set reviewed_at when moving to terminal states
+        if self.status in {self.Status.APPROVED, self.Status.REJECTED} and self.reviewed_at is None:
+            self.reviewed_at = timezone.now()
+
+        logger.info(
+            "DriverVerification.save() called for user=%s old_status=%s new_status=%s",
+            self.user_id,
+            old_status,
+            self.status,
+        )
+
+        super().save(*args, **kwargs)
+
+        # Create notification on create or status change
+        if old_status != self.status:
+            logger.info(
+                "DriverVerification status changed – creating Notification for user=%s status=%s",
+                self.user_id,
+                self.status,
+            )
+            notification = Notification.objects.create(
+                user=self.user,
+                notification_type=Notification.NotificationType.SYSTEM,
+                title="Driver verification status updated",
+                message=f"Your driver verification status is now: {self.get_status_display()}",
+                related_object_type="driver_verification",
+                related_object_id=self.pk,
+                data={"status": self.status},
+            )
+            # Try to send push notification (best-effort, non-blocking for main flow)
+            success, error = send_push_to_user(
+                user=self.user,
+                title=notification.title,
+                body=notification.message,
+                data=notification.data or {},
+            )
+            logger.info(
+                "DriverVerification push result user=%s success=%s error=%s",
+                self.user_id,
+                success,
+                error,
+            )
+        else:
+            logger.info(
+                "DriverVerification status not changed – no Notification created (user=%s, status=%s)",
+                self.user_id,
+                self.status,
+            )
+
+
+class UserDeviceToken(models.Model):
+    """
+    Stores push notification device tokens for users.
+    """
+
+    class DeviceType(models.TextChoices):
+        ANDROID = 'android', 'Android'
+        IOS = 'ios', 'iOS'
+        WEB = 'web', 'Web'
+
+    user = models.ForeignKey(
+        CustomUser,
+        on_delete=models.CASCADE,
+        related_name='device_tokens',
+        verbose_name="User",
+    )
+    token = models.CharField(
+        max_length=512,
+        verbose_name="Device Token",
+        help_text="Push notification token (FCM/APNs/etc.)",
+    )
+    mobile = models.CharField(
+        max_length=20,
+        choices=DeviceType.choices,
+        verbose_name="Device Type",
+        help_text="Device type / platform",
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name="Created At",
+    )
+    updated_at = models.DateTimeField(
+        auto_now=True,
+        verbose_name="Updated At",
+    )
+
+    class Meta:
+        verbose_name = "User Device Token"
+        verbose_name_plural = "User Device Tokens"
+        ordering = ['-updated_at']
+        indexes = [
+            models.Index(fields=['user'], name='device_token_user_idx'),
+            models.Index(fields=['mobile'], name='device_token_mobile_idx'),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=['user', 'mobile'],
+                name='unique_user_mobile_device_token',
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.user.email} - {self.mobile}"
     
-    def get_completion_status(self):
+    @classmethod
+    def upsert_token(cls, user, token: str, mobile: str):
         """
-        Get completion status for each identification step
-        Returns a dictionary with True/False for each step
+        Create or update device token for given user & mobile platform.
         """
-        return {
-            'proof_of_work_eligibility': bool(self.proof_of_work_eligibility),
-            'profile_photo': bool(self.profile_photo),
-            'drivers_license': bool(self.drivers_license),
-            'background_check': bool(self.background_check),
-            'driver_abstract': bool(self.driver_abstract),
-            'livery_vehicle_registration': bool(self.livery_vehicle_registration),
-            'vehicle_insurance': bool(self.vehicle_insurance),
-            'city_tndl': bool(self.city_tndl),
-            'elvis_vehicle_inspection': bool(self.elvis_vehicle_inspection),
-            'terms_and_conditions': self.terms_and_conditions,
-            'legal_agreements': self.legal_agreements,
-        }
-    
-    def get_completion_count(self):
-        """
-        Get count of completed steps
-        """
-        status = self.get_completion_status()
-        return sum(1 for value in status.values() if value)
-    
-    def get_total_steps(self):
-        """
-        Get total number of steps
-        """
-        return 11
+        if not user or not token or not mobile:
+            return None
+        token = token.strip()
+        if not token:
+            return None
+        obj, _ = cls.objects.update_or_create(
+            user=user,
+            mobile=mobile,
+            defaults={'token': token},
+        )
+        return obj
+
+
+class RiderUser(CustomUser):
+    """
+    Proxy model for Riders in admin panel
+    """
+    class Meta:
+        proxy = True
+        verbose_name = "Rider"
+        verbose_name_plural = "01. Riders"
+
+
+class DriverUser(CustomUser):
+    """
+    Proxy model for Drivers in admin panel
+    """
+    class Meta:
+        proxy = True
+        verbose_name = "Driver"
+        verbose_name_plural = "02. Drivers"

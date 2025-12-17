@@ -6,318 +6,168 @@ from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 from asgiref.sync import sync_to_async
+from django.db.models import Q
 
-from ..serializers import DriverIdentificationSerializer
-from ..models import DriverIdentification
+from ..serializers import (
+    DriverIdentificationSerializer,
+    DriverIdentificationUploadDocumentSerializer,
+    DriverIdentificationUserStatusSerializer
+)
+from ..models import DriverIdentification, DriverIdentificationUploadDocument
 
 
-class DriverIdentificationView(AsyncAPIView):
+class DriverIdentificationUploadView(AsyncAPIView):
     """
-    Driver identification endpoint - GET, POST, PUT, PATCH
+    Upload driver identification document endpoint - POST
     
-    This endpoint allows authenticated drivers to manage their identification documents:
-    - Image documents: Proof of Work, Profile Photo, Driver's License, Background Check, etc.
-    - Boolean agreements: Terms and Conditions, Legal Agreements
-    
-    **Only accessible to users with Driver role**
+    Allows authenticated users to upload documents for driver identifications.
     """
     permission_classes = [IsAuthenticated]
-    parser_classes = [MultiPartParser, FormParser, JSONParser]
-
-    async def check_driver_permission(self, request):
-        """
-        Check if user is a Driver
-        """
-        user = request.user
-        groups = await sync_to_async(list)(user.groups.all())
-        group_names = [group.name for group in groups]
-        
-        if 'Driver' not in group_names:
-            return Response(
-                {
-                    'message': 'Only drivers can access this endpoint',
-                    'status': 'error'
-                },
-                status=status.HTTP_403_FORBIDDEN
-            )
-        return None
+    parser_classes = [MultiPartParser, FormParser]
 
     @swagger_auto_schema(
         tags=['Driver Identification'],
         operation_description="""
-        Get current driver's identification documents.
+        Upload a document for a driver identification type.
         
-        Returns all identification documents and agreements for the authenticated driver.
-        If no identification exists, returns a 404 error.
+        This endpoint allows authenticated users to upload a document file for a specific 
+        driver identification type. If the user has already uploaded a document for this 
+        identification type, it will be updated.
         
-        **Authentication Required:** Yes (JWT Token)
-        **Role Required:** Driver
-        """,
-        responses={
-            200: openapi.Response(description="Identification retrieved successfully"),
-            404: openapi.Response(description="Identification not found"),
-            401: openapi.Response(description="Unauthorized"),
-            403: openapi.Response(description="Forbidden - Driver role required"),
-        }
-    )
-    async def get(self, request):
-        """
-        Get current driver's identification - ASYNC VERSION
-        """
-        permission_error = await self.check_driver_permission(request)
-        if permission_error:
-            return permission_error
-        
-        try:
-            identification = await DriverIdentification.objects.select_related('user').aget(user=request.user)
-        except DriverIdentification.DoesNotExist:
-            return Response(
-                {
-                    'message': 'Identification not found',
-                    'status': 'error'
-                },
-                status=status.HTTP_404_NOT_FOUND
-            )
-        
-        serializer = DriverIdentificationSerializer(identification, context={'request': request})
-        serializer_data = await sync_to_async(lambda: serializer.data)()
-        return Response(
-            {
-                'message': 'Identification retrieved successfully',
-                'status': 'success',
-                'data': serializer_data
-            },
-            status=status.HTTP_200_OK
-        )
-
-    @swagger_auto_schema(
-        tags=['Driver Identification'],
-        operation_description="""
-        Create or update driver identification documents.
-        
-        Creates identification if it doesn't exist, or updates existing one.
-        Multiple image fields can be uploaded using multipart/form-data.
-        
-        **Image Fields (optional):**
-        - proof_of_work_eligibility
-        - profile_photo
-        - drivers_license
-        - background_check
-        - driver_abstract
-        - livery_vehicle_registration
-        - vehicle_insurance
-        - city_tndl
-        - elvis_vehicle_inspection
-        
-        **Boolean Fields (optional):**
-        - terms_and_conditions
-        - legal_agreements
+        **Request Body:**
+        - `document_file` (file, required): The document file to upload (image file)
+        - `driver_identification_id` (integer, required): ID of the driver identification type
         
         **Authentication Required:** Yes (JWT Token)
-        **Role Required:** Driver
+        
+        **Example Request:**
+        ```
+        POST /api/accounts/driver/identification/upload/
+        Content-Type: multipart/form-data
+        
+        document_file: [file]
+        driver_identification_id: 1
+        ```
         """,
-        request_body=openapi.Schema(
-            type=openapi.TYPE_OBJECT,
-            properties={
-                'proof_of_work_eligibility': openapi.Schema(type=openapi.TYPE_FILE),
-                'profile_photo': openapi.Schema(type=openapi.TYPE_FILE),
-                'drivers_license': openapi.Schema(type=openapi.TYPE_FILE),
-                'background_check': openapi.Schema(type=openapi.TYPE_FILE),
-                'driver_abstract': openapi.Schema(type=openapi.TYPE_FILE),
-                'livery_vehicle_registration': openapi.Schema(type=openapi.TYPE_FILE),
-                'vehicle_insurance': openapi.Schema(type=openapi.TYPE_FILE),
-                'city_tndl': openapi.Schema(type=openapi.TYPE_FILE),
-                'elvis_vehicle_inspection': openapi.Schema(type=openapi.TYPE_FILE),
-                'terms_and_conditions': openapi.Schema(type=openapi.TYPE_BOOLEAN),
-                'legal_agreements': openapi.Schema(type=openapi.TYPE_BOOLEAN),
-            }
-        ),
+        manual_parameters=[
+            openapi.Parameter(
+                'document_file',
+                openapi.IN_FORM,
+                type=openapi.TYPE_FILE,
+                required=True,
+                description='The document file to upload (image file)'
+            ),
+            openapi.Parameter(
+                'driver_identification_id',
+                openapi.IN_FORM,
+                type=openapi.TYPE_INTEGER,
+                required=True,
+                description='ID of the driver identification type'
+            ),
+        ],
         responses={
-            200: openapi.Response(description="Identification updated successfully"),
-            201: openapi.Response(description="Identification created successfully"),
+            201: openapi.Response(
+                description="Document uploaded successfully",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        'message': openapi.Schema(type=openapi.TYPE_STRING, example='Document uploaded successfully'),
+                        'status': openapi.Schema(type=openapi.TYPE_STRING, example='success'),
+                        'data': openapi.Schema(
+                            type=openapi.TYPE_OBJECT,
+                            properties={
+                                'id': openapi.Schema(type=openapi.TYPE_INTEGER, example=1),
+                                'driver_identification_name': openapi.Schema(type=openapi.TYPE_STRING, example='Driver License'),
+                                'driver_identification_title': openapi.Schema(type=openapi.TYPE_STRING, example='Take a photo of your Driver\'s License'),
+                                'document_file': openapi.Schema(type=openapi.TYPE_STRING, example='http://example.com/media/driver_documents/driver_license.jpg'),
+                            }
+                        )
+                    }
+                )
+            ),
             400: openapi.Response(description="Bad request - validation errors"),
+            404: openapi.Response(description="Driver identification not found"),
             401: openapi.Response(description="Unauthorized"),
-            403: openapi.Response(description="Forbidden - Driver role required"),
         }
     )
     async def post(self, request):
         """
-        Create or update driver identification - ASYNC VERSION
+        Upload document for driver identification - ASYNC VERSION
         """
-        permission_error = await self.check_driver_permission(request)
-        if permission_error:
-            return permission_error
+        document_file = request.FILES.get('document_file')
+        driver_identification_id = request.data.get('driver_identification_id')
         
-        # Check if identification already exists
-        existing = await DriverIdentification.objects.filter(user=request.user).only('id').afirst()
-        is_update = existing is not None
-        
-        if is_update:
-            serializer = DriverIdentificationSerializer(
-                existing,
-                data=request.data,
-                partial=True,
-                context={'request': request}
-            )
-        else:
-            serializer = DriverIdentificationSerializer(
-                data=request.data,
-                context={'request': request}
-            )
-        
-        is_valid = await sync_to_async(lambda: serializer.is_valid())()
-        
-        if is_valid:
-            identification = await sync_to_async(serializer.save)()
-            serializer_data = await sync_to_async(lambda: serializer.data)()
-            
-            response_status = status.HTTP_200_OK if is_update else status.HTTP_201_CREATED
-            message = 'Identification updated successfully' if is_update else 'Identification created successfully'
-            
+        if not document_file:
             return Response(
                 {
-                    'message': message,
-                    'status': 'success',
-                    'data': serializer_data
+                    'message': 'document_file is required',
+                    'status': 'error'
                 },
-                status=response_status
+                status=status.HTTP_400_BAD_REQUEST
             )
         
-        errors = await sync_to_async(lambda: serializer.errors)()
-        return Response(
-            {
-                'message': 'Validation error',
-                'status': 'error',
-                'errors': errors
-            },
-            status=status.HTTP_400_BAD_REQUEST
-        )
-
-    @swagger_auto_schema(
-        tags=['Driver Identification'],
-        operation_description="""
-        Update driver identification (full update).
-        
-        Updates all identification fields. All fields must be provided.
-        
-        **Authentication Required:** Yes (JWT Token)
-        **Role Required:** Driver
-        """,
-        request_body=DriverIdentificationSerializer,
-        responses={
-            200: openapi.Response(description="Identification updated successfully"),
-            400: openapi.Response(description="Bad request - validation errors"),
-            401: openapi.Response(description="Unauthorized"),
-            403: openapi.Response(description="Forbidden - Driver role required"),
-            404: openapi.Response(description="Identification not found"),
-        }
-    )
-    async def put(self, request):
-        """
-        Update driver identification (full update) - ASYNC VERSION
-        """
-        permission_error = await self.check_driver_permission(request)
-        if permission_error:
-            return permission_error
+        if not driver_identification_id:
+            return Response(
+                {
+                    'message': 'driver_identification_id is required',
+                    'status': 'error'
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
         
         try:
-            identification = await DriverIdentification.objects.select_related('user').aget(user=request.user)
+            driver_identification_id = int(driver_identification_id)
+        except (ValueError, TypeError):
+            return Response(
+                {
+                    'message': 'driver_identification_id must be a valid integer',
+                    'status': 'error'
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Check if driver identification exists and is active
+        try:
+            driver_identification = await DriverIdentification.objects.aget(
+                id=driver_identification_id,
+                is_active=True
+            )
         except DriverIdentification.DoesNotExist:
             return Response(
                 {
-                    'message': 'Identification not found',
+                    'message': 'Driver identification not found or is not active',
                     'status': 'error'
                 },
                 status=status.HTTP_404_NOT_FOUND
             )
         
-        serializer = DriverIdentificationSerializer(
-            identification,
-            data=request.data,
+        # Create or update upload document
+        serializer = DriverIdentificationUploadDocumentSerializer(
+            data={
+                'driver_identification': driver_identification.id,
+                'document_file': document_file
+            },
             context={'request': request}
         )
         
         is_valid = await sync_to_async(lambda: serializer.is_valid())()
         
         if is_valid:
-            await sync_to_async(serializer.save)()
+            upload = await sync_to_async(serializer.save)()
+            # Refresh serializer with the saved instance to get proper representation
+            serializer = DriverIdentificationUploadDocumentSerializer(
+                upload,
+                context={'request': request}
+            )
             serializer_data = await sync_to_async(lambda: serializer.data)()
+            
             return Response(
                 {
-                    'message': 'Identification updated successfully',
+                    'message': 'Document uploaded successfully',
                     'status': 'success',
                     'data': serializer_data
                 },
-                status=status.HTTP_200_OK
-            )
-        
-        errors = await sync_to_async(lambda: serializer.errors)()
-        return Response(
-            {
-                'message': 'Validation error',
-                'status': 'error',
-                'errors': errors
-            },
-            status=status.HTTP_400_BAD_REQUEST
-        )
-
-    @swagger_auto_schema(
-        tags=['Driver Identification'],
-        operation_description="""
-        Partially update driver identification.
-        
-        Updates only the provided fields.
-        
-        **Authentication Required:** Yes (JWT Token)
-        **Role Required:** Driver
-        """,
-        request_body=DriverIdentificationSerializer,
-        responses={
-            200: openapi.Response(description="Identification updated successfully"),
-            400: openapi.Response(description="Bad request - validation errors"),
-            401: openapi.Response(description="Unauthorized"),
-            403: openapi.Response(description="Forbidden - Driver role required"),
-            404: openapi.Response(description="Identification not found"),
-        }
-    )
-    async def patch(self, request):
-        """
-        Partially update driver identification - ASYNC VERSION
-        """
-        permission_error = await self.check_driver_permission(request)
-        if permission_error:
-            return permission_error
-        
-        try:
-            identification = await DriverIdentification.objects.select_related('user').aget(user=request.user)
-        except DriverIdentification.DoesNotExist:
-            return Response(
-                {
-                    'message': 'Identification not found',
-                    'status': 'error'
-                },
-                status=status.HTTP_404_NOT_FOUND
-            )
-        
-        serializer = DriverIdentificationSerializer(
-            identification,
-            data=request.data,
-            partial=True,
-            context={'request': request}
-        )
-        
-        is_valid = await sync_to_async(lambda: serializer.is_valid())()
-        
-        if is_valid:
-            await sync_to_async(serializer.save)()
-            serializer_data = await sync_to_async(lambda: serializer.data)()
-            return Response(
-                {
-                    'message': 'Identification updated successfully',
-                    'status': 'success',
-                    'data': serializer_data
-                },
-                status=status.HTTP_200_OK
+                status=status.HTTP_201_CREATED
             )
         
         errors = await sync_to_async(lambda: serializer.errors)()
@@ -331,41 +181,51 @@ class DriverIdentificationView(AsyncAPIView):
         )
 
 
-class CheckIdentificationView(AsyncAPIView):
+class DriverIdentificationUserStatusView(AsyncAPIView):
     """
-    Check identification completion status endpoint - GET
+    Get user's driver identification status endpoint - GET
     
-    Returns True/False for each identification step
+    Returns all active driver identifications with user's upload status.
     """
     permission_classes = [IsAuthenticated]
 
-    async def check_driver_permission(self, request):
-        """
-        Check if user is a Driver
-        """
-        user = request.user
-        groups = await sync_to_async(list)(user.groups.all())
-        group_names = [group.name for group in groups]
-        
-        if 'Driver' not in group_names:
-            return Response(
-                {
-                    'message': 'Only drivers can access this endpoint',
-                    'status': 'error'
-                },
-                status=status.HTTP_403_FORBIDDEN
-            )
-        return None
-
     @swagger_auto_schema(
         tags=['Driver Identification'],
         operation_description="""
-        Check identification completion status.
+        Get user's driver identification status.
         
-        Returns True/False for each identification step, showing which documents are completed.
+        Returns all active driver identifications along with the user's upload status.
+        For each identification:
+        - If user has uploaded: `is_upload_user` = true, `document_file` = file URL, `driver_identification_upload_id` = upload ID
+        - If user has not uploaded: `is_upload_user` = false, `document_file` = empty, `driver_identification_upload_id` = null
         
         **Authentication Required:** Yes (JWT Token)
-        **Role Required:** Driver
+        
+        **Example Response:**
+        ```json
+        {
+            "message": "Identification status retrieved successfully",
+            "status": "success",
+            "data": [
+                {
+                    "driver_identification_id": 1,
+                    "driver_identification_name": "Driver License",
+                    "driver_identification_title": "Take a photo of your Driver's License",
+                    "driver_identification_upload_id": 5,
+                    "is_upload_user": true,
+                    "document_file": "http://example.com/media/driver_documents/driver_license.jpg"
+                },
+                {
+                    "driver_identification_id": 2,
+                    "driver_identification_name": "Profile Photo",
+                    "driver_identification_title": "Take a photo of your Profile Photo",
+                    "driver_identification_upload_id": null,
+                    "is_upload_user": false,
+                    "document_file": ""
+                }
+            ]
+        }
+        ```
         """,
         responses={
             200: openapi.Response(
@@ -376,84 +236,182 @@ class CheckIdentificationView(AsyncAPIView):
                         'message': openapi.Schema(type=openapi.TYPE_STRING),
                         'status': openapi.Schema(type=openapi.TYPE_STRING),
                         'data': openapi.Schema(
-                            type=openapi.TYPE_OBJECT,
-                            properties={
-                                'proof_of_work_eligibility': openapi.Schema(type=openapi.TYPE_BOOLEAN),
-                                'profile_photo': openapi.Schema(type=openapi.TYPE_BOOLEAN),
-                                'drivers_license': openapi.Schema(type=openapi.TYPE_BOOLEAN),
-                                'background_check': openapi.Schema(type=openapi.TYPE_BOOLEAN),
-                                'driver_abstract': openapi.Schema(type=openapi.TYPE_BOOLEAN),
-                                'livery_vehicle_registration': openapi.Schema(type=openapi.TYPE_BOOLEAN),
-                                'vehicle_insurance': openapi.Schema(type=openapi.TYPE_BOOLEAN),
-                                'city_tndl': openapi.Schema(type=openapi.TYPE_BOOLEAN),
-                                'elvis_vehicle_inspection': openapi.Schema(type=openapi.TYPE_BOOLEAN),
-                                'terms_and_conditions': openapi.Schema(type=openapi.TYPE_BOOLEAN),
-                                'legal_agreements': openapi.Schema(type=openapi.TYPE_BOOLEAN),
-                                'completed_count': openapi.Schema(type=openapi.TYPE_INTEGER),
-                                'total_steps': openapi.Schema(type=openapi.TYPE_INTEGER),
-                            }
-                        ),
+                            type=openapi.TYPE_ARRAY,
+                            items=openapi.Schema(
+                                type=openapi.TYPE_OBJECT,
+                                properties={
+                                    'driver_identification_id': openapi.Schema(type=openapi.TYPE_INTEGER),
+                                    'driver_identification_name': openapi.Schema(type=openapi.TYPE_STRING),
+                                    'driver_identification_title': openapi.Schema(type=openapi.TYPE_STRING),
+                                    'driver_identification_upload_id': openapi.Schema(type=openapi.TYPE_INTEGER, x_nullable=True),
+                                    'is_upload_user': openapi.Schema(type=openapi.TYPE_BOOLEAN),
+                                    'document_file': openapi.Schema(type=openapi.TYPE_STRING),
+                                }
+                            )
+                        )
                     }
                 )
             ),
-            404: openapi.Response(description="Identification not found"),
             401: openapi.Response(description="Unauthorized"),
-            403: openapi.Response(description="Forbidden - Driver role required"),
         }
     )
     async def get(self, request):
         """
-        Check identification completion status - ASYNC VERSION
+        Get user's identification status - ASYNC VERSION
         """
-        permission_error = await self.check_driver_permission(request)
-        if permission_error:
-            return permission_error
+        user = request.user
         
-        try:
-            identification = await DriverIdentification.objects.select_related('user').aget(user=request.user)
-        except DriverIdentification.DoesNotExist:
-            # Return all False if identification doesn't exist
-            status_data = {
-                'proof_of_work_eligibility': False,
-                'profile_photo': False,
-                'drivers_license': False,
-                'background_check': False,
-                'driver_abstract': False,
-                'livery_vehicle_registration': False,
-                'vehicle_insurance': False,
-                'city_tndl': False,
-                'elvis_vehicle_inspection': False,
-                'terms_and_conditions': False,
-                'legal_agreements': False,
-                'completed_count': 0,
-                'total_steps': 11,
-            }
-            return Response(
-                {
-                    'message': 'Identification status retrieved successfully',
-                    'status': 'success',
-                    'data': status_data
-                },
-                status=status.HTTP_200_OK
-            )
+        # Get all active driver identifications
+        def get_active_identifications():
+            return list(DriverIdentification.objects.filter(is_active=True).order_by('id'))
+        active_identifications = await sync_to_async(get_active_identifications)()
         
-        # Get completion status
-        completion_status = await sync_to_async(identification.get_completion_status)()
-        completed_count = await sync_to_async(identification.get_completion_count)()
-        total_steps = await sync_to_async(identification.get_total_steps)()
+        # Get user's uploads
+        def get_user_uploads():
+            return list(DriverIdentificationUploadDocument.objects.filter(
+                user=user
+            ).select_related('driver_identification'))
+        user_uploads = await sync_to_async(get_user_uploads)()
         
-        status_data = {
-            **completion_status,
-            'completed_count': completed_count,
-            'total_steps': total_steps,
-        }
+        # Create a dictionary for quick lookup
+        uploads_dict = {upload.driver_identification_id: upload for upload in user_uploads}
+        
+        # Build response data
+        response_data = []
+        for identification in active_identifications:
+            upload = uploads_dict.get(identification.id)
+            
+            if upload:
+                document_file = request.build_absolute_uri(upload.document_file.url) if upload.document_file else ""
+                response_data.append({
+                    'driver_identification_id': identification.id,
+                    'driver_identification_name': identification.name,
+                    'driver_identification_title': identification.title,
+                    'driver_identification_upload_id': upload.id,
+                    'is_upload_user': True,
+                    'document_file': document_file
+                })
+            else:
+                response_data.append({
+                    'driver_identification_id': identification.id,
+                    'driver_identification_name': identification.name,
+                    'driver_identification_title': identification.title,
+                    'driver_identification_upload_id': None,
+                    'is_upload_user': False,
+                    'document_file': ""
+                })
         
         return Response(
             {
                 'message': 'Identification status retrieved successfully',
                 'status': 'success',
-                'data': status_data
+                'data': response_data
             },
             status=status.HTTP_200_OK
         )
 
+
+class DriverIdentificationListView(AsyncAPIView):
+    """
+    Get all active driver identifications endpoint - GET
+    
+    Returns all active driver identification types.
+    """
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(
+        tags=['Driver Identification'],
+        operation_description="""
+        Get all active driver identifications.
+        
+        Returns a list of all active driver identification types that can be used for document uploads.
+        Only identifications with `is_active=True` are returned.
+        
+        **Authentication Required:** Yes (JWT Token)
+        
+        **Example Response:**
+        ```json
+        {
+            "message": "Driver identifications retrieved successfully",
+            "status": "success",
+            "data": [
+                {
+                    "id": 1,
+                    "name": "Driver License",
+                    "image": "http://example.com/media/driver_identification_icons/license.png",
+                    "title": "Take a photo of your Driver's License",
+                    "description": "Make sure your Driver's License is not expired...",
+                    "is_active": true,
+                    "items": [],
+                    "created_at": "2024-01-01T00:00:00Z",
+                    "updated_at": "2024-01-01T00:00:00Z"
+                }
+            ]
+        }
+        ```
+        """,
+        responses={
+            200: openapi.Response(
+                description="Driver identifications retrieved successfully",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        'message': openapi.Schema(type=openapi.TYPE_STRING),
+                        'status': openapi.Schema(type=openapi.TYPE_STRING),
+                        'data': openapi.Schema(
+                            type=openapi.TYPE_ARRAY,
+                            items=openapi.Schema(
+                                type=openapi.TYPE_OBJECT,
+                                properties={
+                                    'id': openapi.Schema(type=openapi.TYPE_INTEGER),
+                                    'name': openapi.Schema(type=openapi.TYPE_STRING),
+                                    'image': openapi.Schema(type=openapi.TYPE_STRING, x_nullable=True),
+                                    'title': openapi.Schema(type=openapi.TYPE_STRING),
+                                    'description': openapi.Schema(type=openapi.TYPE_STRING, x_nullable=True),
+                                    'is_active': openapi.Schema(type=openapi.TYPE_BOOLEAN),
+                                    'items': openapi.Schema(
+                                        type=openapi.TYPE_ARRAY,
+                                        items=openapi.Schema(
+                                            type=openapi.TYPE_OBJECT,
+                                            properties={
+                                                'id': openapi.Schema(type=openapi.TYPE_INTEGER),
+                                                'item': openapi.Schema(type=openapi.TYPE_STRING),
+                                                'created_at': openapi.Schema(type=openapi.TYPE_STRING, format=openapi.FORMAT_DATETIME),
+                                            }
+                                        )
+                                    ),
+                                    'created_at': openapi.Schema(type=openapi.TYPE_STRING, format=openapi.FORMAT_DATETIME),
+                                    'updated_at': openapi.Schema(type=openapi.TYPE_STRING, format=openapi.FORMAT_DATETIME),
+                                }
+                            )
+                        )
+                    }
+                )
+            ),
+            401: openapi.Response(description="Unauthorized"),
+        }
+    )
+    async def get(self, request):
+        """
+        Get all active driver identifications - ASYNC VERSION
+        """
+        def get_identifications():
+            return list(DriverIdentification.objects.filter(is_active=True)
+                       .prefetch_related('items').order_by('id'))
+        identifications = await sync_to_async(get_identifications)()
+        
+        serializer = DriverIdentificationSerializer(
+            identifications,
+            many=True,
+            context={'request': request}
+        )
+        serializer_data = await sync_to_async(lambda: serializer.data)()
+        
+        return Response(
+            {
+                'message': 'Driver identifications retrieved successfully',
+                'status': 'success',
+                'data': serializer_data
+            },
+            status=status.HTTP_200_OK
+        )

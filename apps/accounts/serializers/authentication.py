@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from django.contrib.auth.models import Group
 from django.contrib.auth.password_validation import validate_password
-from ..models import CustomUser, VerificationCode, PasswordResetToken
+from ..models import CustomUser, VerificationCode, PasswordResetToken, UserDeviceToken
 
 
 class RegistrationSerializer(serializers.ModelSerializer):
@@ -32,10 +32,30 @@ class RegistrationSerializer(serializers.ModelSerializer):
         max_length=20,
         help_text="Optional invitation code to use when registering"
     )
+    device_token = serializers.CharField(
+        write_only=True,
+        required=False,
+        allow_blank=True,
+        help_text="Push notification device token",
+    )
+    device_type = serializers.ChoiceField(
+        write_only=True,
+        required=False,
+        choices=UserDeviceToken.DeviceType.choices,
+        help_text="Device type for push notifications (android, ios, web)",
+    )
 
     class Meta:
         model = CustomUser
-        fields = ('full_name', 'email', 'password', 'groups', 'invitation_code')
+        fields = (
+            'full_name',
+            'email',
+            'password',
+            'groups',
+            'invitation_code',
+            'device_token',
+            'device_type',
+        )
         extra_kwargs = {
             'email': {'required': True}
         }
@@ -55,8 +75,10 @@ class RegistrationSerializer(serializers.ModelSerializer):
         full_name = validated_data.pop('full_name', '')
         groups = validated_data.pop('groups', [])
         password = validated_data.pop('password')
-        # Remove invitation_code as it's not a model field (will be processed in view)
-        validated_data.pop('invitation_code', None)
+        # Remove non-model fields
+        invitation_code = validated_data.pop('invitation_code', None)
+        device_token = validated_data.pop('device_token', '').strip() if 'device_token' in validated_data else ''
+        device_type = validated_data.pop('device_type', None)
         
         name_parts = full_name.strip().split(' ', 1)
         first_name = name_parts[0] if name_parts else ''
@@ -81,7 +103,12 @@ class RegistrationSerializer(serializers.ModelSerializer):
         
         if groups:
             user.groups.set(groups)
+
+        # Store device token if provided
+        if device_token and device_type:
+            UserDeviceToken.upsert_token(user=user, token=device_token, mobile=device_type)
         
+        # invitation_code is processed in view layer
         return user
 
     def to_representation(self, instance):
@@ -110,6 +137,18 @@ class LoginSerializer(serializers.Serializer):
         required=True,
         style={'input_type': 'password'},
         help_text="User password"
+    )
+    device_token = serializers.CharField(
+        write_only=True,
+        required=False,
+        allow_blank=True,
+        help_text="Push notification device token",
+    )
+    device_type = serializers.ChoiceField(
+        write_only=True,
+        required=False,
+        choices=UserDeviceToken.DeviceType.choices,
+        help_text="Device type for push notifications (android, ios, web)",
     )
 
     def validate(self, attrs):

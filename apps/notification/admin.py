@@ -1,6 +1,8 @@
 from django.contrib import admin
 from django.utils.html import format_html
 from django.conf import settings
+from django.db import models
+from django import forms
 from .models import Notification
 
 
@@ -12,6 +14,16 @@ class NotificationAdmin(admin.ModelAdmin):
     readonly_fields = ('created_at', 'updated_at', 'read_at')
     ordering = ('-created_at',)
     change_list_template = 'admin/notification/change_list.html'
+    
+    # CharField va TextField uchun kengaytirilgan ko'rinish
+    formfield_overrides = {
+        models.CharField: {
+            'widget': forms.TextInput(attrs={'style': 'width: 100%; min-width: 300px;'}),
+        },
+        models.TextField: {
+            'widget': forms.Textarea(attrs={'rows': 4, 'cols': 80, 'style': 'width: 100%; min-width: 500px;'}),
+        },
+    }
     
     def changelist_view(self, request, extra_context=None):
         """

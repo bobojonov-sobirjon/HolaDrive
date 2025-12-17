@@ -113,14 +113,69 @@ class VehicleDetailsView(AsyncAPIView):
         Multiple images can be uploaded using the 'images_data' field.
         User is automatically taken from the authentication header.
         
+        **Ride Type System:**
+        - If you don't specify `supported_ride_types`, the system will automatically suggest ride types based on your vehicle characteristics:
+          * Standard (Hola) - Always available for all vehicles
+          * Premium - If your vehicle is a premium brand (Mercedes, BMW, Audi, Tesla, etc.) OR if it's 2020+ with Excellent condition
+          * Eco - If your vehicle is electric/hybrid (Tesla, Nissan Leaf, etc.)
+        - You can also manually specify `supported_ride_types` to override automatic suggestions
+        - `default_ride_type` is the primary ride type shown first (if not specified, first suggested type will be used)
+        
         **Request Format:** Use multipart/form-data for file uploads
         
         **Fields:**
-        - brand: Vehicle brand (required)
-        - model: Vehicle model (required)
-        - year_of_manufacture: Year (2015 or newer, required)
-        - vin: Vehicle Identification Number (8-17 characters, required, unique)
+        - brand: Vehicle brand (required, e.g., "Toyota", "Tesla", "BMW")
+        - model: Vehicle model (required, e.g., "Camry", "Model 3", "5 Series")
+        - year_of_manufacture: Year (required, 2015 or newer, e.g., 2024)
+        - vin: Vehicle Identification Number (required, unique, 8-17 characters, e.g., "24785499ABCDEF123")
+        - vehicle_condition: Vehicle condition (optional, default: "good", choices: "excellent", "good", "fair")
+          * Affects automatic ride type suggestions (Excellent condition + 2020+ year = Premium suggestion)
+        - default_ride_type: Primary/default ride type ID (optional, integer)
+          * If not specified, first suggested ride type will be used automatically
+        - supported_ride_types: List of ride type IDs this vehicle can support (optional, array of integers)
+          * If not specified or empty, system will automatically suggest based on vehicle characteristics
+          * One vehicle can support multiple ride types (e.g., [1, 2, 3] for Standard, Premium, Eco)
+          * Example: [1, 2] means vehicle supports Standard and Premium ride types
         - images_data: List of image files (optional, multiple allowed)
+        
+        **Examples:**
+        
+        **Example 1: Automatic suggestions (Tesla Model 3):**
+        ```
+        {
+          "brand": "Tesla",
+          "model": "Model 3",
+          "year_of_manufacture": 2023,
+          "vin": "ABC123",
+          "vehicle_condition": "excellent"
+          // supported_ride_types not specified → Auto-suggests: [Hola, Premium, Eco]
+        }
+        ```
+        
+        **Example 2: Manual selection:**
+        ```
+        {
+          "brand": "Toyota",
+          "model": "Camry",
+          "year_of_manufacture": 2018,
+          "vin": "XYZ789",
+          "vehicle_condition": "good",
+          "supported_ride_types": [1]  // Only Standard (Hola)
+        }
+        ```
+        
+        **Example 3: Premium vehicle with manual override:**
+        ```
+        {
+          "brand": "BMW",
+          "model": "5 Series",
+          "year_of_manufacture": 2022,
+          "vin": "BMW123",
+          "vehicle_condition": "excellent",
+          "default_ride_type": 2,  // Premium as default
+          "supported_ride_types": [1, 2]  // Standard and Premium
+        }
+        ```
         
         **Authentication Required:** Yes (JWT Token)
         **Role Required:** Driver
@@ -129,14 +184,48 @@ class VehicleDetailsView(AsyncAPIView):
             type=openapi.TYPE_OBJECT,
             required=['brand', 'model', 'year_of_manufacture', 'vin'],
             properties={
-                'brand': openapi.Schema(type=openapi.TYPE_STRING, example='Toyota'),
-                'model': openapi.Schema(type=openapi.TYPE_STRING, example='Camry'),
-                'year_of_manufacture': openapi.Schema(type=openapi.TYPE_INTEGER, example=2024),
-                'vin': openapi.Schema(type=openapi.TYPE_STRING, example='24785499ABCDEF123'),
+                'brand': openapi.Schema(
+                    type=openapi.TYPE_STRING,
+                    example='Toyota',
+                    description='Vehicle brand (e.g., Toyota, Tesla, BMW, Mercedes)'
+                ),
+                'model': openapi.Schema(
+                    type=openapi.TYPE_STRING,
+                    example='Camry',
+                    description='Vehicle model (e.g., Camry, Model 3, 5 Series)'
+                ),
+                'year_of_manufacture': openapi.Schema(
+                    type=openapi.TYPE_INTEGER,
+                    example=2024,
+                    description='Year the vehicle was manufactured (must be 2015 or newer)'
+                ),
+                'vin': openapi.Schema(
+                    type=openapi.TYPE_STRING,
+                    example='24785499ABCDEF123',
+                    description='Vehicle Identification Number (8-17 characters, must be unique)'
+                ),
+                'vehicle_condition': openapi.Schema(
+                    type=openapi.TYPE_STRING,
+                    enum=['excellent', 'good', 'fair'],
+                    example='good',
+                    default='good',
+                    description='Vehicle condition. Affects automatic ride type suggestions. Excellent condition + 2020+ year = Premium suggestion.'
+                ),
+                'default_ride_type': openapi.Schema(
+                    type=openapi.TYPE_INTEGER,
+                    example=1,
+                    description='Primary/default ride type ID. If not specified, first suggested ride type will be used automatically.'
+                ),
+                'supported_ride_types': openapi.Schema(
+                    type=openapi.TYPE_ARRAY,
+                    items=openapi.Schema(type=openapi.TYPE_INTEGER),
+                    example=[1, 2, 3],
+                    description='List of ride type IDs this vehicle can support. If not specified or empty, system will automatically suggest based on vehicle characteristics (brand, model, year, condition, electric/hybrid status). One vehicle can support multiple ride types. Example: [1, 2, 3] means vehicle supports Standard (Hola), Premium, and Eco ride types.'
+                ),
                 'images_data': openapi.Schema(
                     type=openapi.TYPE_ARRAY,
                     items=openapi.Schema(type=openapi.TYPE_FILE),
-                    description='List of vehicle images'
+                    description='List of vehicle images (optional, multiple allowed)'
                 ),
             }
         ),
@@ -148,7 +237,10 @@ class VehicleDetailsView(AsyncAPIView):
                     properties={
                         'message': openapi.Schema(type=openapi.TYPE_STRING, example="Vehicle details created successfully"),
                         'status': openapi.Schema(type=openapi.TYPE_STRING, example="success"),
-                        'data': openapi.Schema(type=openapi.TYPE_OBJECT),
+                        'data': openapi.Schema(
+                            type=openapi.TYPE_OBJECT,
+                            description='Vehicle details including suggested_ride_types (read-only field showing automatic suggestions)'
+                        ),
                     }
                 )
             ),
@@ -261,13 +353,26 @@ class VehicleDetailsView(AsyncAPIView):
             # Vehicle yaratish
             user = request.user
             validated_data['user'] = user
+            
+            # supported_ride_types ni alohida olish (ManyToMany field)
+            supported_ride_types = validated_data.pop('supported_ride_types', [])
+            vehicle_condition = validated_data.get('vehicle_condition', VehicleDetails.VehicleCondition.GOOD)
+            default_ride_type = validated_data.get('default_ride_type', None)
+            
             vehicle = await sync_to_async(VehicleDetails.objects.create)(
                 brand=validated_data['brand'],
                 model=validated_data['model'],
                 year_of_manufacture=validated_data['year_of_manufacture'],
                 vin=validated_data['vin'],
+                vehicle_condition=vehicle_condition,
+                default_ride_type=default_ride_type,
                 user=user
             )
+            
+            # supported_ride_types ni qo'shish (ManyToMany)
+            if supported_ride_types:
+                await sync_to_async(vehicle.supported_ride_types.set)(supported_ride_types)
+            # Agar supported_ride_types bo'sh bo'lsa, save() metodi avtomatik suggestion qiladi
             
             # Images yaratish
             if images_data:
@@ -415,6 +520,11 @@ class VehicleDetailView(AsyncAPIView):
         Multiple images can be uploaded using the 'images_data' field.
         New images will be added to existing ones (existing images are not deleted).
         
+        **Ride Type System:**
+        - You can update `supported_ride_types` to change which ride types your vehicle supports
+        - If you set `supported_ride_types` to empty array [], the system will automatically re-suggest based on current vehicle characteristics
+        - `default_ride_type` can be updated to change the primary ride type shown first
+        
         **Request Format:** Use multipart/form-data for file uploads
         
         **Fields (all optional):**
@@ -422,6 +532,11 @@ class VehicleDetailView(AsyncAPIView):
         - model: Vehicle model (optional)
         - year_of_manufacture: Year (2015 or newer, optional)
         - vin: Vehicle Identification Number (8-17 characters, optional, unique)
+        - vehicle_condition: Vehicle condition (optional, choices: "excellent", "good", "fair")
+        - default_ride_type: Primary/default ride type ID (optional, integer)
+        - supported_ride_types: List of ride type IDs this vehicle can support (optional, array of integers)
+          * If set to empty array [], system will automatically re-suggest based on current vehicle characteristics
+          * Example: [1, 2] means vehicle supports Standard and Premium ride types
         - images_data: List of image files (optional, multiple allowed)
         
         **Note:** You can send only images_data to add images without updating other fields.
@@ -433,10 +548,43 @@ class VehicleDetailView(AsyncAPIView):
             type=openapi.TYPE_OBJECT,
             required=[],  # Barcha fieldlar optional
             properties={
-                'brand': openapi.Schema(type=openapi.TYPE_STRING, example='Toyota'),
-                'model': openapi.Schema(type=openapi.TYPE_STRING, example='Camry'),
-                'year_of_manufacture': openapi.Schema(type=openapi.TYPE_INTEGER, example=2024),
-                'vin': openapi.Schema(type=openapi.TYPE_STRING, example='24785499ABCDEF123'),
+                'brand': openapi.Schema(
+                    type=openapi.TYPE_STRING,
+                    example='Toyota',
+                    description='Vehicle brand (e.g., Toyota, Tesla, BMW)'
+                ),
+                'model': openapi.Schema(
+                    type=openapi.TYPE_STRING,
+                    example='Camry',
+                    description='Vehicle model (e.g., Camry, Model 3)'
+                ),
+                'year_of_manufacture': openapi.Schema(
+                    type=openapi.TYPE_INTEGER,
+                    example=2024,
+                    description='Year the vehicle was manufactured (must be 2015 or newer)'
+                ),
+                'vin': openapi.Schema(
+                    type=openapi.TYPE_STRING,
+                    example='24785499ABCDEF123',
+                    description='Vehicle Identification Number (8-17 characters, must be unique)'
+                ),
+                'vehicle_condition': openapi.Schema(
+                    type=openapi.TYPE_STRING,
+                    enum=['excellent', 'good', 'fair'],
+                    example='good',
+                    description='Vehicle condition. Affects automatic ride type suggestions if supported_ride_types is cleared.'
+                ),
+                'default_ride_type': openapi.Schema(
+                    type=openapi.TYPE_INTEGER,
+                    example=1,
+                    description='Primary/default ride type ID. Changes the primary ride type shown first.'
+                ),
+                'supported_ride_types': openapi.Schema(
+                    type=openapi.TYPE_ARRAY,
+                    items=openapi.Schema(type=openapi.TYPE_INTEGER),
+                    example=[1, 2],
+                    description='List of ride type IDs this vehicle can support. If set to empty array [], system will automatically re-suggest based on current vehicle characteristics. Example: [1, 2] means vehicle supports Standard and Premium ride types.'
+                ),
                 'images_data': openapi.Schema(
                     type=openapi.TYPE_ARRAY,
                     items=openapi.Schema(type=openapi.TYPE_FILE),
@@ -595,9 +743,18 @@ class VehicleDetailView(AsyncAPIView):
             # Update vehicle fields (agar yuborilgan bo'lsa)
             if data:
                 validated_data = await sync_to_async(lambda: serializer.validated_data)()
+                
+                # supported_ride_types ni alohida handle qilish (ManyToMany)
+                supported_ride_types = validated_data.pop('supported_ride_types', None)
+                
+                # Boshqa fieldlarni update qilish
                 for attr, value in validated_data.items():
                     setattr(vehicle, attr, value)
                 await sync_to_async(vehicle.save)()
+                
+                # supported_ride_types ni update qilish (agar yuborilgan bo'lsa)
+                if supported_ride_types is not None:
+                    await sync_to_async(vehicle.supported_ride_types.set)(supported_ride_types)
             
             # Add new images (agar yuborilgan bo'lsa)
             if images_data:

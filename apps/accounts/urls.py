@@ -5,7 +5,12 @@ from .views import (
     ResetPasswordConfirmView, UserDetailView,
     UserPreferencesView, UserPreferencesDeleteView,
     DriverPreferencesView, VehicleDetailsView, VehicleDetailView, VehicleImageView,
-    DriverIdentificationView, CheckIdentificationView,
+    DriverIdentificationUploadView,
+    DriverIdentificationUserStatusView,
+    DriverIdentificationListView,
+    DriverVerificationDetailView,
+    DriverVerificationMeView,
+    DriverVerificationSubmitView,
     InvitationGenerateView, InvitationGetView, InvitedUsersView,
     PinVerificationForUserView
 )
@@ -39,9 +44,15 @@ urlpatterns = [
     # Vehicle Image endpoints (Driver only)
     path('vehicle/image/<int:pk>/', VehicleImageView.as_view(), name='vehicle-image-detail'),
     
-    # Driver Identification endpoints (Driver only)
-    path('driver/identification/', DriverIdentificationView.as_view(), name='driver-identification'),
-    path('driver/identification/check/', CheckIdentificationView.as_view(), name='check-identification'),
+    # Driver Identification endpoints
+    path('driver/identification/upload/', DriverIdentificationUploadView.as_view(), name='driver-identification-upload'),
+    path('driver/identification/status/', DriverIdentificationUserStatusView.as_view(), name='driver-identification-status'),
+    path('driver/identification/list/', DriverIdentificationListView.as_view(), name='driver-identification-list'),
+    
+    # Driver Verification endpoints
+    path('driver/verification/', DriverVerificationMeView.as_view(), name='driver-verification-me'),
+    path('driver/verification/<int:pk>/', DriverVerificationDetailView.as_view(), name='driver-verification-detail'),
+    path('driver/verification/submit/', DriverVerificationSubmitView.as_view(), name='driver-verification-submit'),
     
     # Invitation endpoints
     path('invitations/generate/', InvitationGenerateView.as_view(), name='invitation-generate'),

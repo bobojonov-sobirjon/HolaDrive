@@ -6,7 +6,8 @@ class OrderPreferencesSerializer(serializers.ModelSerializer):
     """
     Serializer for OrderPreferences
     """
-    order_id = serializers.IntegerField(write_only=True, required=True)
+    order_id = serializers.IntegerField(write_only=True, required=False)
+    order_id_read = serializers.IntegerField(source='order.id', read_only=True)
     chatting_preference = serializers.ChoiceField(
         choices=OrderPreferences.ChattingPreference.choices,
         help_text="Chatting preference: no_communication (No Communication), casual (Casual), friendly (Friendly)"
@@ -49,6 +50,7 @@ class OrderPreferencesSerializer(serializers.ModelSerializer):
         fields = [
             'id',
             'order_id',
+            'order_id_read',
             'order',
             'chatting_preference',
             'temperature_preference',

@@ -1,25 +1,311 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
 from django.contrib.sites.models import Site
+from django.contrib.auth.models import Group
+from django.utils.html import format_html, format_html_join
+import mimetypes
+from django.db import models
+from django import forms
 from .models import (
-    CustomUser, VerificationCode, PasswordResetToken, UserPreferences,
-    DriverPreferences, VehicleDetails, VehicleImages, DriverIdentification,
+    CustomUser, RiderUser, DriverUser,
+    VerificationCode, PasswordResetToken, UserPreferences,
+    DriverPreferences, VehicleDetails, VehicleImages,
+    DriverIdentification, DriverIdentificationItems, DriverIdentificationUploadDocument,
+    DriverVerification, UserDeviceToken,
     InvitationGenerate, InvitationUsers, PinVerificationForUser
 )
+try:
+    from apps.order.models import RideType
+except ImportError:
+    RideType = None
 
 
-@admin.register(CustomUser)
-class CustomUserAdmin(UserAdmin):
-    list_display = ('email', 'username', 'first_name', 'last_name', 'is_verified', 'is_staff', 'is_active', 'created_at')
-    list_filter = ('is_verified', 'is_staff', 'is_superuser', 'is_active', 'created_at')
-    search_fields = ('email', 'username', 'first_name', 'last_name', 'phone_number', 'tax_number')
+class UserPreferencesInline(admin.TabularInline):
+    """
+    Inline admin for UserPreferences
+    """
+    model = UserPreferences
+    extra = 1
+    fields = ('chatting_preference', 'temperature_preference', 'music_preference', 'volume_level')
+    readonly_fields = ('created_at', 'updated_at')
+    ordering = ('-updated_at',)
+    
+    formfield_overrides = {
+        models.CharField: {
+            'widget': forms.TextInput(attrs={'style': 'width: 100%; min-width: 200px;'}),
+        },
+    }
+
+
+class InvitationUsersInline(admin.TabularInline):
+    """
+    Inline admin for InvitationUsers (sent invitations)
+    """
+    model = InvitationUsers
+    fk_name = 'sender'
+    extra = 0
+    fields = ('receiver', 'is_active', 'created_at')
+    readonly_fields = ('created_at',)
     ordering = ('-created_at',)
+    can_delete = True
+
+
+class PinVerificationForDriverInline(admin.TabularInline):
+    """
+    Inline admin for PinVerificationForUser
+    """
+    model = PinVerificationForUser
+    extra = 0
+    max_num = 1
+    fields = ('pin', 'created_at', 'updated_at')
+    readonly_fields = ('created_at', 'updated_at')
+    can_delete = False
+    verbose_name = 'PIN Verification For Driver'
+    
+
+class PinVerificationForRiderInline(admin.TabularInline):
+    """
+    Inline admin for PinVerificationForUser
+    """
+    model = PinVerificationForUser
+    extra = 0
+    max_num = 1
+    fields = ('pin', 'created_at', 'updated_at')
+    readonly_fields = ('created_at', 'updated_at')
+    can_delete = False
+    verbose_name = 'PIN Verification For Rider'
+
+
+class DriverPreferencesInline(admin.TabularInline):
+    """
+    Inline admin for DriverPreferences
+    """
+    model = DriverPreferences
+    extra = 0
+    max_num = 1
+    fields = ('trip_type_preference', 'maximum_pickup_distance', 'preferred_working_hours', 'notification_intensity')
+    readonly_fields = ('created_at', 'updated_at')
+    can_delete = False
+    
+    formfield_overrides = {
+        models.CharField: {
+            'widget': forms.TextInput(attrs={'style': 'width: 100%; min-width: 200px;'}),
+        },
+    }
+
+
+class UserDeviceTokenInline(admin.TabularInline):
+    """
+    Inline admin for UserDeviceToken (push notification tokens)
+    """
+    model = UserDeviceToken
+    extra = 0
+    fields = ('mobile', 'token', 'updated_at')
+    readonly_fields = ('updated_at',)
+    ordering = ('-updated_at',)
+
+
+class VehicleImagesInline(admin.TabularInline):
+    """
+    Inline admin for VehicleImages
+    """
+    model = VehicleImages
+    extra = 1
+    fields = ('image', 'created_at')
+    readonly_fields = ('created_at',)
+
+
+class VehicleDetailsInline(admin.StackedInline):
+    """
+    Inline admin for VehicleDetails with VehicleImages display and Ride Type support
+    """
+    model = VehicleDetails
+    extra = 0
+    max_num = 1
+    fields = (
+        'brand', 'model', 'year_of_manufacture', 'vin',
+        'vehicle_condition',
+        'default_ride_type',
+        'supported_ride_types',
+        'vehicle_images_display',
+        'plate_number',
+        'color',
+        'created_at', 'updated_at'
+    )
+    readonly_fields = ('created_at', 'updated_at', 'vehicle_images_display')
+    can_delete = False
+    classes = ('collapse',)
+    filter_horizontal = ('supported_ride_types',)
+    
+    formfield_overrides = {
+        models.CharField: {
+            'widget': forms.TextInput(attrs={'style': 'width: 100%; min-width: 300px;'}),
+        },
+        models.IntegerField: {
+            'widget': forms.NumberInput(attrs={'style': 'width: 100%; min-width: 200px;'}),
+        },
+    }
+    
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        """Limit default_ride_type choices to active ride types only"""
+        if db_field.name == 'default_ride_type' and RideType:
+            kwargs['queryset'] = RideType.objects.filter(is_active=True)
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
+    
+    def formfield_for_manytomany(self, db_field, request, **kwargs):
+        """Limit supported_ride_types choices to active ride types only"""
+        if db_field.name == 'supported_ride_types' and RideType:
+            kwargs['queryset'] = RideType.objects.filter(is_active=True)
+        return super().formfield_for_manytomany(db_field, request, **kwargs)
+    
+    def vehicle_images_display(self, obj):
+        """
+        VehicleImages ni ko'rsatish (read-only, rasmlar sifatida)
+        """
+        if obj and obj.pk:
+            images = list(obj.images.all())
+            if images:
+                # Har bir rasm uchun alohida blok
+                img_blocks = format_html_join(
+                    '\n',
+                    '''
+                    <div style="text-align: center; border: 1px solid #ddd; padding: 5px; border-radius: 5px; display: inline-block; margin: 5px;">
+                        <img src="{}" style="max-width: 200px; max-height: 200px; border-radius: 3px;" />
+                        <br/>
+                        <small style="color: #666;">{}</small>
+                    </div>
+                    ''',
+                    (
+                        (img.image.url, img.created_at.strftime("%Y-%m-%d %H:%M"))
+                        for img in images
+                    )
+                )
+                return format_html(
+                    '<div style="display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px;">{}</div>',
+                    img_blocks
+                )
+        return format_html('<p style="color: #999; font-style: italic;">No images uploaded yet</p>')
+    vehicle_images_display.short_description = "Vehicle Images"
+
+
+class DriverIdentificationUploadDocumentInline(admin.TabularInline):
+    """
+    Inline admin for DriverIdentificationUploadDocument
+    """
+    model = DriverIdentificationUploadDocument
+    extra = 0
+    fields = ('driver_identification', 'document_file', 'document_preview', 'created_at', 'updated_at')
+    readonly_fields = ('document_preview', 'created_at', 'updated_at')
+    ordering = ('-updated_at',)
+
+    def document_preview(self, obj):
+        """
+        Fayl preview:
+        - Agar rasm bo'lsa, Vehicle Images dagidek kartochka ko'rinishida <img>
+        - Aks holda oddiy "Open file" link
+        """
+        if not obj or not obj.document_file:
+            return format_html('<span style="color:#999;">No file</span>')
+
+        url = obj.document_file.url
+        mime_type, _ = mimetypes.guess_type(url)
+
+        # Rasm bo'lsa: VehicleImages bilan bir xil karta
+        if mime_type and mime_type.startswith('image/'):
+            return format_html(
+                '''
+                <div style="text-align: center; border: 1px solid #ddd; padding: 5px; border-radius: 5px; display: inline-block; margin: 5px;">
+                    <img src="{}" style="max-width: 200px; max-height: 200px; border-radius: 3px;" />
+                    <br/>
+                    <small style="color: #666;">{}</small>
+                </div>
+                ''',
+                url,
+                obj.created_at.strftime("%Y-%m-%d %H:%M") if obj.created_at else '',
+            )
+
+        # Boshqa fayllar uchun oddiy link
+        return format_html('<a href="{}" target="_blank">Open file</a>', url)
+
+    document_preview.short_description = "Preview"
+
+
+@admin.register(DriverVerification)
+class DriverVerificationAdmin(admin.ModelAdmin):
+    list_display = ('user', 'status', 'reviewer', 'estimated_review_hours', 'reviewed_at', 'updated_at')
+    list_filter = ('status', 'estimated_review_hours', 'updated_at')
+    search_fields = ('user__email', 'user__username')
+    readonly_fields = ('created_at', 'updated_at', 'reviewed_at')
+    ordering = ('-updated_at',)
+
+    fieldsets = (
+        ('Driver', {
+            'fields': ('user',)
+        }),
+        ('Status', {
+            'fields': ('status', 'estimated_review_hours')
+        }),
+        ('Review', {
+            'fields': ('reviewer', 'comment', 'reviewed_at')
+        }),
+        ('Timestamps', {
+            'fields': ('created_at', 'updated_at'),
+        }),
+    )
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        """
+        Limit reviewer choices to superusers only.
+        """
+        if db_field.name == 'reviewer':
+            kwargs['queryset'] = CustomUser.objects.filter(is_superuser=True)
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
+
+    def save_model(self, request, obj, form, change):
+        """
+        Set reviewer when status is changed from admin.
+        Notification itself is created in model.save().
+        """
+        if change and 'status' in form.changed_data:
+            obj.reviewer = request.user
+        super().save_model(request, obj, form, change)
+
+
+@admin.register(RiderUser)
+class RiderUserAdmin(UserAdmin):
+    """
+    Admin panel for Riders only
+    Faqat Rider guruhiga tegishli userlarni ko'rsatadi
+    """
+    list_display = ('email', 'username', 'first_name', 'last_name', 'id_identification', 'is_verified', 'is_active', 'created_at')
+    list_filter = ('is_verified', 'is_active', 'created_at')
+    search_fields = ('email', 'username', 'first_name', 'last_name', 'phone_number', 'tax_number', 'id_identification')
+    ordering = ('-created_at',)
+    
+    formfield_overrides = {
+        models.CharField: {
+            'widget': forms.TextInput(attrs={'style': 'width: 100%; min-width: 300px;'}),
+        },
+        models.TextField: {
+            'widget': forms.Textarea(attrs={'rows': 4, 'cols': 80, 'style': 'width: 100%; min-width: 500px;'}),
+        },
+        models.EmailField: {
+            'widget': forms.EmailInput(attrs={'style': 'width: 100%; min-width: 300px;'}),
+        },
+    }
+    
+    inlines = [
+        UserPreferencesInline,
+        InvitationUsersInline,
+        PinVerificationForRiderInline,
+        UserDeviceTokenInline,
+    ]
     
     fieldsets = (
         (None, {'fields': ('username', 'password')}),
         ('Personal Information', {'fields': ('first_name', 'last_name', 'email', 'phone_number', 'date_of_birth', 'avatar')}),
-        ('Additional Information', {'fields': ('address', 'longitude', 'latitude', 'tax_number')}),
-        ('Permissions', {'fields': ('is_active', 'is_staff', 'is_superuser', 'groups')}),
+        ('Additional Information', {'fields': ('address', 'longitude', 'latitude', 'tax_number', 'id_identification')}),
+        ('Permissions', {'fields': ('is_active', 'groups')}),
         ('Important Dates', {'fields': ('last_login', 'date_joined', 'created_at', 'updated_at')}),
         ('Verification', {'fields': ('is_verified',)}),
     )
@@ -31,107 +317,149 @@ class CustomUserAdmin(UserAdmin):
         }),
     )
     
-    readonly_fields = ('created_at', 'updated_at', 'date_joined', 'last_login')
+    readonly_fields = ('created_at', 'updated_at', 'date_joined', 'last_login', 'id_identification')
+    
+    def get_queryset(self, request):
+        """
+        Faqat Rider guruhiga tegishli userlarni qaytaradi
+        """
+        qs = super().get_queryset(request)
+        try:
+            rider_group = Group.objects.get(name='Rider')
+            return qs.filter(groups=rider_group)
+        except Group.DoesNotExist:
+            return qs.none()
+    
+    def save_model(self, request, obj, form, change):
+        """
+        Auto-assign Rider group for new users
+        """
+        super().save_model(request, obj, form, change)
+        if not change:
+            try:
+                rider_group = Group.objects.get(name='Rider')
+                if rider_group not in obj.groups.all():
+                    obj.groups.add(rider_group)
+            except Group.DoesNotExist:
+                pass
 
 
-@admin.register(VerificationCode)
-class VerificationCodeAdmin(admin.ModelAdmin):
-    list_display = ('code', 'user', 'email', 'phone_number', 'is_used', 'created_at', 'expires_at')
-    list_filter = ('is_used', 'created_at', 'expires_at')
-    search_fields = ('code', 'user__email', 'user__phone_number', 'email', 'phone_number')
-    readonly_fields = ('code', 'created_at', 'expires_at')
+@admin.register(DriverUser)
+class DriverUserAdmin(UserAdmin):
+    """
+    Admin panel for Drivers only
+    Faqat Driver guruhiga tegishli userlarni ko'rsatadi
+    """
+    list_display = ('email', 'username', 'first_name', 'last_name', 'id_identification', 'is_verified', 'is_active', 'created_at')
+    list_filter = ('is_verified', 'is_active', 'created_at')
+    search_fields = ('email', 'username', 'first_name', 'last_name', 'phone_number', 'tax_number', 'id_identification')
     ordering = ('-created_at',)
 
+    formfield_overrides = {
+        models.CharField: {
+            'widget': forms.TextInput(attrs={'style': 'width: 100%; min-width: 300px;'}),
+        },
+        models.TextField: {
+            'widget': forms.Textarea(attrs={'rows': 4, 'cols': 80, 'style': 'width: 100%; min-width: 500px;'}),
+        },
+        models.EmailField: {
+            'widget': forms.EmailInput(attrs={'style': 'width: 100%; min-width: 300px;'}),
+        },
+    }
+    
+    inlines = [
+        PinVerificationForDriverInline,
+        DriverPreferencesInline,
+        VehicleDetailsInline,
+        DriverIdentificationUploadDocumentInline,
+        UserDeviceTokenInline,
+    ]
+    
+    fieldsets = (
+        (None, {'fields': ('username', 'password')}),
+        ('Personal Information', {'fields': ('first_name', 'last_name', 'email', 'phone_number', 'date_of_birth', 'avatar')}),
+        ('Additional Information', {'fields': ('address', 'longitude', 'latitude', 'tax_number', 'id_identification')}),
+        ('Permissions', {'fields': ('is_active', 'groups')}),
+        ('Online Status', {'fields': ('is_online',)}),
+        ('Important Dates', {'fields': ('last_login', 'date_joined', 'created_at', 'updated_at')}),
+        ('Verification', {'fields': ('is_verified',)}),
+    )
+    
+    add_fieldsets = (
+        (None, {
+            'classes': ('wide',),
+            'fields': ('username', 'email', 'first_name', 'last_name', 'password1', 'password2'),
+        }),
+    )
+    
+    readonly_fields = ('created_at', 'updated_at', 'date_joined', 'last_login', 'id_identification')
+    
+    def get_queryset(self, request):
+        """
+        Limit queryset to users in Driver group
+        """
+        qs = super().get_queryset(request)
+        try:
+            driver_group = Group.objects.get(name='Driver')
+            return qs.filter(groups=driver_group)
+        except Group.DoesNotExist:
+            return qs.none()
+    
+    def save_model(self, request, obj, form, change):
+        """
+        Auto-assign Driver group for new users
+        """
+        super().save_model(request, obj, form, change)
+        if not change:
+            try:
+                driver_group = Group.objects.get(name='Driver')
+                if driver_group not in obj.groups.all():
+                    obj.groups.add(driver_group)
+            except Group.DoesNotExist:
+                pass
 
-@admin.register(PasswordResetToken)
-class PasswordResetTokenAdmin(admin.ModelAdmin):
-    list_display = ('token', 'user', 'is_used', 'created_at', 'expires_at')
-    list_filter = ('is_used', 'created_at', 'expires_at')
-    search_fields = ('token', 'user__email')
-    readonly_fields = ('token', 'created_at', 'expires_at')
-    ordering = ('-created_at',)
 
-
-@admin.register(UserPreferences)
-class UserPreferencesAdmin(admin.ModelAdmin):
-    list_display = ('user', 'chatting_preference', 'temperature_preference', 'music_preference', 'volume_level', 'created_at', 'updated_at')
-    list_filter = ('chatting_preference', 'temperature_preference', 'music_preference', 'volume_level', 'created_at', 'updated_at')
-    search_fields = ('user__email', 'user__username', 'user__first_name', 'user__last_name')
-    readonly_fields = ('created_at', 'updated_at')
-    ordering = ('-updated_at',)
-
-
-@admin.register(InvitationGenerate)
-class InvitationGenerateAdmin(admin.ModelAdmin):
-    list_display = ('user', 'invite_code', 'created_at')
-    list_filter = ('created_at',)
-    search_fields = ('invite_code', 'user__email', 'user__username')
-    readonly_fields = ('invite_code', 'created_at')
-    ordering = ('-created_at',)
-
-
-@admin.register(InvitationUsers)
-class InvitationUsersAdmin(admin.ModelAdmin):
-    list_display = ('sender', 'receiver', 'is_active', 'created_at')
-    list_filter = ('is_active', 'created_at')
-    search_fields = ('sender__email', 'sender__username', 'receiver__email', 'receiver__username')
-    readonly_fields = ('created_at',)
-    ordering = ('-created_at',)
-
-
-@admin.register(PinVerificationForUser)
-class PinVerificationForUserAdmin(admin.ModelAdmin):
-    list_display = ('user', 'pin', 'created_at', 'updated_at')
-    list_filter = ('created_at', 'updated_at')
-    search_fields = ('user__email', 'user__username', 'pin')
-    readonly_fields = ('created_at', 'updated_at')
-    ordering = ('-updated_at',)
-
-
-@admin.register(DriverPreferences)
-class DriverPreferencesAdmin(admin.ModelAdmin):
-    list_display = ('user', 'trip_type_preference', 'maximum_pickup_distance', 'preferred_working_hours', 'notification_intensity', 'created_at', 'updated_at')
-    list_filter = ('trip_type_preference', 'maximum_pickup_distance', 'preferred_working_hours', 'notification_intensity', 'created_at', 'updated_at')
-    search_fields = ('user__email', 'user__username', 'user__first_name', 'user__last_name')
-    readonly_fields = ('created_at', 'updated_at')
-    ordering = ('-updated_at',)
-
-
-@admin.register(VehicleDetails)
-class VehicleDetailsAdmin(admin.ModelAdmin):
-    list_display = ('user', 'brand', 'model', 'year_of_manufacture', 'vin', 'created_at', 'updated_at')
-    list_filter = ('brand', 'year_of_manufacture', 'created_at', 'updated_at')
-    search_fields = ('user__email', 'user__username', 'brand', 'model', 'vin')
-    readonly_fields = ('created_at', 'updated_at')
-    ordering = ('-updated_at',)
-
-
-@admin.register(VehicleImages)
-class VehicleImagesAdmin(admin.ModelAdmin):
-    list_display = ('vehicle', 'image', 'created_at')
-    list_filter = ('created_at',)
-    search_fields = ('vehicle__brand', 'vehicle__model', 'vehicle__user__email')
-    readonly_fields = ('created_at',)
-    ordering = ('-created_at',)
+class DriverIdentificationItemsInline(admin.TabularInline):
+    """
+    Inline admin for DriverIdentificationItems
+    """
+    model = DriverIdentificationItems
+    extra = 1
+    fields = ('item',)
+    
+    formfield_overrides = {
+        models.CharField: {
+            'widget': forms.TextInput(attrs={'style': 'width: 100%; min-width: 250px;'}),
+        },
+    }
 
 
 @admin.register(DriverIdentification)
 class DriverIdentificationAdmin(admin.ModelAdmin):
-    list_display = ('user', 'profile_photo', 'drivers_license', 'terms_and_conditions', 'legal_agreements', 'created_at', 'updated_at')
-    list_filter = ('terms_and_conditions', 'legal_agreements', 'created_at', 'updated_at')
-    search_fields = ('user__email', 'user__username', 'user__first_name', 'user__last_name')
+    list_display = ('name', 'title', 'is_active', 'created_at', 'updated_at')
+    list_filter = ('is_active', 'created_at', 'updated_at')
+    search_fields = ('name', 'title', 'description')
     readonly_fields = ('created_at', 'updated_at')
-    ordering = ('-updated_at',)
+    ordering = ('-created_at',)
+    inlines = [DriverIdentificationItemsInline]
+    
+    # CharField va TextField uchun kengaytirilgan ko'rinish
+    formfield_overrides = {
+        models.CharField: {
+            'widget': forms.TextInput(attrs={'style': 'width: 100%; min-width: 300px;'}),
+        },
+        models.TextField: {
+            'widget': forms.Textarea(attrs={'rows': 4, 'cols': 80, 'style': 'width: 100%; min-width: 500px;'}),
+        },
+    }
+    
     fieldsets = (
-        ('Driver Information', {'fields': ('user',)}),
-        ('Image Documents', {
-            'fields': (
-                'proof_of_work_eligibility', 'profile_photo', 'drivers_license',
-                'background_check', 'driver_abstract', 'livery_vehicle_registration',
-                'vehicle_insurance', 'city_tndl', 'elvis_vehicle_inspection'
-            )
+        ('Basic Information', {
+            'fields': ('name', 'title', 'description', 'is_active')
         }),
-        ('Agreements', {'fields': ('terms_and_conditions', 'legal_agreements')}),
+        ('Image', {
+            'fields': ('image',)
+        }),
         ('Timestamps', {'fields': ('created_at', 'updated_at')}),
     )
 

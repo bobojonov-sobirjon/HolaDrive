@@ -13,7 +13,7 @@ from ..serializers import (
     VerifyCodeSerializer, ResetPasswordRequestSerializer, VerifyResetCodeSerializer,
     ResetPasswordConfirmSerializer
 )
-from ..models import VerificationCode, PasswordResetToken, InvitationGenerate, InvitationUsers
+from ..models import VerificationCode, PasswordResetToken, InvitationGenerate, InvitationUsers, UserDeviceToken
 from ..services import send_verification_code
 
 
@@ -25,7 +25,13 @@ class RegistrationView(AsyncAPIView):
 
     @swagger_auto_schema(
         tags=['Authentication'],
-        operation_description="Register a new user account",
+        operation_description="""
+        Register a new user account.
+
+        Optional push notification fields:
+        - device_token: string (FCM/APNs token)
+        - device_type: one of ['android', 'ios', 'web']
+        """,
         request_body=RegistrationSerializer,
         responses={
             201: openapi.Response(
@@ -93,7 +99,7 @@ class RegistrationView(AsyncAPIView):
             # Get invitation_code from request data (before saving user)
             invitation_code = request.data.get('invitation_code', '').strip() if request.data.get('invitation_code') else ''
             
-            # Save user (invitation_code will be ignored by serializer.create as it's not a model field)
+            # Save user (invitation_code is processed here, device token handled in serializer)
             user = await sync_to_async(serializer.save)()
             logger.info(f"REGISTRATION DEBUG: User created - ID: {user.id}, Email: {user.email}")
             
@@ -194,7 +200,13 @@ class LoginView(AsyncAPIView):
 
     @swagger_auto_schema(
         tags=['Authentication'],
-        operation_description="Login with email/phone and password",
+        operation_description="""
+        Login with email/phone and password.
+
+        Optional push notification fields:
+        - device_token: string (FCM/APNs token)
+        - device_type: one of ['android', 'ios', 'web']
+        """,
         request_body=LoginSerializer,
         responses={
             200: openapi.Response(description="Login successful"),
@@ -237,6 +249,16 @@ class LoginView(AsyncAPIView):
                     status=status.HTTP_500_INTERNAL_SERVER_ERROR
                 )
             
+            # Store/update device token if provided
+            device_token = (validated_data.get('device_token') or '').strip()
+            device_type = validated_data.get('device_type')
+            if device_token and device_type:
+                await sync_to_async(UserDeviceToken.upsert_token)(
+                    user=user,
+                    token=device_token,
+                    mobile=device_type,
+                )
+
             response_data = {
                 'message': 'Verification code sent successfully',
                 'status': 'success',
@@ -482,16 +504,16 @@ class VerifyResetCodeView(AsyncAPIView):
 
     @swagger_auto_schema(
         tags=['Authentication'],
-        operation_description="Verify reset password code and get reset token",
+        operation_description="Verify reset password code and get JWT tokens (access_token and refresh_token)",
         request_body=VerifyResetCodeSerializer,
         responses={
-            200: openapi.Response(description="Code verified successfully"),
+            200: openapi.Response(description="Code verified successfully - JWT tokens returned"),
             400: openapi.Response(description="Bad request - validation errors"),
         }
     )
     async def post(self, request):
         """
-        Verify reset password code and generate reset token - ASYNC VERSION
+        Verify reset password code and generate JWT token - ASYNC VERSION
         """
         serializer = VerifyResetCodeSerializer(data=request.data)
         
@@ -505,15 +527,19 @@ class VerifyResetCodeView(AsyncAPIView):
             verification_code.is_used = True
             await sync_to_async(verification_code.save)()
             
-            reset_token = await sync_to_async(PasswordResetToken.objects.create)(user=user)
+            # Generate JWT tokens (same as login)
+            refresh = await sync_to_async(RefreshToken.for_user)(user)
+            access_token = str(refresh.access_token)
+            refresh_token = str(refresh)
             
             return Response(
                 {
                     'message': 'Code verified successfully',
                     'status': 'success',
                     'data': {
-                        'token': reset_token.token,
-                        'expires_in': 86400
+                        'access_token': access_token,
+                        'refresh_token': refresh_token,
+                        'expires_in': 86400  # 24 hours
                     }
                 },
                 status=status.HTTP_200_OK

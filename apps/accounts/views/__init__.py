@@ -16,7 +16,16 @@ from .user_preferences import (
 )
 from .driver_preferences import DriverPreferencesView
 from .vehicle import VehicleDetailsView, VehicleDetailView, VehicleImageView
-from .driver_identification import DriverIdentificationView, CheckIdentificationView
+from .driver_identification import (
+    DriverIdentificationUploadView,
+    DriverIdentificationUserStatusView,
+    DriverIdentificationListView
+)
+from .driver_verification import (
+    DriverVerificationDetailView,
+    DriverVerificationMeView,
+    DriverVerificationSubmitView,
+)
 from .invitations import (
     InvitationGenerateView,
     InvitationGetView,
@@ -39,8 +48,12 @@ __all__ = [
     'VehicleDetailsView',
     'VehicleDetailView',
     'VehicleImageView',
-    'DriverIdentificationView',
-    'CheckIdentificationView',
+    'DriverIdentificationUploadView',
+    'DriverIdentificationUserStatusView',
+    'DriverIdentificationListView',
+    'DriverVerificationDetailView',
+    'DriverVerificationMeView',
+    'DriverVerificationSubmitView',
     'InvitationGenerateView',
     'InvitationGetView',
     'InvitedUsersView',

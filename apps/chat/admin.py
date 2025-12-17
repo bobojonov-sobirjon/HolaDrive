@@ -2,6 +2,8 @@ from django.contrib import admin
 from django.urls import path
 from django.utils.html import format_html
 from django.urls import reverse
+from django.db import models
+from django import forms
 from .models import Conversation, Message
 from .admin_views import chat_interface, send_message_api, get_messages_api
 
@@ -14,6 +16,17 @@ class ConversationAdmin(admin.ModelAdmin):
     readonly_fields = ('created_at', 'updated_at', 'last_message_at')
     ordering = ('-last_message_at', '-created_at')
     change_list_template = 'admin/chat/conversation/change_list.html'
+    
+    # CharField va TextField uchun kengaytirilgan ko'rinish
+    formfield_overrides = {
+        models.CharField: {
+            'widget': forms.TextInput(attrs={'style': 'width: 100%; min-width: 300px;'}),
+        },
+        models.TextField: {
+            'widget': forms.Textarea(attrs={'rows': 4, 'cols': 80, 'style': 'width: 100%; min-width: 500px;'}),
+        },
+    }
+    
     fieldsets = (
         ('User Information', {
             'fields': ('user', 'user_type')
@@ -64,6 +77,17 @@ class MessageAdmin(admin.ModelAdmin):
     search_fields = ('conversation__user__email', 'conversation__user__username', 'message', 'sender__email')
     readonly_fields = ('created_at', 'updated_at')
     ordering = ('-created_at',)
+    
+    # CharField va TextField uchun kengaytirilgan ko'rinish
+    formfield_overrides = {
+        models.CharField: {
+            'widget': forms.TextInput(attrs={'style': 'width: 100%; min-width: 300px;'}),
+        },
+        models.TextField: {
+            'widget': forms.Textarea(attrs={'rows': 4, 'cols': 80, 'style': 'width: 100%; min-width: 500px;'}),
+        },
+    }
+    
     fieldsets = (
         ('Conversation and Sender', {
             'fields': ('conversation', 'sender', 'is_from_support')

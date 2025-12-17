@@ -1,4 +1,5 @@
 from django.db import models
+from django.core.validators import MinValueValidator, MaxValueValidator
 from apps.accounts.models import CustomUser
 
 
@@ -290,6 +291,37 @@ class OrderItem(models.Model):
             except (ValueError, TypeError):
                 pass
     
+    def calculate_estimated_time_automatically(self):
+        """
+        Calculate estimated time based on distance.
+        Uses average speed: 45 km/h (city average speed).
+        """
+        if not self.distance_km:
+            return
+        
+        distance = float(self.distance_km)
+        
+        # Average speed: 45 km/h (city average)
+        # This can be adjusted based on ride_type or other factors
+        avg_speed_kmh = 45.0
+        
+        # Calculate time in hours
+        time_hours = distance / avg_speed_kmh
+        
+        # Convert to minutes
+        time_minutes = int(time_hours * 60)
+        
+        # Format as "XX min" or "Xh XXm" if more than 60 minutes
+        if time_minutes < 60:
+            self.estimated_time = f"{time_minutes} min"
+        else:
+            hours = time_minutes // 60
+            minutes = time_minutes % 60
+            if minutes > 0:
+                self.estimated_time = f"{hours}h {minutes}m"
+            else:
+                self.estimated_time = f"{hours}h"
+    
     def calculate_prices_automatically(self):
         """
         Automatically calculate prices based on ride_type, distance, and surge
@@ -357,6 +389,9 @@ class OrderItem(models.Model):
         """
         # Calculate distance if not provided
         self.calculate_distance_automatically()
+        
+        # Calculate estimated time if distance is available
+        self.calculate_estimated_time_automatically()
         
         # Calculate prices automatically
         self.calculate_prices_automatically()
@@ -526,13 +561,56 @@ class OrderSchedule(models.Model):
         super().save(*args, **kwargs)
 
 class OrderDriver(models.Model):
-    order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name='order_drivers')
-    driver = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='order_drivers')
-    pin_code = models.CharField(max_length=255, verbose_name='Pin Code', null=True, blank=True)
+    """
+    Link between Order and Driver with status for advanced driver workflow.
+    Used to track which drivers were asked, who accepted/rejected and when.
+    """
+
+    class DriverRequestStatus(models.TextChoices):
+        REQUESTED = 'requested', 'Requested'   # Shown to driver as available
+        ACCEPTED = 'accepted', 'Accepted'     # Driver accepted and assigned
+        REJECTED = 'rejected', 'Rejected'     # Driver explicitly rejected
+        TIMEOUT = 'timeout', 'Timeout'        # Driver did not respond in time
+
+    order = models.ForeignKey(
+        Order,
+        on_delete=models.CASCADE,
+        related_name='order_drivers',
+    )
+    driver = models.ForeignKey(
+        CustomUser,
+        on_delete=models.CASCADE,
+        related_name='order_drivers',
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=DriverRequestStatus.choices,
+        default=DriverRequestStatus.REQUESTED,
+        verbose_name='Status',
+        help_text='Driver request status for this order.'
+    )
+    pin_code = models.CharField(
+        max_length=255,
+        verbose_name='Pin Code',
+        null=True,
+        blank=True,
+    )
+    requested_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name='Requested At',
+        help_text='When this order was first shown / sent to this driver.'
+    )
+    responded_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name='Responded At',
+        help_text='When driver accepted or rejected this order.'
+    )
     created_at = models.DateTimeField(auto_now_add=True)
-    
+
     objects = models.Manager()
-    
+
     def __str__(self):
         if self.order and self.order.user:
             user_name = self.order.user.get_full_name()
@@ -542,8 +620,8 @@ class OrderDriver(models.Model):
             driver_name = self.driver.get_full_name()
         else:
             driver_name = "Unknown Driver"
-        return f"{user_name} - {driver_name}"
-    
+        return f"{user_name} - {driver_name} ({self.get_status_display()})"
+
     class Meta:
         verbose_name = 'Order Driver'
         verbose_name_plural = '05 Order Drivers'
@@ -551,6 +629,7 @@ class OrderDriver(models.Model):
         indexes = [
             models.Index(fields=['order'], name='order_driver_order_idx'),
             models.Index(fields=['driver'], name='order_driver_driver_idx'),
+            models.Index(fields=['status'], name='order_driver_status_idx'),
             models.Index(fields=['created_at'], name='order_driver_created_idx'),
         ]
 
@@ -1024,4 +1103,168 @@ class OrderPromoCode(models.Model):
             models.Index(fields=['order'], name='order_promo_order_idx'),
             models.Index(fields=['promo_code'], name='order_promo_code_idx'),
             models.Index(fields=['applied_by'], name='order_promo_applied_by_idx'),
+        ]
+
+
+class RatingFeedbackTag(models.Model):
+    """
+    Feedback tags for ratings (positive for 4-5 stars, negative for 1-3 stars).
+    Admin can create tags like "Professionalism", "Driving", "Clean", etc.
+    """
+    
+    class TagType(models.TextChoices):
+        POSITIVE = 'positive', 'Positive'  # For 4-5 star ratings
+        NEGATIVE = 'negative', 'Negative'  # For 1-3 star ratings
+    
+    name = models.CharField(
+        max_length=100,
+        unique=True,
+        verbose_name="Tag Name",
+        help_text="Tag name (e.g., 'Professionalism', 'Poor route', 'Dirty')"
+    )
+    tag_type = models.CharField(
+        max_length=20,
+        choices=TagType.choices,
+        verbose_name="Tag Type",
+        help_text="Positive tags shown for 4-5 stars, Negative tags for 1-3 stars"
+    )
+    is_active = models.BooleanField(
+        default=True,
+        verbose_name="Is Active",
+        help_text="Whether this tag is active and visible"
+    )
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name='Created At')
+    updated_at = models.DateTimeField(auto_now=True, verbose_name='Updated At')
+    
+    objects = models.Manager()
+    
+    def __str__(self):
+        return f"{self.name} ({self.get_tag_type_display()})"
+    
+    class Meta:
+        verbose_name = 'Rating Feedback Tag'
+        verbose_name_plural = '11 Rating Feedback Tags'
+        ordering = ['tag_type', 'name']
+        indexes = [
+            models.Index(fields=['tag_type'], name='rating_tag_type_idx'),
+            models.Index(fields=['is_active'], name='rating_tag_active_idx'),
+        ]
+
+
+class TripRating(models.Model):
+    """
+    Rating and feedback for a completed trip.
+    Includes rating (1-5 stars), comment, tip amount, and feedback tags.
+    """
+    
+    order = models.OneToOneField(
+        Order,
+        on_delete=models.CASCADE,
+        related_name='trip_rating',
+        verbose_name='Order',
+        help_text='Order this rating belongs to'
+    )
+    rider = models.ForeignKey(
+        CustomUser,
+        on_delete=models.CASCADE,
+        related_name='ratings_given',
+        verbose_name='Rider',
+        help_text='Rider who gave this rating'
+    )
+    driver = models.ForeignKey(
+        CustomUser,
+        on_delete=models.CASCADE,
+        related_name='ratings_received',
+        verbose_name='Driver',
+        help_text='Driver who received this rating'
+    )
+    rating = models.IntegerField(
+        verbose_name='Rating',
+        help_text='Rating from 1 to 5 stars',
+        validators=[MinValueValidator(1), MaxValueValidator(5)]
+    )
+    comment = models.TextField(
+        null=True,
+        blank=True,
+        verbose_name='Comment',
+        help_text='Optional comment/feedback text'
+    )
+    tip_amount = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        default=0.00,
+        verbose_name='Tip Amount',
+        help_text='Optional tip amount for the driver'
+    )
+    feedback_tags = models.ManyToManyField(
+        RatingFeedbackTag,
+        related_name='trip_ratings',
+        blank=True,
+        verbose_name='Feedback Tags',
+        help_text='Selected feedback tags (positive for 4-5 stars, negative for 1-3 stars)'
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=[
+            ('pending', 'Pending'),
+            ('approved', 'Approved'),
+            ('rejected', 'Rejected'),
+        ],
+        default='approved',
+        verbose_name='Status',
+        help_text='Status of the feedback (for moderation)'
+    )
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name='Created At')
+    updated_at = models.DateTimeField(auto_now=True, verbose_name='Updated At')
+    
+    objects = models.Manager()
+    
+    def __str__(self):
+        return f"{self.order.order_code} - {self.rating} stars by {self.rider.get_full_name()}"
+    
+    def save(self, *args, **kwargs):
+        """
+        Override save to send push notification to driver when rating is created.
+        """
+        is_new = self.pk is None
+        super().save(*args, **kwargs)
+        
+        # Send push notification to driver when rating is created
+        if is_new:
+            from apps.notification.tasks import send_push_notification_async
+            
+            rating_text = f"{self.rating} star{'s' if self.rating != 1 else ''}"
+            title = "New Rating Received"
+            body = f"You received a {rating_text} rating from {self.rider.get_full_name()}"
+            if self.comment:
+                body += f": {self.comment[:50]}..."
+            
+            data = {
+                'type': 'trip_rating',
+                'order_id': self.order.id,
+                'rating': self.rating,
+                'rider_name': self.rider.get_full_name(),
+            }
+            
+            # Send push notification asynchronously
+            send_push_notification_async.delay(
+                user_id=self.driver.id,
+                title=title,
+                body=body,
+                data=data
+            )
+    
+    class Meta:
+        verbose_name = 'Trip Rating'
+        verbose_name_plural = '12 Trip Ratings'
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['order'], name='trip_rating_order_idx'),
+            models.Index(fields=['rider'], name='trip_rating_rider_idx'),
+            models.Index(fields=['driver'], name='trip_rating_driver_idx'),
+            models.Index(fields=['rating'], name='trip_rating_rating_idx'),
+            models.Index(fields=['status'], name='trip_rating_status_idx'),
+            models.Index(fields=['created_at'], name='trip_rating_created_idx'),
         ]

@@ -1,54 +1,138 @@
 from rest_framework import serializers
-from ..models import DriverIdentification
+from ..models import (
+    DriverIdentification,
+    DriverIdentificationItems,
+    DriverIdentificationUploadDocument,
+    DriverVerification,
+)
+
+
+class DriverIdentificationItemsSerializer(serializers.ModelSerializer):
+    """
+    Serializer for driver identification items
+    """
+    class Meta:
+        model = DriverIdentificationItems
+        fields = ('id', 'item', 'created_at')
+        read_only_fields = ('id', 'created_at')
 
 
 class DriverIdentificationSerializer(serializers.ModelSerializer):
     """
-    Serializer for driver identification documents
+    Serializer for driver identification types
     """
+    items = DriverIdentificationItemsSerializer(many=True, read_only=True)
+    
     class Meta:
         model = DriverIdentification
         fields = (
-            'id', 'user', 
-            'proof_of_work_eligibility',
-            'profile_photo',
-            'drivers_license',
-            'background_check',
-            'driver_abstract',
-            'livery_vehicle_registration',
-            'vehicle_insurance',
-            'city_tndl',
-            'elvis_vehicle_inspection',
-            'terms_and_conditions', 'legal_agreements',
-            'created_at', 'updated_at'
+            'id', 'name', 'image', 'title', 'description', 
+            'is_active', 'items', 'created_at', 'updated_at'
+        )
+        read_only_fields = ('id', 'created_at', 'updated_at')
+    
+    def to_representation(self, instance):
+        """
+        Override to include full URL for image field
+        """
+        representation = super().to_representation(instance)
+        if instance.image:
+            request = self.context.get('request')
+            if request:
+                representation['image'] = request.build_absolute_uri(instance.image.url)
+        return representation
+
+
+class DriverIdentificationUploadDocumentSerializer(serializers.ModelSerializer):
+    """
+    Serializer for driver identification upload documents
+    """
+    driver_identification_name = serializers.CharField(
+        source='driver_identification.name',
+        read_only=True
+    )
+    driver_identification_title = serializers.CharField(
+        source='driver_identification.title',
+        read_only=True
+    )
+    document_file = serializers.FileField(required=True)
+    
+    class Meta:
+        model = DriverIdentificationUploadDocument
+        fields = (
+            'id', 'user', 'driver_identification', 'driver_identification_name',
+            'driver_identification_title', 'document_file', 'created_at', 'updated_at'
         )
         read_only_fields = ('id', 'user', 'created_at', 'updated_at')
     
-    def _get_image_url(self, image_field):
+    def to_representation(self, instance):
         """
-        Return full URL for the image field
+        Override to include full URL for document_file
         """
-        if image_field:
+        representation = super().to_representation(instance)
+        if instance.document_file:
             request = self.context.get('request')
             if request:
-                return request.build_absolute_uri(image_field.url)
-            return image_field.url
-        return None
+                representation['document_file'] = request.build_absolute_uri(instance.document_file.url)
+        return representation
     
     def create(self, validated_data):
         """
-        Create identification for the authenticated user
+        Create upload document for the authenticated user
         """
         user = self.context['request'].user
         validated_data['user'] = user
-        return DriverIdentification.objects.create(**validated_data)
-    
-    def update(self, instance, validated_data):
-        """
-        Update identification documents
-        """
-        for attr, value in validated_data.items():
-            setattr(instance, attr, value)
-        instance.save()
-        return instance
+        
+        # Check if upload already exists, if yes, update it
+        driver_identification = validated_data['driver_identification']
+        document_file = validated_data['document_file']
+        
+        try:
+            upload = DriverIdentificationUploadDocument.objects.get(
+                user=user,
+                driver_identification=driver_identification
+            )
+            upload.document_file = document_file
+            upload.save()
+            return upload
+        except DriverIdentificationUploadDocument.DoesNotExist:
+            return DriverIdentificationUploadDocument.objects.create(
+                user=user,
+                driver_identification=driver_identification,
+                document_file=document_file
+            )
 
+
+class DriverIdentificationUserStatusSerializer(serializers.Serializer):
+    """
+    Serializer for user's identification status
+    """
+    driver_identification_id = serializers.IntegerField()
+    driver_identification_name = serializers.CharField()
+    driver_identification_title = serializers.CharField()
+    driver_identification_upload_id = serializers.IntegerField(allow_null=True)
+    is_upload_user = serializers.BooleanField()
+    document_file = serializers.CharField(allow_null=True, allow_blank=True)
+
+
+class DriverVerificationSerializer(serializers.ModelSerializer):
+    """
+    Serializer for driver verification status
+    """
+
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+
+    class Meta:
+        model = DriverVerification
+        fields = (
+            'id',
+            'status',
+            'status_display',
+            'estimated_review_hours',
+            'comment',
+            'reviewer',
+            'reviewed_at',
+            'created_at',
+            'updated_at',
+        )
+        read_only_fields = fields

@@ -2,6 +2,15 @@ from rest_framework import serializers
 from ..models import VehicleDetails, VehicleImages
 
 
+def get_ride_type_queryset():
+    """Get queryset for active ride types"""
+    try:
+        from apps.order.models import RideType
+        return RideType.objects.filter(is_active=True)
+    except ImportError:
+        return None
+
+
 class VehicleImageSerializer(serializers.ModelSerializer):
     """
     Serializer for vehicle images
@@ -27,19 +36,89 @@ class VehicleImageSerializer(serializers.ModelSerializer):
 
 class VehicleDetailsSerializer(serializers.ModelSerializer):
     """
-    Serializer for vehicle details
+    Serializer for vehicle details with ride type support
     """
     images = VehicleImageSerializer(many=True, read_only=True)
-    # images_data ni serializer'da validate qilmaymiz, view'da handle qilamiz
-    # Multipart/form-data da multiple files to'g'ri ishlamaydi, shuning uchun view'da handle qilamiz
+    supported_ride_types = serializers.PrimaryKeyRelatedField(
+        many=True,
+        queryset=get_ride_type_queryset(),
+        required=False,
+        allow_empty=True
+    )
+    supported_ride_types_names = serializers.SerializerMethodField()
+    default_ride_type_name = serializers.CharField(
+        source='default_ride_type.name',
+        read_only=True,
+        allow_null=True
+    )
+    default_ride_type_id = serializers.IntegerField(
+        source='default_ride_type.id',
+        read_only=True,
+        allow_null=True
+    )
+    suggested_ride_types = serializers.SerializerMethodField()
     
     class Meta:
         model = VehicleDetails
         fields = (
             'id', 'user', 'brand', 'model', 'year_of_manufacture', 'vin',
+            'vehicle_condition',
+            'default_ride_type', 'default_ride_type_name', 'default_ride_type_id',
+            'supported_ride_types', 'supported_ride_types_names',
+            'suggested_ride_types',
             'images', 'created_at', 'updated_at'
         )
-        read_only_fields = ('id', 'user', 'created_at', 'updated_at')
+        read_only_fields = ('id', 'user', 'created_at', 'updated_at', 'suggested_ride_types')
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Update queryset for supported_ride_types to only active ride types
+        queryset = get_ride_type_queryset()
+        if queryset is not None:
+            self.fields['supported_ride_types'].queryset = queryset
+    
+    def get_supported_ride_types_names(self, obj):
+        """Return names of supported ride types"""
+        if obj.pk:
+            return [rt.name or rt.name_large or 'Unknown' for rt in obj.supported_ride_types.all()]
+        return []
+    
+    def get_suggested_ride_types(self, obj):
+        """
+        Return automatically suggested ride types based on vehicle characteristics.
+        This is read-only and shown for reference.
+        """
+        if not obj.pk:
+            # For new vehicles, calculate suggestions based on current data
+            # Create a temporary instance to use suggest_ride_types method
+            temp_vehicle = VehicleDetails(
+                brand=obj.brand if hasattr(obj, 'brand') else '',
+                model=obj.model if hasattr(obj, 'model') else '',
+                year_of_manufacture=obj.year_of_manufacture if hasattr(obj, 'year_of_manufacture') else 2020,
+                vehicle_condition=obj.vehicle_condition if hasattr(obj, 'vehicle_condition') else VehicleDetails.VehicleCondition.GOOD
+            )
+            suggestions = temp_vehicle.suggest_ride_types()
+        else:
+            suggestions = obj.suggest_ride_types()
+        
+        return [
+            {
+                'id': rt.id,
+                'name': rt.name or rt.name_large or 'Unknown',
+                'reason': self._get_suggestion_reason(obj, rt)
+            }
+            for rt in suggestions
+        ]
+    
+    def _get_suggestion_reason(self, vehicle, ride_type):
+        """Explain why this ride type was suggested"""
+        if ride_type.is_ev and vehicle.is_electric_vehicle():
+            return "Electric vehicle detected"
+        if ride_type.is_premium:
+            if vehicle.year_of_manufacture >= 2020:
+                return "Recent model (2020+) with excellent condition"
+            return "Premium brand vehicle"
+        return "Standard vehicle category"
     
     def validate_year_of_manufacture(self, value):
         """
