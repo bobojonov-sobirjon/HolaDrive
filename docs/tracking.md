@@ -1160,7 +1160,7 @@ After=network.target redis.service
 Type=forking
 User=www-data
 Group=www-data
-WorkingDirectory=/path/to/HolaDrive
+WorkingDirectory=/var/www/HolaDrive
 Environment="PATH=/path/to/venv/bin"
 ExecStart=/path/to/venv/bin/celery -A config worker --loglevel=info --logfile=/var/log/celery/worker.log --pidfile=/var/run/celery/worker.pid
 ExecStop=/bin/kill -s TERM $MAINPID

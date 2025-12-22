@@ -12,9 +12,9 @@ from config.swagger_auth import SwaggerTokenView
 
 schema_view: get_schema_view = get_schema_view(
     openapi.Info(
-        title="Holo Drive APIs",
+        title="Hola Drive APIs",
         default_version='v1',
-        description="Holo Drive APIs - JWT Authentication Required",
+        description="Hola Drive APIs - JWT Authentication Required",
         terms_of_service="https://www.google.com/policies/terms/",
         contact=openapi.Contact(email="contact@snippets.local"),
         license=openapi.License(name="BSD License"),
