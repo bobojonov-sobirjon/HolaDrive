@@ -466,6 +466,6 @@ class DriverIdentificationAdmin(admin.ModelAdmin):
 
 admin.site.unregister(Site)
 
-admin.site.site_header = 'Hola Drive Admin'
-admin.site.site_title = 'Hola Drive Admin'
-admin.site.index_title = 'Hola Drive Admin'
+admin.site.site_header = 'Hola Drive and Hola Driver Admin'
+admin.site.site_title = 'Hola Drive and Hola Driver Admin'
+admin.site.index_title = 'Hola Drive and Hola Driver Admin'
