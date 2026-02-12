@@ -201,9 +201,12 @@ class LoginView(AsyncAPIView):
     @swagger_auto_schema(
         tags=['Authentication'],
         operation_description="""
-        Login with email/phone and password.
+        Login with email+password OR phone only.
 
-        Optional push notification fields:
+        - **Phone login**: Send only phone_number (and optionally device_token, device_type). Password is NOT required. A verification code will be sent; complete login via verify-code endpoint.
+        - **Email login**: Send email and password. Password is required.
+
+        Optional push notification fields (for both flows):
         - device_token: string (FCM/APNs token)
         - device_type: one of ['android', 'ios', 'web']
         """,
@@ -504,16 +507,19 @@ class VerifyResetCodeView(AsyncAPIView):
 
     @swagger_auto_schema(
         tags=['Authentication'],
-        operation_description="Verify reset password code and get JWT tokens (access_token and refresh_token)",
+        operation_description="""
+        Verify reset password code. After this, user can call reset-password-confirm
+        with the same email or phone + new_password + confirm_password (no token).
+        """,
         request_body=VerifyResetCodeSerializer,
         responses={
-            200: openapi.Response(description="Code verified successfully - JWT tokens returned"),
+            200: openapi.Response(description="Code verified - JWT returned"),
             400: openapi.Response(description="Bad request - validation errors"),
         }
     )
     async def post(self, request):
         """
-        Verify reset password code and generate JWT token - ASYNC VERSION
+        Verify reset password code, create reset_token, generate JWT - ASYNC VERSION
         """
         serializer = VerifyResetCodeSerializer(data=request.data)
         
@@ -526,6 +532,9 @@ class VerifyResetCodeView(AsyncAPIView):
             
             verification_code.is_used = True
             await sync_to_async(verification_code.save)()
+            
+            # Create password reset token so reset-password-confirm can allow password change (by email/phone, no token in request)
+            await sync_to_async(PasswordResetToken.objects.create)(user=user)
             
             # Generate JWT tokens (same as login)
             refresh = await sync_to_async(RefreshToken.for_user)(user)
@@ -564,7 +573,14 @@ class ResetPasswordConfirmView(AsyncAPIView):
 
     @swagger_auto_schema(
         tags=['Authentication'],
-        operation_description="Confirm password reset with token",
+        operation_description="""
+        Confirm password reset. No token: send email OR phone (who to reset) + new_password + confirm_password.
+        Allowed only after verify-reset-code was called for that user.
+        
+        Flow: 1) POST reset-password (email or phone) -> code sent
+              2) POST verify-reset-code (email/phone + code) -> code verified
+              3) POST reset-password-confirm (email or phone + new_password + confirm_password)
+        """,
         request_body=ResetPasswordConfirmSerializer,
         responses={
             200: openapi.Response(description="Password reset successfully"),
@@ -573,7 +589,7 @@ class ResetPasswordConfirmView(AsyncAPIView):
     )
     async def post(self, request):
         """
-        Reset password with reset token - ASYNC VERSION
+        Reset password with reset token (from verify-reset-code) - ASYNC VERSION
         """
         serializer = ResetPasswordConfirmSerializer(data=request.data)
         

@@ -896,6 +896,20 @@ class DriverIdentification(models.Model):
         verbose_name="Description",
         help_text="Detailed description/instructions for the user"
     )
+    file = models.FileField(
+        upload_to='driver_identification_files/',
+        blank=True,
+        null=True,
+        verbose_name="File",
+        help_text="Optional file for the identification type"
+    )
+    link = models.URLField(
+        max_length=500,
+        blank=True,
+        null=True,
+        verbose_name="Link",
+        help_text="Optional link for the identification type"
+    )
     is_active = models.BooleanField(
         default=True,
         verbose_name="Is Active",

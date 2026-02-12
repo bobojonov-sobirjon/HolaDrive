@@ -460,6 +460,9 @@ class DriverIdentificationAdmin(admin.ModelAdmin):
         ('Image', {
             'fields': ('image',)
         }),
+        ('File & Link', {
+            'fields': ('file', 'link')
+        }),
         ('Timestamps', {'fields': ('created_at', 'updated_at')}),
     )
 

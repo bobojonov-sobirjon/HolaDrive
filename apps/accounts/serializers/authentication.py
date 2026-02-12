@@ -128,15 +128,18 @@ class RegistrationSerializer(serializers.ModelSerializer):
 
 class LoginSerializer(serializers.Serializer):
     """
-    Serializer for user login
+    Serializer for user login.
+    - Phone login: only phone_number (and optional device_token, device_type). No password. Verification code will be sent.
+    - Email login: email + password required.
     """
-    email = serializers.EmailField(required=False, help_text="Email address")
-    phone_number = serializers.CharField(required=False, max_length=15, help_text="Phone number")
+    email = serializers.EmailField(required=False, allow_blank=True, help_text="Email address (required for email login)")
+    phone_number = serializers.CharField(required=False, allow_blank=True, max_length=15, help_text="Phone number (for phone login, no password needed)")
     password = serializers.CharField(
         write_only=True,
-        required=True,
+        required=False,
+        allow_blank=True,
         style={'input_type': 'password'},
-        help_text="User password"
+        help_text="User password (required only when logging in with email)"
     )
     device_token = serializers.CharField(
         write_only=True,
@@ -152,30 +155,39 @@ class LoginSerializer(serializers.Serializer):
     )
 
     def validate(self, attrs):
-        email = attrs.get('email')
-        phone_number = attrs.get('phone_number')
-        password = attrs.get('password')
+        email = (attrs.get('email') or '').strip()
+        phone_number = (attrs.get('phone_number') or '').strip()
+        password = attrs.get('password') or ''
 
         if not email and not phone_number:
             raise serializers.ValidationError("Either email or phone number is required.")
 
+        if email and phone_number:
+            raise serializers.ValidationError("Provide either email or phone number, not both.")
+
         user = None
-        if email:
-            try:
-                user = CustomUser.objects.get(email=email)
-            except CustomUser.DoesNotExist:
-                raise serializers.ValidationError("Invalid email or password.")
-        elif phone_number:
+        if phone_number:
+            # Phone login: password is NOT required. Just check user exists.
             try:
                 user = CustomUser.objects.get(phone_number=phone_number)
             except CustomUser.DoesNotExist:
-                raise serializers.ValidationError("Invalid phone number or password.")
-
-        if user and user.check_password(password):
+                raise serializers.ValidationError({"phone_number": ["User with this phone number does not exist."]})
             attrs['user'] = user
+            attrs['phone_number'] = phone_number
             return attrs
-        else:
-            raise serializers.ValidationError("Invalid email/phone number or password.")
+
+        # Email login: password IS required
+        if not password:
+            raise serializers.ValidationError({"password": ["This field is required when logging in with email."]})
+        try:
+            user = CustomUser.objects.get(email=email)
+        except CustomUser.DoesNotExist:
+            raise serializers.ValidationError("Invalid email or password.")
+        if not user.check_password(password):
+            raise serializers.ValidationError("Invalid email or password.")
+        attrs['user'] = user
+        attrs['email'] = email
+        return attrs
 
 
 class SendVerificationCodeSerializer(serializers.Serializer):
@@ -349,13 +361,12 @@ class VerifyResetCodeSerializer(serializers.Serializer):
 
 class ResetPasswordConfirmSerializer(serializers.Serializer):
     """
-    Serializer for password reset confirmation
+    Serializer for password reset confirmation.
+    No token: user is identified by email or phone. Reset is allowed only if they
+    previously verified via verify-reset-code (which creates a PasswordResetToken for the user).
     """
-    token = serializers.CharField(
-        required=True,
-        max_length=100,
-        help_text="Password reset token"
-    )
+    email = serializers.EmailField(required=False, allow_blank=True, help_text="Email (to identify whose password to reset)")
+    phone_number = serializers.CharField(required=False, allow_blank=True, max_length=15, help_text="Phone number (to identify whose password to reset)")
     new_password = serializers.CharField(
         write_only=True,
         required=True,
@@ -371,26 +382,46 @@ class ResetPasswordConfirmSerializer(serializers.Serializer):
     )
 
     def validate(self, attrs):
-        token = attrs.get('token')
+        email = (attrs.get('email') or '').strip()
+        phone_number = (attrs.get('phone_number') or '').strip()
         new_password = attrs.get('new_password')
         confirm_password = attrs.get('confirm_password')
 
-        if new_password != confirm_password:
-            raise serializers.ValidationError({"password": "Passwords do not match."})
+        if not email and not phone_number:
+            raise serializers.ValidationError("Either email or phone number is required to identify the user.")
 
-        try:
-            # Optimize query: use select_related to fetch user in same query
-            reset_token = PasswordResetToken.objects.select_related('user').get(
-                token=token,
-                is_used=False
+        if email and phone_number:
+            raise serializers.ValidationError("Provide either email or phone number, not both.")
+
+        if new_password != confirm_password:
+            raise serializers.ValidationError({"confirm_password": "Passwords do not match."})
+
+        user = None
+        if email:
+            try:
+                user = CustomUser.objects.get(email=email)
+            except CustomUser.DoesNotExist:
+                raise serializers.ValidationError({"email": "User with this email does not exist."})
+        else:
+            try:
+                user = CustomUser.objects.get(phone_number=phone_number)
+            except CustomUser.DoesNotExist:
+                raise serializers.ValidationError({"phone_number": "User with this phone number does not exist."})
+
+        # Allow reset only if user has a valid (unused, not expired) PasswordResetToken from verify-reset-code
+        reset_token = (
+            PasswordResetToken.objects.filter(user=user, is_used=False)
+            .order_by('-created_at')
+            .first()
+        )
+        if not reset_token or not reset_token.is_valid():
+            raise serializers.ValidationError(
+                {"email": "Please verify the reset code first (POST verify-reset-code) before changing password."}
+                if email else
+                {"phone_number": "Please verify the reset code first (POST verify-reset-code) before changing password."}
             )
-            
-            if not reset_token.is_valid():
-                raise serializers.ValidationError({"token": "Reset token has expired."})
-            
-            attrs['user'] = reset_token.user
-            attrs['reset_token'] = reset_token
-            return attrs
-        except PasswordResetToken.DoesNotExist:
-            raise serializers.ValidationError({"token": "Invalid reset token."})
+
+        attrs['user'] = user
+        attrs['reset_token'] = reset_token
+        return attrs
 

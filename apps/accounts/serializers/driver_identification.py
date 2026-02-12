@@ -26,20 +26,23 @@ class DriverIdentificationSerializer(serializers.ModelSerializer):
     class Meta:
         model = DriverIdentification
         fields = (
-            'id', 'name', 'image', 'title', 'description', 
+            'id', 'name', 'image', 'title', 'description',
+            'file', 'link',
             'is_active', 'items', 'created_at', 'updated_at'
         )
         read_only_fields = ('id', 'created_at', 'updated_at')
     
     def to_representation(self, instance):
         """
-        Override to include full URL for image field
+        Override to include full URL for image and file fields
         """
         representation = super().to_representation(instance)
-        if instance.image:
-            request = self.context.get('request')
-            if request:
+        request = self.context.get('request')
+        if request:
+            if instance.image:
                 representation['image'] = request.build_absolute_uri(instance.image.url)
+            if instance.file:
+                representation['file'] = request.build_absolute_uri(instance.file.url)
         return representation
 
 
