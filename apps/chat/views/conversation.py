@@ -2,11 +2,10 @@ from rest_framework.response import Response
 from apps.common.views import AsyncAPIView
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
-from drf_yasg.utils import swagger_auto_schema
-from drf_yasg import openapi
 from django.utils import timezone
 from django.db.models import Q, Prefetch
 from asgiref.sync import sync_to_async
+from drf_spectacular.utils import extend_schema
 
 from apps.chat.models import Conversation, Message
 from apps.chat.serializers import (
@@ -15,24 +14,14 @@ from apps.chat.serializers import (
     ConversationSerializer
 )
 
-
 class ConversationCreateView(AsyncAPIView):
     """
     Create a new conversation
     Only Rider/Driver can create conversations
     """
     permission_classes = [IsAuthenticated]
-    
-    @swagger_auto_schema(
-        operation_summary="Create a new conversation",
-        operation_description="Create a new conversation with support. Only Rider/Driver can create conversations.",
-        request_body=ConversationCreateSerializer,
-        responses={
-            201: ConversationSerializer,
-            400: "Bad Request"
-        },
-        tags=['Chat']
-    )
+
+    @extend_schema(tags=['Chat'], summary='Create conversation', description='Create a new conversation. Rider/Driver only.')
     async def post(self, request):
         """
         Create a new conversation - ASYNC VERSION
@@ -63,7 +52,6 @@ class ConversationCreateView(AsyncAPIView):
             status=status.HTTP_400_BAD_REQUEST
         )
 
-
 class ConversationListView(AsyncAPIView):
     """
     Get list of conversations
@@ -71,24 +59,8 @@ class ConversationListView(AsyncAPIView):
     - Support: sees all conversations
     """
     permission_classes = [IsAuthenticated]
-    
-    @swagger_auto_schema(
-        operation_summary="Get conversation list",
-        operation_description="Get list of conversations. Rider/Driver see only their conversations. Support sees all conversations.",
-        manual_parameters=[
-            openapi.Parameter(
-                'status',
-                openapi.IN_QUERY,
-                description="Filter by status (open, closed, pending)",
-                type=openapi.TYPE_STRING,
-                enum=['open', 'closed', 'pending']
-            ),
-        ],
-        responses={
-            200: ConversationListSerializer(many=True)
-        },
-        tags=['Chat']
-    )
+
+    @extend_schema(tags=['Chat'], summary='List conversations', description='Get list of conversations. Rider/Driver: own only; Support: all. Optional query: status.')
     async def get(self, request):
         """
         Get list of conversations - ASYNC VERSION
@@ -130,22 +102,13 @@ class ConversationListView(AsyncAPIView):
             status=status.HTTP_200_OK
         )
 
-
 class ConversationDetailView(AsyncAPIView):
     """
     Get conversation detail
     """
     permission_classes = [IsAuthenticated]
-    
-    @swagger_auto_schema(
-        operation_summary="Get conversation detail",
-        operation_description="Get detailed information about a conversation",
-        responses={
-            200: ConversationSerializer,
-            404: "Conversation not found"
-        },
-        tags=['Chat']
-    )
+
+    @extend_schema(tags=['Chat'], summary='Get conversation', description='Get conversation detail by ID.')
     async def get(self, request, conversation_id):
         """
         Get conversation detail - ASYNC VERSION
@@ -182,38 +145,14 @@ class ConversationDetailView(AsyncAPIView):
                 status=status.HTTP_404_NOT_FOUND
             )
 
-
 class ConversationUpdateView(AsyncAPIView):
     """
     Update conversation (status, etc.)
     Only Support can update conversations
     """
     permission_classes = [IsAuthenticated]
-    
-    @swagger_auto_schema(
-        operation_summary="Update conversation",
-        operation_description="Update conversation status. Only Support can update conversations.",
-        request_body=openapi.Schema(
-            type=openapi.TYPE_OBJECT,
-            properties={
-                'status': openapi.Schema(
-                    type=openapi.TYPE_STRING,
-                    enum=['open', 'closed', 'pending'],
-                    description='New conversation status'
-                ),
-                'subject': openapi.Schema(
-                    type=openapi.TYPE_STRING,
-                    description='Conversation subject'
-                )
-            }
-        ),
-        responses={
-            200: ConversationSerializer,
-            403: "Forbidden - Only Support can update conversations",
-            404: "Conversation not found"
-        },
-        tags=['Chat']
-    )
+
+    @extend_schema(tags=['Chat'], summary='Update conversation', description='Update conversation (status, subject). Support only.')
     async def patch(self, request, conversation_id):
         """
         Update conversation - ASYNC VERSION

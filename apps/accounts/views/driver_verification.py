@@ -2,9 +2,8 @@ from rest_framework import status
 from apps.common.views import AsyncAPIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
-from drf_yasg.utils import swagger_auto_schema
-from drf_yasg import openapi
 from asgiref.sync import sync_to_async
+from drf_spectacular.utils import extend_schema
 
 from ..serializers import (
     DriverVerificationSerializer,
@@ -15,7 +14,6 @@ from ..models import (
     DriverIdentification,
     DriverIdentificationUploadDocument,
 )
-
 
 class DriverVerificationBaseView(AsyncAPIView):
     """
@@ -41,7 +39,6 @@ class DriverVerificationBaseView(AsyncAPIView):
             )
         return None
 
-
 class DriverVerificationDetailView(DriverVerificationBaseView):
     """
     GET /api/accounts/driver/verification/<id>/
@@ -50,40 +47,7 @@ class DriverVerificationDetailView(DriverVerificationBaseView):
     and DriverIdentificationItems for the current user.
     """
 
-    @swagger_auto_schema(
-        tags=['Driver Verification'],
-        operation_description="""
-        Get detailed driver verification information.
-
-        Response includes:
-        - DriverVerification data
-        - All active DriverIdentification types with items
-        """,
-        responses={
-            200: openapi.Response(
-                description="Verification detail",
-                schema=openapi.Schema(
-                    type=openapi.TYPE_OBJECT,
-                    properties={
-                        'message': openapi.Schema(type=openapi.TYPE_STRING),
-                        'status': openapi.Schema(type=openapi.TYPE_STRING),
-                        'data': openapi.Schema(
-                            type=openapi.TYPE_OBJECT,
-                            properties={
-                                'verification': openapi.Schema(type=openapi.TYPE_OBJECT),
-                                'identifications': openapi.Schema(
-                                    type=openapi.TYPE_ARRAY,
-                                    items=openapi.Schema(type=openapi.TYPE_OBJECT),
-                                ),
-                            },
-                        ),
-                    },
-                ),
-            ),
-            404: openapi.Response(description="Verification not found"),
-            403: openapi.Response(description="Forbidden - Driver role required"),
-        },
-    )
+    @extend_schema(tags=['Driver Verification'], summary='Get verification detail', description='Get detailed driver verification (verification + identifications). Role: Driver.')
     async def get(self, request, pk):
         permission_error = await self.check_driver_permission(request)
         if permission_error:
@@ -135,7 +99,6 @@ class DriverVerificationDetailView(DriverVerificationBaseView):
             status=status.HTTP_200_OK,
         )
 
-
 class DriverVerificationMeView(DriverVerificationBaseView):
     """
     GET /api/accounts/driver/verification/
@@ -144,14 +107,7 @@ class DriverVerificationMeView(DriverVerificationBaseView):
     or a default NOT_SUBMITTED object.
     """
 
-    @swagger_auto_schema(
-        tags=['Driver Verification'],
-        operation_description="Get current driver's verification status.",
-        responses={
-            200: openapi.Response(description="Verification status"),
-            403: openapi.Response(description="Forbidden - Driver role required"),
-        },
-    )
+    @extend_schema(tags=['Driver Verification'], summary='My verification', description='Get verification status for the authenticated driver (or NOT_SUBMITTED). Role: Driver.')
     async def get(self, request):
         permission_error = await self.check_driver_permission(request)
         if permission_error:
@@ -190,7 +146,6 @@ class DriverVerificationMeView(DriverVerificationBaseView):
             status=status.HTTP_200_OK,
         )
 
-
 class DriverVerificationSubmitView(DriverVerificationBaseView):
     """
     POST /api/accounts/driver/verification/submit/
@@ -200,24 +155,7 @@ class DriverVerificationSubmitView(DriverVerificationBaseView):
     creates or updates DriverVerification with status = IN_REVIEW.
     """
 
-    @swagger_auto_schema(
-        tags=['Driver Verification'],
-        operation_description="""
-        Submit all uploaded driver documents for verification.
-
-        Validation:
-        - All active DriverIdentification records must have an uploaded document
-          (DriverIdentificationUploadDocument) for the current user.
-
-        If any documents are missing, returns 400 with `missing_documents` list.
-        Otherwise, creates/updates DriverVerification with status = `in_review`.
-        """,
-        responses={
-            200: openapi.Response(description="Submitted for review"),
-            400: openapi.Response(description="Missing documents"),
-            403: openapi.Response(description="Forbidden - Driver role required"),
-        },
-    )
+    @extend_schema(tags=['Driver Verification'], summary='Submit for review', description='Submit driver verification. All required documents must be uploaded. Sets status IN_REVIEW. Role: Driver.')
     async def post(self, request):
         permission_error = await self.check_driver_permission(request)
         if permission_error:
@@ -281,7 +219,6 @@ class DriverVerificationSubmitView(DriverVerificationBaseView):
             status=status.HTTP_200_OK,
         )
 
-
 class DriverVerificationSubmitView(DriverVerificationBaseView):
     """
     POST /api/accounts/driver/verification/submit/
@@ -291,24 +228,6 @@ class DriverVerificationSubmitView(DriverVerificationBaseView):
     creates or updates DriverVerification with status = IN_REVIEW.
     """
 
-    @swagger_auto_schema(
-        tags=['Driver Verification'],
-        operation_description="""
-        Submit all uploaded driver documents for verification.
-
-        Validation:
-        - All active DriverIdentification records must have an uploaded document
-          (DriverIdentificationUploadDocument) for the current user.
-
-        If any documents are missing, returns 400 with `missing_documents` list.
-        Otherwise, creates/updates DriverVerification with status = `in_review`.
-        """,
-        responses={
-            200: openapi.Response(description="Submitted for review"),
-            400: openapi.Response(description="Missing documents"),
-            403: openapi.Response(description="Forbidden - Driver role required"),
-        },
-    )
     async def post(self, request):
         permission_error = await self.check_driver_permission(request)
         if permission_error:

@@ -2,13 +2,11 @@ from rest_framework import status
 from rest_framework.response import Response
 from apps.common.views import AsyncAPIView
 from rest_framework.permissions import IsAuthenticated
-from drf_yasg.utils import swagger_auto_schema
-from drf_yasg import openapi
 from asgiref.sync import sync_to_async
+from drf_spectacular.utils import extend_schema
 
 from ..serializers import InvitationGenerateSerializer, InvitationUsersSerializer
 from ..models import InvitationGenerate, InvitationUsers
-
 
 class InvitationGenerateView(AsyncAPIView):
     """
@@ -17,58 +15,7 @@ class InvitationGenerateView(AsyncAPIView):
     """
     permission_classes = [IsAuthenticated]
 
-    @swagger_auto_schema(
-        tags=['Invitations'],
-        operation_description="""
-        Generate invitation code for the authenticated user.
-        
-        **Important:** This endpoint can only be called once per user.
-        If an invitation code already exists for the user, it will return the existing code.
-        
-        **Authentication Required:** Yes (JWT Token)
-        """,
-        responses={
-            200: openapi.Response(
-                description="Invitation code retrieved successfully (if already exists)",
-                schema=openapi.Schema(
-                    type=openapi.TYPE_OBJECT,
-                    properties={
-                        'message': openapi.Schema(type=openapi.TYPE_STRING, example="Invitation code retrieved successfully"),
-                        'status': openapi.Schema(type=openapi.TYPE_STRING, example="success"),
-                        'data': openapi.Schema(
-                            type=openapi.TYPE_OBJECT,
-                            properties={
-                                'id': openapi.Schema(type=openapi.TYPE_INTEGER),
-                                'user': openapi.Schema(type=openapi.TYPE_INTEGER),
-                                'invite_code': openapi.Schema(type=openapi.TYPE_STRING, example="ABC123XYZ9"),
-                                'created_at': openapi.Schema(type=openapi.TYPE_STRING, format=openapi.FORMAT_DATETIME),
-                            }
-                        ),
-                    }
-                )
-            ),
-            201: openapi.Response(
-                description="Invitation code created successfully",
-                schema=openapi.Schema(
-                    type=openapi.TYPE_OBJECT,
-                    properties={
-                        'message': openapi.Schema(type=openapi.TYPE_STRING, example="Invitation code created successfully"),
-                        'status': openapi.Schema(type=openapi.TYPE_STRING, example="success"),
-                        'data': openapi.Schema(
-                            type=openapi.TYPE_OBJECT,
-                            properties={
-                                'id': openapi.Schema(type=openapi.TYPE_INTEGER),
-                                'user': openapi.Schema(type=openapi.TYPE_INTEGER),
-                                'invite_code': openapi.Schema(type=openapi.TYPE_STRING, example="ABC123XYZ9"),
-                                'created_at': openapi.Schema(type=openapi.TYPE_STRING, format=openapi.FORMAT_DATETIME),
-                            }
-                        ),
-                    }
-                )
-            ),
-            401: openapi.Response(description="Unauthorized - Invalid or missing JWT token"),
-        }
-    )
+    @extend_schema(tags=['Invitations'], summary='Generate invitation code', description='Generate invitation code for the authenticated user. Only once per user; if exists returns existing code.')
     async def post(self, request):
         """
         Generate invitation code for the authenticated user - ASYNC VERSION
@@ -106,56 +53,13 @@ class InvitationGenerateView(AsyncAPIView):
             status=status.HTTP_201_CREATED
         )
 
-
 class InvitationGetView(AsyncAPIView):
     """
     Get invitation code for the authenticated user - GET
     """
     permission_classes = [IsAuthenticated]
 
-    @swagger_auto_schema(
-        tags=['Invitations'],
-        operation_description="""
-        Get invitation code for the authenticated user.
-        
-        Returns the invitation code that belongs to the authenticated user.
-        If no invitation code exists, returns a 404 error.
-        
-        **Authentication Required:** Yes (JWT Token)
-        """,
-        responses={
-            200: openapi.Response(
-                description="Invitation code retrieved successfully",
-                schema=openapi.Schema(
-                    type=openapi.TYPE_OBJECT,
-                    properties={
-                        'message': openapi.Schema(type=openapi.TYPE_STRING, example="Invitation code retrieved successfully"),
-                        'status': openapi.Schema(type=openapi.TYPE_STRING, example="success"),
-                        'data': openapi.Schema(
-                            type=openapi.TYPE_OBJECT,
-                            properties={
-                                'id': openapi.Schema(type=openapi.TYPE_INTEGER),
-                                'user': openapi.Schema(type=openapi.TYPE_INTEGER),
-                                'invite_code': openapi.Schema(type=openapi.TYPE_STRING, example="ABC123XYZ9"),
-                                'created_at': openapi.Schema(type=openapi.TYPE_STRING, format=openapi.FORMAT_DATETIME),
-                            }
-                        ),
-                    }
-                )
-            ),
-            404: openapi.Response(
-                description="Invitation code not found",
-                schema=openapi.Schema(
-                    type=openapi.TYPE_OBJECT,
-                    properties={
-                        'message': openapi.Schema(type=openapi.TYPE_STRING, example="Invitation code not found"),
-                        'status': openapi.Schema(type=openapi.TYPE_STRING, example="error"),
-                    }
-                )
-            ),
-            401: openapi.Response(description="Unauthorized - Invalid or missing JWT token"),
-        }
-    )
+    @extend_schema(tags=['Invitations'], summary='Get invitation code', description='Get invitation code for the authenticated user.')
     async def get(self, request):
         """
         Get invitation code for the authenticated user - ASYNC VERSION
@@ -184,7 +88,6 @@ class InvitationGetView(AsyncAPIView):
             status=status.HTTP_200_OK
         )
 
-
 class InvitedUsersView(AsyncAPIView):
     """
     Get all users invited by the authenticated user - GET
@@ -192,47 +95,7 @@ class InvitedUsersView(AsyncAPIView):
     """
     permission_classes = [IsAuthenticated]
 
-    @swagger_auto_schema(
-        tags=['Invitations'],
-        operation_description="""
-        Get all users invited by the authenticated user.
-        
-        Returns a list of all users who have used the authenticated user's invitation code.
-        Filtered by sender (the authenticated user).
-        
-        **Authentication Required:** Yes (JWT Token)
-        """,
-        responses={
-            200: openapi.Response(
-                description="Invited users retrieved successfully",
-                schema=openapi.Schema(
-                    type=openapi.TYPE_OBJECT,
-                    properties={
-                        'message': openapi.Schema(type=openapi.TYPE_STRING, example="Invited users retrieved successfully"),
-                        'status': openapi.Schema(type=openapi.TYPE_STRING, example="success"),
-                        'data': openapi.Schema(
-                            type=openapi.TYPE_ARRAY,
-                            items=openapi.Schema(
-                                type=openapi.TYPE_OBJECT,
-                                properties={
-                                    'id': openapi.Schema(type=openapi.TYPE_INTEGER),
-                                    'sender': openapi.Schema(type=openapi.TYPE_INTEGER),
-                                    'sender_email': openapi.Schema(type=openapi.TYPE_STRING),
-                                    'sender_name': openapi.Schema(type=openapi.TYPE_STRING),
-                                    'receiver': openapi.Schema(type=openapi.TYPE_INTEGER),
-                                    'receiver_email': openapi.Schema(type=openapi.TYPE_STRING),
-                                    'receiver_name': openapi.Schema(type=openapi.TYPE_STRING),
-                                    'is_active': openapi.Schema(type=openapi.TYPE_BOOLEAN),
-                                    'created_at': openapi.Schema(type=openapi.TYPE_STRING, format=openapi.FORMAT_DATETIME),
-                                }
-                            )
-                        ),
-                    }
-                )
-            ),
-            401: openapi.Response(description="Unauthorized - Invalid or missing JWT token"),
-        }
-    )
+    @extend_schema(tags=['Invitations'], summary='Invited users list', description="Get all users invited by the authenticated user (who used this user's invitation code).")
     async def get(self, request):
         """
         Get all users invited by the authenticated user - ASYNC VERSION

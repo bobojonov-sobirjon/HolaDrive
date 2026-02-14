@@ -40,7 +40,7 @@ LOCAL_APPS = [
 THIRD_PARTY_APPS = [
     'rest_framework',
     'rest_framework_simplejwt',
-    'drf_yasg',
+    'drf_spectacular',
     'corsheaders',
     'django_filters',
     *LOCAL_APPS,
@@ -170,6 +170,7 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 
 REST_FRAMEWORK = {
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
     'DEFAULT_RENDERER_CLASSES': [
         'rest_framework.renderers.JSONRenderer',
         'rest_framework.renderers.BrowsableAPIRenderer',
@@ -189,6 +190,15 @@ REST_FRAMEWORK = {
     ],
     "PAGE_SIZE": 100,
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.LimitOffsetPagination',
+}
+
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'Hola Drive and Hola Driver APIs',
+    'DESCRIPTION': 'Hola Drive and Hola Driver APIs - JWT Authentication Required',
+    'VERSION': '1.0.0',
+    'SERVE_INCLUDE_SCHEMA': False,
+    # Path prefix so default tag is "accounts"/"order"/"chat" not "api"
+    'SCHEMA_PATH_PREFIX': r'/api/v1',
 }
 
 SIMPLE_JWT = {

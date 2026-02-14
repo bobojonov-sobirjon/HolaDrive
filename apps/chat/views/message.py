@@ -2,47 +2,23 @@ from rest_framework.response import Response
 from apps.common.views import AsyncAPIView
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
-from drf_yasg.utils import swagger_auto_schema
-from drf_yasg import openapi
 from django.utils import timezone
 from django.db.models import Q
 from asgiref.sync import sync_to_async
+from drf_spectacular.utils import extend_schema
 
 from apps.chat.models import Conversation, Message
 from apps.chat.serializers import MessageSerializer, MessageCreateSerializer
 from apps.chat.utils import get_support_user
 from apps.notification.models import Notification
 
-
 class MessageListView(AsyncAPIView):
     """
     Get messages for a conversation
     """
     permission_classes = [IsAuthenticated]
-    
-    @swagger_auto_schema(
-        operation_summary="Get conversation messages",
-        operation_description="Get all messages for a conversation",
-        manual_parameters=[
-            openapi.Parameter(
-                'page',
-                openapi.IN_QUERY,
-                description="Page number",
-                type=openapi.TYPE_INTEGER
-            ),
-            openapi.Parameter(
-                'page_size',
-                openapi.IN_QUERY,
-                description="Number of items per page",
-                type=openapi.TYPE_INTEGER
-            ),
-        ],
-        responses={
-            200: MessageSerializer(many=True),
-            404: "Conversation not found"
-        },
-        tags=['Chat']
-    )
+
+    @extend_schema(tags=['Chat'], summary='List messages', description='Get messages for a conversation. Pagination: page, page_size.')
     async def get(self, request, conversation_id):
         """
         Get messages for a conversation - ASYNC VERSION
@@ -95,7 +71,6 @@ class MessageListView(AsyncAPIView):
                 status=status.HTTP_404_NOT_FOUND
             )
 
-
 class MessageCreateView(AsyncAPIView):
     """
     Create a new message
@@ -103,18 +78,8 @@ class MessageCreateView(AsyncAPIView):
     Support can only send messages from admin panel
     """
     permission_classes = [IsAuthenticated]
-    
-    @swagger_auto_schema(
-        operation_summary="Send a message",
-        operation_description="Send a message in a conversation. Only Rider/Driver can send messages via API. Support must use admin panel.",
-        request_body=MessageCreateSerializer,
-        responses={
-            201: MessageSerializer,
-            400: "Bad Request",
-            403: "Forbidden - Support must use admin panel"
-        },
-        tags=['Chat']
-    )
+
+    @extend_schema(tags=['Chat'], summary='Send message', description='Create a new message in a conversation. Rider/Driver only via API.')
     async def post(self, request, conversation_id):
         """
         Create a new message - ASYNC VERSION
@@ -194,33 +159,13 @@ class MessageCreateView(AsyncAPIView):
                 status=status.HTTP_404_NOT_FOUND
             )
 
-
 class MessageMarkAsReadView(AsyncAPIView):
     """
     Mark messages as read
     """
     permission_classes = [IsAuthenticated]
-    
-    @swagger_auto_schema(
-        operation_summary="Mark messages as read",
-        operation_description="Mark one or more messages as read",
-        request_body=openapi.Schema(
-            type=openapi.TYPE_OBJECT,
-            properties={
-                'message_ids': openapi.Schema(
-                    type=openapi.TYPE_ARRAY,
-                    items=openapi.Schema(type=openapi.TYPE_INTEGER),
-                    description='List of message IDs to mark as read'
-                )
-            },
-            required=['message_ids']
-        ),
-        responses={
-            200: "Messages marked as read",
-            400: "Bad Request"
-        },
-        tags=['Chat']
-    )
+
+    @extend_schema(tags=['Chat'], summary='Mark messages read', description='Mark messages as read. Body: message_ids (list).')
     async def post(self, request, conversation_id):
         """
         Mark messages as read - ASYNC VERSION

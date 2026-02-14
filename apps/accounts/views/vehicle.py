@@ -3,9 +3,8 @@ from apps.common.views import AsyncAPIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
-from drf_yasg.utils import swagger_auto_schema
-from drf_yasg import openapi
 from asgiref.sync import sync_to_async
+from drf_spectacular.utils import extend_schema
 
 from ..serializers import VehicleDetailsSerializer, VehicleImageSerializer
 from ..models import VehicleDetails, VehicleImages
@@ -43,34 +42,7 @@ class VehicleDetailsView(AsyncAPIView):
             )
         return None
 
-    @swagger_auto_schema(
-        tags=['Vehicle Details'],
-        operation_description="""
-        Get current driver's vehicle details.
-        
-        Returns the vehicle details for the authenticated driver.
-        If no vehicle details exist, returns a 404 error.
-        
-        **Authentication Required:** Yes (JWT Token)
-        **Role Required:** Driver
-        """,
-        responses={
-            200: openapi.Response(
-                description="Vehicle details retrieved successfully",
-                schema=openapi.Schema(
-                    type=openapi.TYPE_OBJECT,
-                    properties={
-                        'message': openapi.Schema(type=openapi.TYPE_STRING, example="Vehicle details retrieved successfully"),
-                        'status': openapi.Schema(type=openapi.TYPE_STRING, example="success"),
-                        'data': openapi.Schema(type=openapi.TYPE_OBJECT),
-                    }
-                )
-            ),
-            404: openapi.Response(description="Vehicle details not found"),
-            401: openapi.Response(description="Unauthorized"),
-            403: openapi.Response(description="Forbidden - Driver role required"),
-        }
-    )
+    @extend_schema(tags=['Vehicle Details'], summary='Get vehicle details', description="Get current driver's vehicle details. Role: Driver.")
     async def get(self, request):
         """
         Get current driver's vehicle details - ASYNC VERSION
@@ -104,151 +76,7 @@ class VehicleDetailsView(AsyncAPIView):
             status=status.HTTP_200_OK
         )
 
-    @swagger_auto_schema(
-        tags=['Vehicle Details'],
-        operation_description="""
-        Create vehicle details with multiple images.
-        
-        Creates vehicle details for the authenticated driver.
-        Multiple images can be uploaded using the 'images_data' field.
-        User is automatically taken from the authentication header.
-        
-        **Ride Type System:**
-        - If you don't specify `supported_ride_types`, the system will automatically suggest ride types based on your vehicle characteristics:
-          * Standard (Hola) - Always available for all vehicles
-          * Premium - If your vehicle is a premium brand (Mercedes, BMW, Audi, Tesla, etc.) OR if it's 2020+ with Excellent condition
-          * Eco - If your vehicle is electric/hybrid (Tesla, Nissan Leaf, etc.)
-        - You can also manually specify `supported_ride_types` to override automatic suggestions
-        - `default_ride_type` is the primary ride type shown first (if not specified, first suggested type will be used)
-        
-        **Request Format:** Use multipart/form-data for file uploads
-        
-        **Fields:**
-        - brand: Vehicle brand (required, e.g., "Toyota", "Tesla", "BMW")
-        - model: Vehicle model (required, e.g., "Camry", "Model 3", "5 Series")
-        - year_of_manufacture: Year (required, 2015 or newer, e.g., 2024)
-        - vin: Vehicle Identification Number (required, unique, 8-17 characters, e.g., "24785499ABCDEF123")
-        - vehicle_condition: Vehicle condition (optional, default: "good", choices: "excellent", "good", "fair")
-          * Affects automatic ride type suggestions (Excellent condition + 2020+ year = Premium suggestion)
-        - default_ride_type: Primary/default ride type ID (optional, integer)
-          * If not specified, first suggested ride type will be used automatically
-        - supported_ride_types: List of ride type IDs this vehicle can support (optional, array of integers)
-          * If not specified or empty, system will automatically suggest based on vehicle characteristics
-          * One vehicle can support multiple ride types (e.g., [1, 2, 3] for Standard, Premium, Eco)
-          * Example: [1, 2] means vehicle supports Standard and Premium ride types
-        - images_data: List of image files (optional, multiple allowed)
-        
-        **Examples:**
-        
-        **Example 1: Automatic suggestions (Tesla Model 3):**
-        ```
-        {
-          "brand": "Tesla",
-          "model": "Model 3",
-          "year_of_manufacture": 2023,
-          "vin": "ABC123",
-          "vehicle_condition": "excellent"
-          // supported_ride_types not specified → Auto-suggests: [Hola, Premium, Eco]
-        }
-        ```
-        
-        **Example 2: Manual selection:**
-        ```
-        {
-          "brand": "Toyota",
-          "model": "Camry",
-          "year_of_manufacture": 2018,
-          "vin": "XYZ789",
-          "vehicle_condition": "good",
-          "supported_ride_types": [1]  // Only Standard (Hola)
-        }
-        ```
-        
-        **Example 3: Premium vehicle with manual override:**
-        ```
-        {
-          "brand": "BMW",
-          "model": "5 Series",
-          "year_of_manufacture": 2022,
-          "vin": "BMW123",
-          "vehicle_condition": "excellent",
-          "default_ride_type": 2,  // Premium as default
-          "supported_ride_types": [1, 2]  // Standard and Premium
-        }
-        ```
-        
-        **Authentication Required:** Yes (JWT Token)
-        **Role Required:** Driver
-        """,
-        request_body=openapi.Schema(
-            type=openapi.TYPE_OBJECT,
-            required=['brand', 'model', 'year_of_manufacture', 'vin'],
-            properties={
-                'brand': openapi.Schema(
-                    type=openapi.TYPE_STRING,
-                    example='Toyota',
-                    description='Vehicle brand (e.g., Toyota, Tesla, BMW, Mercedes)'
-                ),
-                'model': openapi.Schema(
-                    type=openapi.TYPE_STRING,
-                    example='Camry',
-                    description='Vehicle model (e.g., Camry, Model 3, 5 Series)'
-                ),
-                'year_of_manufacture': openapi.Schema(
-                    type=openapi.TYPE_INTEGER,
-                    example=2024,
-                    description='Year the vehicle was manufactured (must be 2015 or newer)'
-                ),
-                'vin': openapi.Schema(
-                    type=openapi.TYPE_STRING,
-                    example='24785499ABCDEF123',
-                    description='Vehicle Identification Number (8-17 characters, must be unique)'
-                ),
-                'vehicle_condition': openapi.Schema(
-                    type=openapi.TYPE_STRING,
-                    enum=['excellent', 'good', 'fair'],
-                    example='good',
-                    default='good',
-                    description='Vehicle condition. Affects automatic ride type suggestions. Excellent condition + 2020+ year = Premium suggestion.'
-                ),
-                'default_ride_type': openapi.Schema(
-                    type=openapi.TYPE_INTEGER,
-                    example=1,
-                    description='Primary/default ride type ID. If not specified, first suggested ride type will be used automatically.'
-                ),
-                'supported_ride_types': openapi.Schema(
-                    type=openapi.TYPE_ARRAY,
-                    items=openapi.Schema(type=openapi.TYPE_INTEGER),
-                    example=[1, 2, 3],
-                    description='List of ride type IDs this vehicle can support. If not specified or empty, system will automatically suggest based on vehicle characteristics (brand, model, year, condition, electric/hybrid status). One vehicle can support multiple ride types. Example: [1, 2, 3] means vehicle supports Standard (Hola), Premium, and Eco ride types.'
-                ),
-                'images_data': openapi.Schema(
-                    type=openapi.TYPE_ARRAY,
-                    items=openapi.Schema(type=openapi.TYPE_FILE),
-                    description='List of vehicle images (optional, multiple allowed)'
-                ),
-            }
-        ),
-        responses={
-            201: openapi.Response(
-                description="Vehicle details created successfully",
-                schema=openapi.Schema(
-                    type=openapi.TYPE_OBJECT,
-                    properties={
-                        'message': openapi.Schema(type=openapi.TYPE_STRING, example="Vehicle details created successfully"),
-                        'status': openapi.Schema(type=openapi.TYPE_STRING, example="success"),
-                        'data': openapi.Schema(
-                            type=openapi.TYPE_OBJECT,
-                            description='Vehicle details including suggested_ride_types (read-only field showing automatic suggestions)'
-                        ),
-                    }
-                )
-            ),
-            400: openapi.Response(description="Bad request - validation errors"),
-            401: openapi.Response(description="Unauthorized"),
-            403: openapi.Response(description="Forbidden - Driver role required"),
-        }
-    )
+    @extend_schema(tags=['Vehicle Details'], summary='Create vehicle', description='Create vehicle details with images. multipart/form-data: brand, model, year_of_manufacture, vin (required); vehicle_condition, default_ride_type, supported_ride_types, images_data (optional). Role: Driver.')
     async def post(self, request):
         """
         Create vehicle details with multiple images - ASYNC VERSION
@@ -451,34 +279,7 @@ class VehicleDetailView(AsyncAPIView):
         except VehicleDetails.DoesNotExist:
             return None
 
-    @swagger_auto_schema(
-        tags=['Vehicle Details'],
-        operation_description="""
-        Get vehicle details by ID.
-        
-        Returns the vehicle details for the specified vehicle ID.
-        Drivers can only access their own vehicles.
-        
-        **Authentication Required:** Yes (JWT Token)
-        **Role Required:** Driver
-        """,
-        responses={
-            200: openapi.Response(
-                description="Vehicle details retrieved successfully",
-                schema=openapi.Schema(
-                    type=openapi.TYPE_OBJECT,
-                    properties={
-                        'message': openapi.Schema(type=openapi.TYPE_STRING, example="Vehicle details retrieved successfully"),
-                        'status': openapi.Schema(type=openapi.TYPE_STRING, example="success"),
-                        'data': openapi.Schema(type=openapi.TYPE_OBJECT),
-                    }
-                )
-            ),
-            404: openapi.Response(description="Vehicle details not found"),
-            401: openapi.Response(description="Unauthorized"),
-            403: openapi.Response(description="Forbidden - Driver role required"),
-        }
-    )
+    @extend_schema(tags=['Vehicle Details'], summary='Get vehicle by ID', description='Get vehicle details by ID. Drivers can only access their own vehicles. Role: Driver.')
     async def get(self, request, pk):
         """
         Get vehicle details by ID - ASYNC VERSION
@@ -510,106 +311,7 @@ class VehicleDetailView(AsyncAPIView):
             status=status.HTTP_200_OK
         )
 
-    @swagger_auto_schema(
-        tags=['Vehicle Details'],
-        operation_description="""
-        Update vehicle details by ID (partial update).
-        
-        Updates vehicle details for the specified vehicle ID.
-        You can update any combination of fields, or just add images.
-        Multiple images can be uploaded using the 'images_data' field.
-        New images will be added to existing ones (existing images are not deleted).
-        
-        **Ride Type System:**
-        - You can update `supported_ride_types` to change which ride types your vehicle supports
-        - If you set `supported_ride_types` to empty array [], the system will automatically re-suggest based on current vehicle characteristics
-        - `default_ride_type` can be updated to change the primary ride type shown first
-        
-        **Request Format:** Use multipart/form-data for file uploads
-        
-        **Fields (all optional):**
-        - brand: Vehicle brand (optional)
-        - model: Vehicle model (optional)
-        - year_of_manufacture: Year (2015 or newer, optional)
-        - vin: Vehicle Identification Number (8-17 characters, optional, unique)
-        - vehicle_condition: Vehicle condition (optional, choices: "excellent", "good", "fair")
-        - default_ride_type: Primary/default ride type ID (optional, integer)
-        - supported_ride_types: List of ride type IDs this vehicle can support (optional, array of integers)
-          * If set to empty array [], system will automatically re-suggest based on current vehicle characteristics
-          * Example: [1, 2] means vehicle supports Standard and Premium ride types
-        - images_data: List of image files (optional, multiple allowed)
-        
-        **Note:** You can send only images_data to add images without updating other fields.
-        
-        **Authentication Required:** Yes (JWT Token)
-        **Role Required:** Driver
-        """,
-        request_body=openapi.Schema(
-            type=openapi.TYPE_OBJECT,
-            required=[],  # Barcha fieldlar optional
-            properties={
-                'brand': openapi.Schema(
-                    type=openapi.TYPE_STRING,
-                    example='Toyota',
-                    description='Vehicle brand (e.g., Toyota, Tesla, BMW)'
-                ),
-                'model': openapi.Schema(
-                    type=openapi.TYPE_STRING,
-                    example='Camry',
-                    description='Vehicle model (e.g., Camry, Model 3)'
-                ),
-                'year_of_manufacture': openapi.Schema(
-                    type=openapi.TYPE_INTEGER,
-                    example=2024,
-                    description='Year the vehicle was manufactured (must be 2015 or newer)'
-                ),
-                'vin': openapi.Schema(
-                    type=openapi.TYPE_STRING,
-                    example='24785499ABCDEF123',
-                    description='Vehicle Identification Number (8-17 characters, must be unique)'
-                ),
-                'vehicle_condition': openapi.Schema(
-                    type=openapi.TYPE_STRING,
-                    enum=['excellent', 'good', 'fair'],
-                    example='good',
-                    description='Vehicle condition. Affects automatic ride type suggestions if supported_ride_types is cleared.'
-                ),
-                'default_ride_type': openapi.Schema(
-                    type=openapi.TYPE_INTEGER,
-                    example=1,
-                    description='Primary/default ride type ID. Changes the primary ride type shown first.'
-                ),
-                'supported_ride_types': openapi.Schema(
-                    type=openapi.TYPE_ARRAY,
-                    items=openapi.Schema(type=openapi.TYPE_INTEGER),
-                    example=[1, 2],
-                    description='List of ride type IDs this vehicle can support. If set to empty array [], system will automatically re-suggest based on current vehicle characteristics. Example: [1, 2] means vehicle supports Standard and Premium ride types.'
-                ),
-                'images_data': openapi.Schema(
-                    type=openapi.TYPE_ARRAY,
-                    items=openapi.Schema(type=openapi.TYPE_FILE),
-                    description='List of vehicle images (will be added to existing images)'
-                ),
-            }
-        ),
-        responses={
-            200: openapi.Response(
-                description="Vehicle details updated successfully",
-                schema=openapi.Schema(
-                    type=openapi.TYPE_OBJECT,
-                    properties={
-                        'message': openapi.Schema(type=openapi.TYPE_STRING, example="Vehicle details updated successfully"),
-                        'status': openapi.Schema(type=openapi.TYPE_STRING, example="success"),
-                        'data': openapi.Schema(type=openapi.TYPE_OBJECT),
-                    }
-                )
-            ),
-            400: openapi.Response(description="Bad request - validation errors"),
-            401: openapi.Response(description="Unauthorized"),
-            403: openapi.Response(description="Forbidden - Driver role required"),
-            404: openapi.Response(description="Vehicle details not found"),
-        }
-    )
+    @extend_schema(tags=['Vehicle Details'], summary='Update vehicle', description='Update vehicle details by ID. multipart/form-data. Can send only images_data to add images. Role: Driver.')
     async def put(self, request, pk):
         """
         Update vehicle details by ID (full update) - ASYNC VERSION
@@ -787,33 +489,7 @@ class VehicleDetailView(AsyncAPIView):
             status=status.HTTP_400_BAD_REQUEST
         )
 
-    @swagger_auto_schema(
-        tags=['Vehicle Details'],
-        operation_description="""
-        Delete vehicle details by ID.
-        
-        Deletes the vehicle details and all associated images for the specified vehicle ID.
-        Drivers can only delete their own vehicles.
-        
-        **Authentication Required:** Yes (JWT Token)
-        **Role Required:** Driver
-        """,
-        responses={
-            200: openapi.Response(
-                description="Vehicle details deleted successfully",
-                schema=openapi.Schema(
-                    type=openapi.TYPE_OBJECT,
-                    properties={
-                        'message': openapi.Schema(type=openapi.TYPE_STRING, example="Vehicle details deleted successfully"),
-                        'status': openapi.Schema(type=openapi.TYPE_STRING, example="success"),
-                    }
-                )
-            ),
-            401: openapi.Response(description="Unauthorized"),
-            403: openapi.Response(description="Forbidden - Driver role required"),
-            404: openapi.Response(description="Vehicle details not found"),
-        }
-    )
+    @extend_schema(tags=['Vehicle Details'], summary='Delete vehicle', description='Delete vehicle details and all images by ID. Role: Driver.')
     async def delete(self, request, pk):
         """
         Delete vehicle details by ID - ASYNC VERSION
@@ -891,34 +567,7 @@ class VehicleImageView(AsyncAPIView):
         except VehicleImages.DoesNotExist:
             return None
 
-    @swagger_auto_schema(
-        tags=['Vehicle Images'],
-        operation_description="""
-        Get vehicle image details by ID.
-        
-        Returns the vehicle image details for the specified image ID.
-        Drivers can only access images of their own vehicles.
-        
-        **Authentication Required:** Yes (JWT Token)
-        **Role Required:** Driver
-        """,
-        responses={
-            200: openapi.Response(
-                description="Vehicle image details retrieved successfully",
-                schema=openapi.Schema(
-                    type=openapi.TYPE_OBJECT,
-                    properties={
-                        'message': openapi.Schema(type=openapi.TYPE_STRING, example="Vehicle image details retrieved successfully"),
-                        'status': openapi.Schema(type=openapi.TYPE_STRING, example="success"),
-                        'data': openapi.Schema(type=openapi.TYPE_OBJECT),
-                    }
-                )
-            ),
-            401: openapi.Response(description="Unauthorized"),
-            403: openapi.Response(description="Forbidden - Driver role required"),
-            404: openapi.Response(description="Vehicle image not found"),
-        }
-    )
+    @extend_schema(tags=['Vehicle Images'], summary='Get vehicle image', description='Get vehicle image details by ID. Role: Driver.')
     async def get(self, request, pk):
         """
         Get vehicle image details by ID - ASYNC VERSION
@@ -951,50 +600,7 @@ class VehicleImageView(AsyncAPIView):
             status=status.HTTP_200_OK
         )
 
-    @swagger_auto_schema(
-        tags=['Vehicle Images'],
-        operation_description="""
-        Update vehicle image by ID.
-        
-        Updates the vehicle image for the specified image ID.
-        Drivers can only update images of their own vehicles.
-        
-        **Request Format:** Use multipart/form-data for file uploads
-        
-        **Fields:**
-        - image: New image file (required)
-        
-        **Authentication Required:** Yes (JWT Token)
-        **Role Required:** Driver
-        """,
-        request_body=openapi.Schema(
-            type=openapi.TYPE_OBJECT,
-            required=['image'],
-            properties={
-                'image': openapi.Schema(
-                    type=openapi.TYPE_FILE,
-                    description='New vehicle image file'
-                ),
-            }
-        ),
-        responses={
-            200: openapi.Response(
-                description="Vehicle image updated successfully",
-                schema=openapi.Schema(
-                    type=openapi.TYPE_OBJECT,
-                    properties={
-                        'message': openapi.Schema(type=openapi.TYPE_STRING, example="Vehicle image updated successfully"),
-                        'status': openapi.Schema(type=openapi.TYPE_STRING, example="success"),
-                        'data': openapi.Schema(type=openapi.TYPE_OBJECT),
-                    }
-                )
-            ),
-            400: openapi.Response(description="Bad request - validation errors"),
-            401: openapi.Response(description="Unauthorized"),
-            403: openapi.Response(description="Forbidden - Driver role required"),
-            404: openapi.Response(description="Vehicle image not found"),
-        }
-    )
+    @extend_schema(tags=['Vehicle Images'], summary='Update vehicle image', description='Update vehicle image by ID. multipart/form-data, field: image (required). Role: Driver.')
     async def put(self, request, pk):
         """
         Update vehicle image by ID - ASYNC VERSION
@@ -1063,33 +669,7 @@ class VehicleImageView(AsyncAPIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-    @swagger_auto_schema(
-        tags=['Vehicle Images'],
-        operation_description="""
-        Delete vehicle image by ID.
-        
-        Deletes the vehicle image for the specified image ID.
-        Drivers can only delete images of their own vehicles.
-        
-        **Authentication Required:** Yes (JWT Token)
-        **Role Required:** Driver
-        """,
-        responses={
-            200: openapi.Response(
-                description="Vehicle image deleted successfully",
-                schema=openapi.Schema(
-                    type=openapi.TYPE_OBJECT,
-                    properties={
-                        'message': openapi.Schema(type=openapi.TYPE_STRING, example="Vehicle image deleted successfully"),
-                        'status': openapi.Schema(type=openapi.TYPE_STRING, example="success"),
-                    }
-                )
-            ),
-            401: openapi.Response(description="Unauthorized"),
-            403: openapi.Response(description="Forbidden - Driver role required"),
-            404: openapi.Response(description="Vehicle image not found"),
-        }
-    )
+    @extend_schema(tags=['Vehicle Images'], summary='Delete vehicle image', description='Delete vehicle image by ID. Role: Driver.')
     async def delete(self, request, pk):
         """
         Delete vehicle image by ID - ASYNC VERSION

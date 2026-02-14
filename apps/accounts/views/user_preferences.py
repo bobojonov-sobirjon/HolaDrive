@@ -2,13 +2,11 @@ from rest_framework import status
 from apps.common.views import AsyncAPIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
-from drf_yasg.utils import swagger_auto_schema
-from drf_yasg import openapi
 from asgiref.sync import sync_to_async
+from drf_spectacular.utils import extend_schema
 
 from ..serializers import UserPreferencesSerializer
 from ..models import UserPreferences
-
 
 class UserPreferencesView(AsyncAPIView):
     """
@@ -22,69 +20,7 @@ class UserPreferencesView(AsyncAPIView):
     """
     permission_classes = [IsAuthenticated]
 
-    @swagger_auto_schema(
-        tags=['User Preferences'],
-        operation_description="""
-        Get current user's latest preferences.
-        
-        Returns the most recently updated preferences for the authenticated user.
-        If no preferences exist, returns a 404 error.
-        
-        **Authentication Required:** Yes (JWT Token)
-        """,
-        responses={
-            200: openapi.Response(
-                description="Preferences retrieved successfully",
-                schema=openapi.Schema(
-                    type=openapi.TYPE_OBJECT,
-                    properties={
-                        'message': openapi.Schema(type=openapi.TYPE_STRING, example="Preferences retrieved successfully"),
-                        'status': openapi.Schema(type=openapi.TYPE_STRING, example="success"),
-                        'data': openapi.Schema(
-                            type=openapi.TYPE_OBJECT,
-                            properties={
-                                'id': openapi.Schema(type=openapi.TYPE_INTEGER, example=1),
-                                'user': openapi.Schema(type=openapi.TYPE_INTEGER, example=1),
-                                'chatting_preference': openapi.Schema(
-                                    type=openapi.TYPE_STRING,
-                                    enum=['no_communication', 'casual', 'friendly'],
-                                    example='no_communication'
-                                ),
-                                'temperature_preference': openapi.Schema(
-                                    type=openapi.TYPE_STRING,
-                                    enum=['warm', 'comfortable', 'cool', 'cold'],
-                                    example='warm'
-                                ),
-                                'music_preference': openapi.Schema(
-                                    type=openapi.TYPE_STRING,
-                                    enum=['pop', 'rock', 'jazz', 'classical', 'hip_hop', 'electronic', 'country', 'no_music'],
-                                    example='pop'
-                                ),
-                                'volume_level': openapi.Schema(
-                                    type=openapi.TYPE_STRING,
-                                    enum=['low', 'medium', 'high', 'mute'],
-                                    example='low'
-                                ),
-                                'created_at': openapi.Schema(type=openapi.TYPE_STRING, format=openapi.FORMAT_DATETIME),
-                                'updated_at': openapi.Schema(type=openapi.TYPE_STRING, format=openapi.FORMAT_DATETIME),
-                            }
-                        ),
-                    }
-                )
-            ),
-            404: openapi.Response(
-                description="Preferences not found",
-                schema=openapi.Schema(
-                    type=openapi.TYPE_OBJECT,
-                    properties={
-                        'message': openapi.Schema(type=openapi.TYPE_STRING, example="Preferences not found"),
-                        'status': openapi.Schema(type=openapi.TYPE_STRING, example="error"),
-                    }
-                )
-            ),
-            401: openapi.Response(description="Unauthorized - Invalid or missing JWT token"),
-        }
-    )
+    @extend_schema(tags=['User Preferences'], summary='Get preferences', description='Get current user ride preferences (chatting, temperature, music, volume).')
     async def get(self, request):
         """
         Get current user's latest preferences with optimized query - ASYNC VERSION
@@ -120,128 +56,7 @@ class UserPreferencesView(AsyncAPIView):
             status=status.HTTP_200_OK
         )
 
-    @swagger_auto_schema(
-        tags=['User Preferences'],
-        operation_description="""
-        Create or update user preferences.
-        
-        **Important:** This endpoint ensures only ONE preferences entry exists per user.
-        - If preferences don't exist: Creates a new preference entry (returns 201)
-        - If preferences already exist: Updates the existing entry instead of creating a new one (returns 200)
-        
-        This prevents duplicate preferences entries for the same user.
-        
-        **Request Body:**
-        - chatting_preference: One of: 'no_communication', 'casual', 'friendly'
-        - temperature_preference: One of: 'warm', 'comfortable', 'cool', 'cold'
-        - music_preference: One of: 'pop', 'rock', 'jazz', 'classical', 'hip_hop', 'electronic', 'country', 'no_music'
-        - volume_level: One of: 'low', 'medium', 'high', 'mute'
-        
-        **Authentication Required:** Yes (JWT Token)
-        """,
-        request_body=openapi.Schema(
-            type=openapi.TYPE_OBJECT,
-            required=['chatting_preference', 'temperature_preference', 'music_preference', 'volume_level'],
-            properties={
-                'chatting_preference': openapi.Schema(
-                    type=openapi.TYPE_STRING,
-                    enum=['no_communication', 'casual', 'friendly'],
-                    example='no_communication',
-                    description='Preferred communication style during rides'
-                ),
-                'temperature_preference': openapi.Schema(
-                    type=openapi.TYPE_STRING,
-                    enum=['warm', 'comfortable', 'cool', 'cold'],
-                    example='warm',
-                    description='Preferred temperature range: warm (25°C+), comfortable (22-24°C), cool (18-21°C), cold (<18°C)'
-                ),
-                'music_preference': openapi.Schema(
-                    type=openapi.TYPE_STRING,
-                    enum=['pop', 'rock', 'jazz', 'classical', 'hip_hop', 'electronic', 'country', 'no_music'],
-                    example='pop',
-                    description='Preferred music genre'
-                ),
-                'volume_level': openapi.Schema(
-                    type=openapi.TYPE_STRING,
-                    enum=['low', 'medium', 'high', 'mute'],
-                    example='low',
-                    description='Preferred music volume level'
-                ),
-            },
-            example={
-                'chatting_preference': 'no_communication',
-                'temperature_preference': 'warm',
-                'music_preference': 'pop',
-                'volume_level': 'low'
-            }
-        ),
-        responses={
-            200: openapi.Response(
-                description="Preferences updated successfully (if preferences already exist)",
-                schema=openapi.Schema(
-                    type=openapi.TYPE_OBJECT,
-                    properties={
-                        'message': openapi.Schema(type=openapi.TYPE_STRING, example="Preferences updated successfully"),
-                        'status': openapi.Schema(type=openapi.TYPE_STRING, example="success"),
-                        'data': openapi.Schema(
-                            type=openapi.TYPE_OBJECT,
-                            properties={
-                                'id': openapi.Schema(type=openapi.TYPE_INTEGER, example=1),
-                                'user': openapi.Schema(type=openapi.TYPE_INTEGER, example=1),
-                                'chatting_preference': openapi.Schema(type=openapi.TYPE_STRING, example='no_communication'),
-                                'temperature_preference': openapi.Schema(type=openapi.TYPE_STRING, example='warm'),
-                                'music_preference': openapi.Schema(type=openapi.TYPE_STRING, example='pop'),
-                                'volume_level': openapi.Schema(type=openapi.TYPE_STRING, example='low'),
-                                'created_at': openapi.Schema(type=openapi.TYPE_STRING, format=openapi.FORMAT_DATETIME),
-                                'updated_at': openapi.Schema(type=openapi.TYPE_STRING, format=openapi.FORMAT_DATETIME),
-                            }
-                        ),
-                    }
-                )
-            ),
-            201: openapi.Response(
-                description="Preferences created successfully (if preferences don't exist)",
-                schema=openapi.Schema(
-                    type=openapi.TYPE_OBJECT,
-                    properties={
-                        'message': openapi.Schema(type=openapi.TYPE_STRING, example="Preferences created successfully"),
-                        'status': openapi.Schema(type=openapi.TYPE_STRING, example="success"),
-                        'data': openapi.Schema(
-                            type=openapi.TYPE_OBJECT,
-                            properties={
-                                'id': openapi.Schema(type=openapi.TYPE_INTEGER, example=1),
-                                'user': openapi.Schema(type=openapi.TYPE_INTEGER, example=1),
-                                'chatting_preference': openapi.Schema(type=openapi.TYPE_STRING, example='no_communication'),
-                                'temperature_preference': openapi.Schema(type=openapi.TYPE_STRING, example='warm'),
-                                'music_preference': openapi.Schema(type=openapi.TYPE_STRING, example='pop'),
-                                'volume_level': openapi.Schema(type=openapi.TYPE_STRING, example='low'),
-                                'created_at': openapi.Schema(type=openapi.TYPE_STRING, format=openapi.FORMAT_DATETIME),
-                                'updated_at': openapi.Schema(type=openapi.TYPE_STRING, format=openapi.FORMAT_DATETIME),
-                            }
-                        ),
-                    }
-                )
-            ),
-            400: openapi.Response(
-                description="Bad request - validation errors",
-                schema=openapi.Schema(
-                    type=openapi.TYPE_OBJECT,
-                    properties={
-                        'message': openapi.Schema(type=openapi.TYPE_STRING, example="Validation error"),
-                        'status': openapi.Schema(type=openapi.TYPE_STRING, example="error"),
-                        'errors': openapi.Schema(
-                            type=openapi.TYPE_OBJECT,
-                            example={
-                                'chatting_preference': ['Invalid choice. Must be one of: no_communication, casual, friendly'],
-                                'temperature_preference': ['This field is required.']
-                            }
-                        ),
-                    }
-                )
-            ),
-            401: openapi.Response(description="Unauthorized - Invalid or missing JWT token"),
-        }
-    )
+    @extend_schema(tags=['User Preferences'], summary='Create/update preferences', description='Create or update user preferences.')
     async def post(self, request):
         """
         Create or update user preferences - ASYNC VERSION
@@ -290,71 +105,7 @@ class UserPreferencesView(AsyncAPIView):
             status=status.HTTP_400_BAD_REQUEST
         )
 
-    @swagger_auto_schema(
-        tags=['User Preferences'],
-        operation_description="""
-        Update user preferences (full update).
-        
-        Performs a complete update of the user's latest preferences.
-        All fields must be provided in the request body.
-        If no preferences exist, returns a 404 error.
-        
-        **Request Body:** Same as POST endpoint - all fields required.
-        
-        **Authentication Required:** Yes (JWT Token)
-        """,
-        request_body=openapi.Schema(
-            type=openapi.TYPE_OBJECT,
-            required=['chatting_preference', 'temperature_preference', 'music_preference', 'volume_level'],
-            properties={
-                'chatting_preference': openapi.Schema(
-                    type=openapi.TYPE_STRING,
-                    enum=['no_communication', 'casual', 'friendly'],
-                    example='casual'
-                ),
-                'temperature_preference': openapi.Schema(
-                    type=openapi.TYPE_STRING,
-                    enum=['warm', 'comfortable', 'cool', 'cold'],
-                    example='comfortable'
-                ),
-                'music_preference': openapi.Schema(
-                    type=openapi.TYPE_STRING,
-                    enum=['pop', 'rock', 'jazz', 'classical', 'hip_hop', 'electronic', 'country', 'no_music'],
-                    example='rock'
-                ),
-                'volume_level': openapi.Schema(
-                    type=openapi.TYPE_STRING,
-                    enum=['low', 'medium', 'high', 'mute'],
-                    example='medium'
-                ),
-            }
-        ),
-        responses={
-            200: openapi.Response(
-                description="Preferences updated successfully",
-                schema=openapi.Schema(
-                    type=openapi.TYPE_OBJECT,
-                    properties={
-                        'message': openapi.Schema(type=openapi.TYPE_STRING, example="Preferences updated successfully"),
-                        'status': openapi.Schema(type=openapi.TYPE_STRING, example="success"),
-                        'data': openapi.Schema(type=openapi.TYPE_OBJECT)
-                    }
-                )
-            ),
-            400: openapi.Response(description="Bad request - validation errors"),
-            401: openapi.Response(description="Unauthorized"),
-            404: openapi.Response(
-                description="Preferences not found",
-                schema=openapi.Schema(
-                    type=openapi.TYPE_OBJECT,
-                    properties={
-                        'message': openapi.Schema(type=openapi.TYPE_STRING, example="Preferences not found"),
-                        'status': openapi.Schema(type=openapi.TYPE_STRING, example="error"),
-                    }
-                )
-            ),
-        }
-    )
+    @extend_schema(tags=['User Preferences'], summary='Full update preferences', description='Update user preferences (full update).')
     async def put(self, request):
         """
         Update user preferences (full update) - ASYNC VERSION
@@ -405,82 +156,7 @@ class UserPreferencesView(AsyncAPIView):
             status=status.HTTP_400_BAD_REQUEST
         )
 
-    @swagger_auto_schema(
-        tags=['User Preferences'],
-        operation_description="""
-        Partially update user preferences.
-        
-        Updates only the fields provided in the request body.
-        Fields not included in the request will remain unchanged.
-        If no preferences exist, returns a 404 error.
-        
-        **Request Body:** Partial update - only include fields you want to change.
-        
-        **Example Request:**
-        ```json
-        {
-          "temperature_preference": "cool",
-          "volume_level": "high"
-        }
-        ```
-        
-        **Authentication Required:** Yes (JWT Token)
-        """,
-        request_body=openapi.Schema(
-            type=openapi.TYPE_OBJECT,
-            properties={
-                'chatting_preference': openapi.Schema(
-                    type=openapi.TYPE_STRING,
-                    enum=['no_communication', 'casual', 'friendly'],
-                    description='Optional - only include if updating'
-                ),
-                'temperature_preference': openapi.Schema(
-                    type=openapi.TYPE_STRING,
-                    enum=['warm', 'comfortable', 'cool', 'cold'],
-                    description='Optional - only include if updating'
-                ),
-                'music_preference': openapi.Schema(
-                    type=openapi.TYPE_STRING,
-                    enum=['pop', 'rock', 'jazz', 'classical', 'hip_hop', 'electronic', 'country', 'no_music'],
-                    description='Optional - only include if updating'
-                ),
-                'volume_level': openapi.Schema(
-                    type=openapi.TYPE_STRING,
-                    enum=['low', 'medium', 'high', 'mute'],
-                    description='Optional - only include if updating'
-                ),
-            },
-            example={
-                'temperature_preference': 'cool',
-                'volume_level': 'high'
-            }
-        ),
-        responses={
-            200: openapi.Response(
-                description="Preferences updated successfully",
-                schema=openapi.Schema(
-                    type=openapi.TYPE_OBJECT,
-                    properties={
-                        'message': openapi.Schema(type=openapi.TYPE_STRING, example="Preferences updated successfully"),
-                        'status': openapi.Schema(type=openapi.TYPE_STRING, example="success"),
-                        'data': openapi.Schema(type=openapi.TYPE_OBJECT)
-                    }
-                )
-            ),
-            400: openapi.Response(description="Bad request - validation errors"),
-            401: openapi.Response(description="Unauthorized"),
-            404: openapi.Response(
-                description="Preferences not found",
-                schema=openapi.Schema(
-                    type=openapi.TYPE_OBJECT,
-                    properties={
-                        'message': openapi.Schema(type=openapi.TYPE_STRING, example="Preferences not found"),
-                        'status': openapi.Schema(type=openapi.TYPE_STRING, example="error"),
-                    }
-                )
-            ),
-        }
-    )
+    @extend_schema(tags=['User Preferences'], summary='Partial update preferences', description='Update user preferences (partial update).')
     async def patch(self, request):
         """
         Partially update user preferences - ASYNC VERSION
@@ -532,7 +208,6 @@ class UserPreferencesView(AsyncAPIView):
             status=status.HTTP_400_BAD_REQUEST
         )
 
-
 class UserPreferencesDeleteView(AsyncAPIView):
     """
     Delete user preferences endpoint
@@ -541,40 +216,7 @@ class UserPreferencesDeleteView(AsyncAPIView):
     """
     permission_classes = [IsAuthenticated]
 
-    @swagger_auto_schema(
-        tags=['User Preferences'],
-        operation_description="""
-        Delete user preferences.
-        
-        Deletes the most recently updated preferences for the authenticated user.
-        If no preferences exist, returns a 404 error.
-        
-        **Authentication Required:** Yes (JWT Token)
-        """,
-        responses={
-            204: openapi.Response(
-                description="Preferences deleted successfully",
-                schema=openapi.Schema(
-                    type=openapi.TYPE_OBJECT,
-                    properties={
-                        'message': openapi.Schema(type=openapi.TYPE_STRING, example="Preferences deleted successfully"),
-                        'status': openapi.Schema(type=openapi.TYPE_STRING, example="success"),
-                    }
-                )
-            ),
-            401: openapi.Response(description="Unauthorized - Invalid or missing JWT token"),
-            404: openapi.Response(
-                description="Preferences not found",
-                schema=openapi.Schema(
-                    type=openapi.TYPE_OBJECT,
-                    properties={
-                        'message': openapi.Schema(type=openapi.TYPE_STRING, example="Preferences not found"),
-                        'status': openapi.Schema(type=openapi.TYPE_STRING, example="error"),
-                    }
-                )
-            ),
-        }
-    )
+    @extend_schema(tags=['User Preferences'], summary='Delete preferences', description='Delete user preferences.')
     async def delete(self, request):
         """
         Delete user preferences - ASYNC VERSION

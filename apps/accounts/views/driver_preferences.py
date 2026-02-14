@@ -2,13 +2,11 @@ from rest_framework import status
 from apps.common.views import AsyncAPIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
-from drf_yasg.utils import swagger_auto_schema
-from drf_yasg import openapi
 from asgiref.sync import sync_to_async
+from drf_spectacular.utils import extend_schema
 
 from ..serializers import DriverPreferencesSerializer
 from ..models import DriverPreferences
-
 
 class DriverPreferencesView(AsyncAPIView):
     """
@@ -22,32 +20,7 @@ class DriverPreferencesView(AsyncAPIView):
     """
     permission_classes = [IsAuthenticated]
 
-    @swagger_auto_schema(
-        tags=['Driver Preferences'],
-        operation_description="""
-        Get current driver's latest preferences.
-        
-        Returns the most recently updated preferences for the authenticated driver.
-        If no preferences exist, returns a 404 error.
-        
-        **Authentication Required:** Yes (JWT Token)
-        """,
-        responses={
-            200: openapi.Response(
-                description="Preferences retrieved successfully",
-                schema=openapi.Schema(
-                    type=openapi.TYPE_OBJECT,
-                    properties={
-                        'message': openapi.Schema(type=openapi.TYPE_STRING, example="Preferences retrieved successfully"),
-                        'status': openapi.Schema(type=openapi.TYPE_STRING, example="success"),
-                        'data': openapi.Schema(type=openapi.TYPE_OBJECT),
-                    }
-                )
-            ),
-            404: openapi.Response(description="Preferences not found"),
-            401: openapi.Response(description="Unauthorized - Invalid or missing JWT token"),
-        }
-    )
+    @extend_schema(tags=['Driver Preferences'], summary='Get preferences', description='Get current driver ride preferences (trip type, max pickup distance, working hours, notification intensity). Role: Driver.')
     async def get(self, request):
         """
         Get current driver's latest preferences - ASYNC VERSION
@@ -76,25 +49,7 @@ class DriverPreferencesView(AsyncAPIView):
             status=status.HTTP_200_OK
         )
 
-    @swagger_auto_schema(
-        tags=['Driver Preferences'],
-        operation_description="""
-        Create or update driver preferences.
-        
-        **Important:** This endpoint ensures only ONE preferences entry exists per driver.
-        - If preferences don't exist: Creates a new preference entry (returns 201)
-        - If preferences already exist: Updates the existing entry instead of creating a new one (returns 200)
-        
-        **Authentication Required:** Yes (JWT Token)
-        """,
-        request_body=DriverPreferencesSerializer,
-        responses={
-            200: openapi.Response(description="Preferences updated successfully"),
-            201: openapi.Response(description="Preferences created successfully"),
-            400: openapi.Response(description="Bad request - validation errors"),
-            401: openapi.Response(description="Unauthorized"),
-        }
-    )
+    @extend_schema(tags=['Driver Preferences'], summary='Create/update preferences', description='Create or update driver preferences. Role: Driver.')
     async def post(self, request):
         """
         Create or update driver preferences - ASYNC VERSION
@@ -137,25 +92,7 @@ class DriverPreferencesView(AsyncAPIView):
             status=status.HTTP_400_BAD_REQUEST
         )
 
-    @swagger_auto_schema(
-        tags=['Driver Preferences'],
-        operation_description="""
-        Update driver preferences (full update).
-        
-        Performs a complete update of the driver's latest preferences.
-        All fields must be provided in the request body.
-        If no preferences exist, returns a 404 error.
-        
-        **Authentication Required:** Yes (JWT Token)
-        """,
-        request_body=DriverPreferencesSerializer,
-        responses={
-            200: openapi.Response(description="Preferences updated successfully"),
-            400: openapi.Response(description="Bad request - validation errors"),
-            401: openapi.Response(description="Unauthorized"),
-            404: openapi.Response(description="Preferences not found"),
-        }
-    )
+    @extend_schema(tags=['Driver Preferences'], summary='Full update preferences', description='Update driver preferences (full update). Role: Driver.')
     async def put(self, request):
         """
         Update driver preferences (full update) - ASYNC VERSION
@@ -203,25 +140,7 @@ class DriverPreferencesView(AsyncAPIView):
             status=status.HTTP_400_BAD_REQUEST
         )
 
-    @swagger_auto_schema(
-        tags=['Driver Preferences'],
-        operation_description="""
-        Partially update driver preferences.
-        
-        Updates only the fields provided in the request body.
-        Fields not included in the request will remain unchanged.
-        If no preferences exist, returns a 404 error.
-        
-        **Authentication Required:** Yes (JWT Token)
-        """,
-        request_body=DriverPreferencesSerializer,
-        responses={
-            200: openapi.Response(description="Preferences updated successfully"),
-            400: openapi.Response(description="Bad request - validation errors"),
-            401: openapi.Response(description="Unauthorized"),
-            404: openapi.Response(description="Preferences not found"),
-        }
-    )
+    @extend_schema(tags=['Driver Preferences'], summary='Partial update preferences', description='Update driver preferences (partial update). Role: Driver.')
     async def patch(self, request):
         """
         Partially update driver preferences - ASYNC VERSION

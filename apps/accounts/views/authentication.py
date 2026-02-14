@@ -2,9 +2,8 @@ from rest_framework import status
 from rest_framework.response import Response
 from apps.common.views import AsyncAPIView
 from rest_framework.permissions import AllowAny
-from drf_yasg.utils import swagger_auto_schema
-from drf_yasg import openapi
 from rest_framework_simplejwt.tokens import RefreshToken
+from drf_spectacular.utils import extend_schema
 from django.conf import settings
 from asgiref.sync import sync_to_async
 
@@ -23,61 +22,7 @@ class RegistrationView(AsyncAPIView):
     """
     permission_classes = [AllowAny]
 
-    @swagger_auto_schema(
-        tags=['Authentication'],
-        operation_description="""
-        Register a new user account.
-
-        Optional push notification fields:
-        - device_token: string (FCM/APNs token)
-        - device_type: one of ['android', 'ios', 'web']
-        """,
-        request_body=RegistrationSerializer,
-        responses={
-            201: openapi.Response(
-                description="User successfully created",
-                schema=openapi.Schema(
-                    type=openapi.TYPE_OBJECT,
-                    properties={
-                        'message': openapi.Schema(type=openapi.TYPE_STRING, example="User registered successfully"),
-                        'status': openapi.Schema(type=openapi.TYPE_STRING, example="success"),
-                        'data': openapi.Schema(
-                            type=openapi.TYPE_OBJECT,
-                            properties={
-                                'id': openapi.Schema(type=openapi.TYPE_INTEGER),
-                                'email': openapi.Schema(type=openapi.TYPE_STRING),
-                                'full_name': openapi.Schema(type=openapi.TYPE_STRING),
-                                'groups': openapi.Schema(
-                                    type=openapi.TYPE_ARRAY,
-                                    items=openapi.Schema(
-                                        type=openapi.TYPE_OBJECT,
-                                        properties={
-                                            'id': openapi.Schema(type=openapi.TYPE_INTEGER),
-                                            'name': openapi.Schema(type=openapi.TYPE_STRING),
-                                        }
-                                    )
-                                ),
-                                'username': openapi.Schema(type=openapi.TYPE_STRING),
-                                'is_verified': openapi.Schema(type=openapi.TYPE_BOOLEAN),
-                                'created_at': openapi.Schema(type=openapi.TYPE_STRING, format=openapi.FORMAT_DATETIME),
-                            }
-                        ),
-                    }
-                )
-            ),
-            400: openapi.Response(
-                description="Bad request - validation errors",
-                schema=openapi.Schema(
-                    type=openapi.TYPE_OBJECT,
-                    properties={
-                        'message': openapi.Schema(type=openapi.TYPE_STRING, example="Validation error"),
-                        'status': openapi.Schema(type=openapi.TYPE_STRING, example="error"),
-                        'errors': openapi.Schema(type=openapi.TYPE_OBJECT),
-                    }
-                )
-            ),
-        }
-    )
+    @extend_schema(tags=['Authentication'], summary='Register', description='Register a new user account. Optional: device_token, device_type (android/ios/web).')
     async def post(self, request):
         """
         Register a new user - ASYNC VERSION
@@ -198,24 +143,7 @@ class LoginView(AsyncAPIView):
     """
     permission_classes = [AllowAny]
 
-    @swagger_auto_schema(
-        tags=['Authentication'],
-        operation_description="""
-        Login with email+password OR phone only.
-
-        - **Phone login**: Send only phone_number (and optionally device_token, device_type). Password is NOT required. A verification code will be sent; complete login via verify-code endpoint.
-        - **Email login**: Send email and password. Password is required.
-
-        Optional push notification fields (for both flows):
-        - device_token: string (FCM/APNs token)
-        - device_type: one of ['android', 'ios', 'web']
-        """,
-        request_body=LoginSerializer,
-        responses={
-            200: openapi.Response(description="Login successful"),
-            400: openapi.Response(description="Bad request - validation errors"),
-        }
-    )
+    @extend_schema(tags=['Authentication'], summary='Login', description='Login with email+password OR phone only. Phone: send phone_number (password not required), then verify-code. Email: send email and password. Optional: device_token, device_type.')
     async def post(self, request):
         """
         Login user with email/phone and password, then send verification code - ASYNC VERSION
@@ -290,15 +218,7 @@ class SendVerificationCodeView(AsyncAPIView):
     """
     permission_classes = [AllowAny]
 
-    @swagger_auto_schema(
-        tags=['Authentication'],
-        operation_description="Send verification code to email or phone",
-        request_body=SendVerificationCodeSerializer,
-        responses={
-            200: openapi.Response(description="Verification code sent successfully"),
-            400: openapi.Response(description="Bad request - validation errors"),
-        }
-    )
+    @extend_schema(tags=['Authentication'], summary='Send verification code', description='Send verification code to email or phone.')
     async def post(self, request):
         """
         Send verification code to user's email or phone - ASYNC VERSION
@@ -362,15 +282,7 @@ class VerifyCodeView(AsyncAPIView):
     """
     permission_classes = [AllowAny]
 
-    @swagger_auto_schema(
-        tags=['Authentication'],
-        operation_description="Verify code and login user",
-        request_body=VerifyCodeSerializer,
-        responses={
-            200: openapi.Response(description="Code verified successfully"),
-            400: openapi.Response(description="Bad request - validation errors"),
-        }
-    )
+    @extend_schema(tags=['Authentication'], summary='Verify code', description='Verify code and login user.')
     async def post(self, request):
         """
         Verify code and login user - ASYNC VERSION
@@ -430,15 +342,7 @@ class ResetPasswordRequestView(AsyncAPIView):
     """
     permission_classes = [AllowAny]
 
-    @swagger_auto_schema(
-        tags=['Authentication'],
-        operation_description="Request password reset",
-        request_body=ResetPasswordRequestSerializer,
-        responses={
-            200: openapi.Response(description="Password reset email sent successfully"),
-            400: openapi.Response(description="Bad request - validation errors"),
-        }
-    )
+    @extend_schema(tags=['Authentication'], summary='Request password reset', description='Request password reset. Sends code via email or SMS.')
     async def post(self, request):
         """
         Send password reset code via email or SMS - ASYNC VERSION
@@ -505,18 +409,7 @@ class VerifyResetCodeView(AsyncAPIView):
     """
     permission_classes = [AllowAny]
 
-    @swagger_auto_schema(
-        tags=['Authentication'],
-        operation_description="""
-        Verify reset password code. After this, user can call reset-password-confirm
-        with the same email or phone + new_password + confirm_password (no token).
-        """,
-        request_body=VerifyResetCodeSerializer,
-        responses={
-            200: openapi.Response(description="Code verified - JWT returned"),
-            400: openapi.Response(description="Bad request - validation errors"),
-        }
-    )
+    @extend_schema(tags=['Authentication'], summary='Verify reset code', description='Verify reset password code. After this, call reset-password-confirm with email or phone + new_password + confirm_password (no token).')
     async def post(self, request):
         """
         Verify reset password code, create reset_token, generate JWT - ASYNC VERSION
@@ -571,22 +464,7 @@ class ResetPasswordConfirmView(AsyncAPIView):
     """
     permission_classes = [AllowAny]
 
-    @swagger_auto_schema(
-        tags=['Authentication'],
-        operation_description="""
-        Confirm password reset. No token: send email OR phone (who to reset) + new_password + confirm_password.
-        Allowed only after verify-reset-code was called for that user.
-        
-        Flow: 1) POST reset-password (email or phone) -> code sent
-              2) POST verify-reset-code (email/phone + code) -> code verified
-              3) POST reset-password-confirm (email or phone + new_password + confirm_password)
-        """,
-        request_body=ResetPasswordConfirmSerializer,
-        responses={
-            200: openapi.Response(description="Password reset successfully"),
-            400: openapi.Response(description="Bad request - validation errors"),
-        }
-    )
+    @extend_schema(tags=['Authentication'], summary='Confirm password reset', description='Confirm password reset. No token: send email OR phone + new_password + confirm_password. Allowed only after verify-reset-code.')
     async def post(self, request):
         """
         Reset password with reset token (from verify-reset-code) - ASYNC VERSION
