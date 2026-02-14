@@ -22,7 +22,7 @@ class RegistrationView(AsyncAPIView):
     """
     permission_classes = [AllowAny]
 
-    @extend_schema(tags=['Authentication'], summary='Register', description='Register a new user account. Optional: device_token, device_type (android/ios/web).')
+    @extend_schema(tags=['Authentication'], summary='Register', description='Register a new user account. Optional: device_token, device_type (android/ios/web).', request=RegistrationSerializer)
     async def post(self, request):
         """
         Register a new user - ASYNC VERSION
@@ -143,7 +143,7 @@ class LoginView(AsyncAPIView):
     """
     permission_classes = [AllowAny]
 
-    @extend_schema(tags=['Authentication'], summary='Login', description='Login with email+password OR phone only. Phone: send phone_number (password not required), then verify-code. Email: send email and password. Optional: device_token, device_type.')
+    @extend_schema(tags=['Authentication'], summary='Login', description='Login with email+password OR phone only. Phone: send phone_number (password not required), then verify-code. Email: send email and password. Optional: device_token, device_type.', request=LoginSerializer)
     async def post(self, request):
         """
         Login user with email/phone and password, then send verification code - ASYNC VERSION
@@ -218,7 +218,7 @@ class SendVerificationCodeView(AsyncAPIView):
     """
     permission_classes = [AllowAny]
 
-    @extend_schema(tags=['Authentication'], summary='Send verification code', description='Send verification code to email or phone.')
+    @extend_schema(tags=['Authentication'], summary='Send verification code', description='Send verification code to email or phone.', request=SendVerificationCodeSerializer)
     async def post(self, request):
         """
         Send verification code to user's email or phone - ASYNC VERSION
@@ -282,7 +282,7 @@ class VerifyCodeView(AsyncAPIView):
     """
     permission_classes = [AllowAny]
 
-    @extend_schema(tags=['Authentication'], summary='Verify code', description='Verify code and login user.')
+    @extend_schema(tags=['Authentication'], summary='Verify code', description='Verify code and login user.', request=VerifyCodeSerializer)
     async def post(self, request):
         """
         Verify code and login user - ASYNC VERSION
@@ -342,7 +342,7 @@ class ResetPasswordRequestView(AsyncAPIView):
     """
     permission_classes = [AllowAny]
 
-    @extend_schema(tags=['Authentication'], summary='Request password reset', description='Request password reset. Sends code via email or SMS.')
+    @extend_schema(tags=['Authentication'], summary='Request password reset', description='Request password reset. Sends code via email or SMS.', request=ResetPasswordRequestSerializer)
     async def post(self, request):
         """
         Send password reset code via email or SMS - ASYNC VERSION
@@ -409,7 +409,7 @@ class VerifyResetCodeView(AsyncAPIView):
     """
     permission_classes = [AllowAny]
 
-    @extend_schema(tags=['Authentication'], summary='Verify reset code', description='Verify reset password code. After this, call reset-password-confirm with email or phone + new_password + confirm_password (no token).')
+    @extend_schema(tags=['Authentication'], summary='Verify reset code', description='Verify reset password code. After this, call reset-password-confirm with email or phone + new_password + confirm_password (no token).', request=VerifyResetCodeSerializer)
     async def post(self, request):
         """
         Verify reset password code, create reset_token, generate JWT - ASYNC VERSION
@@ -464,7 +464,7 @@ class ResetPasswordConfirmView(AsyncAPIView):
     """
     permission_classes = [AllowAny]
 
-    @extend_schema(tags=['Authentication'], summary='Confirm password reset', description='Confirm password reset. No token: send email OR phone + new_password + confirm_password. Allowed only after verify-reset-code.')
+    @extend_schema(tags=['Authentication'], summary='Confirm password reset', description='Confirm password reset. No token: send email OR phone + new_password + confirm_password. Allowed only after verify-reset-code.', request=ResetPasswordConfirmSerializer)
     async def post(self, request):
         """
         Reset password with reset token (from verify-reset-code) - ASYNC VERSION

@@ -3,7 +3,7 @@ from rest_framework.response import Response
 from apps.common.views import AsyncAPIView
 from rest_framework.permissions import IsAuthenticated
 from asgiref.sync import sync_to_async
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiTypes
 
 from .serializers import (
     OrderCreateSerializer,
@@ -39,7 +39,7 @@ class OrderCreateView(AsyncAPIView):
     """
     permission_classes = [IsAuthenticated]
 
-    @extend_schema(tags=['Order'], summary='Create order', description='Create order and order items.')
+    @extend_schema(tags=['Order'], summary='Create order', description='Create order and order items.', request=OrderCreateSerializer)
     async def post(self, request):
         """
         Create Order and OrderItem - ASYNC VERSION
@@ -88,7 +88,12 @@ class OrderPreferencesGetView(AsyncAPIView):
     """
     permission_classes = [IsAuthenticated]
 
-    @extend_schema(tags=['Order'], summary='Get order preferences', description='Get order preferences by order_id (query param).')
+    @extend_schema(
+        tags=['Order'],
+        summary='Get order preferences',
+        description='Get order preferences by order_id (query param).',
+        parameters=[OpenApiParameter('order_id', OpenApiTypes.INT, OpenApiParameter.QUERY, required=True, description='Order ID')],
+    )
     async def get(self, request):
         """
         Get Order Preferences by Order ID - ASYNC VERSION
@@ -163,7 +168,12 @@ class OrderPreferencesGetView(AsyncAPIView):
     """
     permission_classes = [IsAuthenticated]
 
-    @extend_schema(tags=['Order'], summary='Get order preferences', description='Get order preferences by order_id (query param).')
+    @extend_schema(
+        tags=['Order'],
+        summary='Get order preferences',
+        description='Get order preferences by order_id (query param).',
+        parameters=[OpenApiParameter('order_id', OpenApiTypes.INT, OpenApiParameter.QUERY, required=True, description='Order ID')],
+    )
     async def get(self, request):
         """
         Get Order Preferences by Order ID - ASYNC VERSION
@@ -238,7 +248,7 @@ class OrderPreferencesCreateView(AsyncAPIView):
     """
     permission_classes = [IsAuthenticated]
 
-    @extend_schema(tags=['Order'], summary='Create order preferences', description='Create or update order preferences.')
+    @extend_schema(tags=['Order'], summary='Create order preferences', description='Create or update order preferences.', request=OrderPreferencesSerializer)
     async def post(self, request):
         """
         Create or Update Order Preferences - ASYNC VERSION
@@ -282,7 +292,7 @@ class AdditionalPassengerCreateView(AsyncAPIView):
     """
     permission_classes = [IsAuthenticated]
 
-    @extend_schema(tags=['Order'], summary='Add passenger', description='Create additional passenger for an order.')
+    @extend_schema(tags=['Order'], summary='Add passenger', description='Create additional passenger for an order.', request=AdditionalPassengerSerializer)
     async def post(self, request):
         """
         Create Additional Passenger - ASYNC VERSION
@@ -326,7 +336,7 @@ class OrderScheduleCreateView(AsyncAPIView):
     """
     permission_classes = [IsAuthenticated]
 
-    @extend_schema(tags=['Order'], summary='Create schedule', description='Create order schedule (pickup/drop-off time).')
+    @extend_schema(tags=['Order'], summary='Create schedule', description='Create order schedule (pickup/drop-off time).', request=OrderScheduleSerializer)
     async def post(self, request):
         """
         Create Order Schedule - ASYNC VERSION
@@ -479,7 +489,7 @@ class DriverOrderActionView(AsyncAPIView):
         names = [g.name for g in groups]
         return 'Driver' in names
 
-    @extend_schema(tags=['Driver'], summary='Accept/Reject order', description='Driver accept or reject a pending order. Body: order_id, action (accept/reject). Role: Driver.')
+    @extend_schema(tags=['Driver'], summary='Accept/Reject order', description='Driver accept or reject a pending order. Body: order_id, action (accept/reject). Role: Driver.', request=DriverOrderActionSerializer)
     async def post(self, request):
         user = request.user
 
@@ -605,7 +615,7 @@ class DriverLocationUpdateView(AsyncAPIView):
         names = [g.name for g in groups]
         return 'Driver' in names
 
-    @extend_schema(tags=['Driver'], summary='Update location', description="Update driver's GPS location. Body: latitude, longitude. Role: Driver.")
+    @extend_schema(tags=['Driver'], summary='Update location', description="Update driver's GPS location. Body: latitude, longitude. Role: Driver.", request=DriverLocationUpdateSerializer)
     async def post(self, request):
         user = request.user
 
@@ -776,7 +786,7 @@ class PriceEstimateView(AsyncAPIView):
     """
     permission_classes = [IsAuthenticated]
 
-    @extend_schema(tags=['Order'], summary='Price estimate', description='Get price estimates for all active ride types (from/to coordinates).')
+    @extend_schema(tags=['Order'], summary='Price estimate', description='Get price estimates for all active ride types (from/to coordinates).', request=PriceEstimateSerializer)
     async def post(self, request):
         """
         Calculate price estimates for all active ride types - ASYNC VERSION
@@ -858,7 +868,7 @@ class OrderItemUpdateView(AsyncAPIView):
     """
     permission_classes = [IsAuthenticated]
 
-    @extend_schema(tags=['Order'], summary='Update order item', description='Update order item (e.g. ride_type).')
+    @extend_schema(tags=['Order'], summary='Update order item', description='Update order item (e.g. ride_type).', request=OrderItemUpdateSerializer)
     async def patch(self, request, order_item_id):
         """
         Update OrderItem with ride_type - ASYNC VERSION
@@ -932,7 +942,7 @@ class OrderItemManagePriceView(AsyncAPIView):
     """
     permission_classes = [IsAuthenticated]
 
-    @extend_schema(tags=['Order'], summary='Manage order item price', description='Adjust order item price.')
+    @extend_schema(tags=['Order'], summary='Manage order item price', description='Adjust order item price.', request=OrderItemManagePriceSerializer)
     async def patch(self, request, order_item_id):
         """
         Adjust OrderItem price - ASYNC VERSION
@@ -1065,7 +1075,7 @@ class OrderCancelView(AsyncAPIView):
     """
     permission_classes = [IsAuthenticated]
 
-    @extend_schema(tags=['Order'], summary='Cancel order', description='Cancel an order. Body: reason, optional other_reason.')
+    @extend_schema(tags=['Order'], summary='Cancel order', description='Cancel an order. Body: reason, optional other_reason.', request=OrderCancelSerializer)
     async def post(self, request, order_id):
         """
         Cancel an order - ASYNC VERSION
@@ -1175,7 +1185,17 @@ class MyOrderListView(AsyncAPIView):
     """
     permission_classes = [IsAuthenticated]
 
-    @extend_schema(tags=['Order'], summary='My orders', description="Get current user's orders. Optional query: status, order_type, page, page_size.")
+    @extend_schema(
+        tags=['Order'],
+        summary='My orders',
+        description="Get current user's orders. Optional query: status, order_type, page, page_size.",
+        parameters=[
+            OpenApiParameter('status', OpenApiTypes.STR, OpenApiParameter.QUERY, required=False, description='Filter by order status'),
+            OpenApiParameter('order_type', OpenApiTypes.STR, OpenApiParameter.QUERY, required=False, description='Filter by order type'),
+            OpenApiParameter('page', OpenApiTypes.INT, OpenApiParameter.QUERY, required=False, description='Page number'),
+            OpenApiParameter('page_size', OpenApiTypes.INT, OpenApiParameter.QUERY, required=False, description='Page size'),
+        ],
+    )
     async def get(self, request):
         """
         Get current user's orders with optional filtering - ASYNC VERSION
@@ -1371,7 +1391,12 @@ class DriverRideHistoryView(AsyncAPIView):
         names = [g.name for g in groups]
         return 'Driver' in names
 
-    @extend_schema(tags=['Driver'], summary='Ride history', description='Get driver ride history (completed orders). Pagination: page_size. Role: Driver.')
+    @extend_schema(
+        tags=['Driver'],
+        summary='Ride history',
+        description='Get driver ride history (completed orders). Pagination: page_size. Role: Driver.',
+        parameters=[OpenApiParameter('page_size', OpenApiTypes.INT, OpenApiParameter.QUERY, required=False, description='Page size')],
+    )
     async def get(self, request):
         user = request.user
 
@@ -1467,7 +1492,7 @@ class DriverOnlineStatusView(AsyncAPIView):
             status=status.HTTP_200_OK,
         )
 
-    @extend_schema(tags=['Driver'], summary='Update online status', description='Set driver online/offline. Body: is_online. Role: Driver.')
+    @extend_schema(tags=['Driver'], summary='Update online status', description='Set driver online/offline. Body: is_online. Role: Driver.', request=DriverOnlineStatusSerializer)
     async def post(self, request):
         user = request.user
 
@@ -1520,7 +1545,7 @@ class TripRatingCreateView(AsyncAPIView):
     """
     permission_classes = [IsAuthenticated]
 
-    @extend_schema(tags=['Rating'], summary='Create rating', description='Create a rating for a completed trip.')
+    @extend_schema(tags=['Rating'], summary='Create rating', description='Create a rating for a completed trip.', request=TripRatingCreateSerializer)
     async def post(self, request):
         user = request.user
 
@@ -1625,7 +1650,12 @@ class RatingFeedbackTagsListView(AsyncAPIView):
     """
     permission_classes = [IsAuthenticated]
 
-    @extend_schema(tags=['Rating'], summary='Feedback tags', description='Get available feedback tags by rating (query: rating).')
+    @extend_schema(
+        tags=['Rating'],
+        summary='Feedback tags',
+        description='Get available feedback tags by rating (query: rating).',
+        parameters=[OpenApiParameter('rating', OpenApiTypes.INT, OpenApiParameter.QUERY, required=True, description='Rating value 1-5')],
+    )
     async def get(self, request):
         rating = request.query_params.get('rating')
         

@@ -84,3 +84,11 @@ class MessageCreateSerializer(serializers.ModelSerializer):
         
         return super().create(validated_data)
 
+
+class MessageMarkAsReadSerializer(serializers.Serializer):
+    """Body for marking messages as read."""
+    message_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        help_text='List of message IDs to mark as read'
+    )
+

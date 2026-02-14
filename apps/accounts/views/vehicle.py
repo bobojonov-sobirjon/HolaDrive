@@ -76,7 +76,7 @@ class VehicleDetailsView(AsyncAPIView):
             status=status.HTTP_200_OK
         )
 
-    @extend_schema(tags=['Vehicle Details'], summary='Create vehicle', description='Create vehicle details with images. multipart/form-data: brand, model, year_of_manufacture, vin (required); vehicle_condition, default_ride_type, supported_ride_types, images_data (optional). Role: Driver.')
+    @extend_schema(tags=['Vehicle Details'], summary='Create vehicle', description='Create vehicle details with images. Role: Driver.', request=VehicleDetailsSerializer)
     async def post(self, request):
         """
         Create vehicle details with multiple images - ASYNC VERSION
@@ -311,7 +311,7 @@ class VehicleDetailView(AsyncAPIView):
             status=status.HTTP_200_OK
         )
 
-    @extend_schema(tags=['Vehicle Details'], summary='Update vehicle', description='Update vehicle details by ID. multipart/form-data. Can send only images_data to add images. Role: Driver.')
+    @extend_schema(tags=['Vehicle Details'], summary='Update vehicle', description='Update vehicle details by ID. Can send only images_data to add images. Role: Driver.', request=VehicleDetailsSerializer)
     async def put(self, request, pk):
         """
         Update vehicle details by ID (full update) - ASYNC VERSION
@@ -600,7 +600,7 @@ class VehicleImageView(AsyncAPIView):
             status=status.HTTP_200_OK
         )
 
-    @extend_schema(tags=['Vehicle Images'], summary='Update vehicle image', description='Update vehicle image by ID. multipart/form-data, field: image (required). Role: Driver.')
+    @extend_schema(tags=['Vehicle Images'], summary='Update vehicle image', description='Update vehicle image by ID. Role: Driver.', request=VehicleImageSerializer)
     async def put(self, request, pk):
         """
         Update vehicle image by ID - ASYNC VERSION

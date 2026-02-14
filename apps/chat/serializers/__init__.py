@@ -1,5 +1,5 @@
 from .conversation import ConversationSerializer, ConversationListSerializer, ConversationCreateSerializer
-from .message import MessageSerializer, MessageCreateSerializer
+from .message import MessageSerializer, MessageCreateSerializer, MessageMarkAsReadSerializer
 
 __all__ = [
     'ConversationSerializer',
@@ -7,5 +7,6 @@ __all__ = [
     'ConversationCreateSerializer',
     'MessageSerializer',
     'MessageCreateSerializer',
+    'MessageMarkAsReadSerializer',
 ]
 

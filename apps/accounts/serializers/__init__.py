@@ -7,7 +7,7 @@ from .authentication import (
     VerifyResetCodeSerializer,
     ResetPasswordConfirmSerializer
 )
-from .user import UserDetailSerializer
+from .user import UserDetailSerializer, AvatarUpdateRequestSerializer
 from .user_preferences import UserPreferencesSerializer
 from .driver_preferences import DriverPreferencesSerializer
 from .vehicle import VehicleDetailsSerializer, VehicleImageSerializer
@@ -15,6 +15,7 @@ from .driver_identification import (
     DriverIdentificationSerializer,
     DriverIdentificationItemsSerializer,
     DriverIdentificationUploadDocumentSerializer,
+    DriverIdentificationUploadRequestSerializer,
     DriverIdentificationUserStatusSerializer,
     DriverVerificationSerializer,
 )
@@ -31,6 +32,7 @@ __all__ = [
     'VerifyResetCodeSerializer',
     'ResetPasswordConfirmSerializer',
     'UserDetailSerializer',
+    'AvatarUpdateRequestSerializer',
     'UserPreferencesSerializer',
     'DriverPreferencesSerializer',
     'VehicleDetailsSerializer',
@@ -38,6 +40,7 @@ __all__ = [
     'DriverIdentificationSerializer',
     'DriverIdentificationItemsSerializer',
     'DriverIdentificationUploadDocumentSerializer',
+    'DriverIdentificationUploadRequestSerializer',
     'DriverIdentificationUserStatusSerializer',
     'DriverVerificationSerializer',
     'InvitationGenerateSerializer',

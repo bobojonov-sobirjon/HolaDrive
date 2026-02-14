@@ -74,6 +74,12 @@ class DriverIdentificationSerializer(serializers.ModelSerializer):
         return representation
 
 
+class DriverIdentificationUploadRequestSerializer(serializers.Serializer):
+    """Request body for upload document (multipart/form-data). Shown in Swagger."""
+    document_file = serializers.FileField(required=True, help_text='Document file to upload')
+    driver_identification_id = serializers.IntegerField(required=True, help_text='Driver identification type ID')
+
+
 class DriverIdentificationUploadDocumentSerializer(serializers.ModelSerializer):
     """
     Serializer for driver identification upload documents

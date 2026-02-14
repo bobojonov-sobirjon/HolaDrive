@@ -10,7 +10,8 @@ from drf_spectacular.utils import extend_schema
 from ..serializers import (
     DriverIdentificationSerializer,
     DriverIdentificationUploadDocumentSerializer,
-    DriverIdentificationUserStatusSerializer
+    DriverIdentificationUploadRequestSerializer,
+    DriverIdentificationUserStatusSerializer,
 )
 from ..models import DriverIdentification, DriverIdentificationUploadDocument
 
@@ -24,7 +25,7 @@ class DriverIdentificationUploadView(AsyncAPIView):
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
 
-    @extend_schema(tags=['Driver Identification'], summary='Upload document', description='Upload a document for a driver identification type. multipart/form-data: document_file (required), driver_identification_id (required). If already uploaded for this type, it will be updated.')
+    @extend_schema(tags=['Driver Identification'], summary='Upload document', description='Upload a document for a driver identification type. If already uploaded for this type, it will be updated.', request=DriverIdentificationUploadRequestSerializer)
     async def post(self, request):
         """
         Upload document for driver identification - ASYNC VERSION

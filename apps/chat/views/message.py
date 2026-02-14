@@ -5,10 +5,10 @@ from rest_framework.permissions import IsAuthenticated
 from django.utils import timezone
 from django.db.models import Q
 from asgiref.sync import sync_to_async
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiTypes
 
 from apps.chat.models import Conversation, Message
-from apps.chat.serializers import MessageSerializer, MessageCreateSerializer
+from apps.chat.serializers import MessageSerializer, MessageCreateSerializer, MessageMarkAsReadSerializer
 from apps.chat.utils import get_support_user
 from apps.notification.models import Notification
 
@@ -18,7 +18,15 @@ class MessageListView(AsyncAPIView):
     """
     permission_classes = [IsAuthenticated]
 
-    @extend_schema(tags=['Chat'], summary='List messages', description='Get messages for a conversation. Pagination: page, page_size.')
+    @extend_schema(
+        tags=['Chat'],
+        summary='List messages',
+        description='Get messages for a conversation. Pagination: page, page_size.',
+        parameters=[
+            OpenApiParameter('page', OpenApiTypes.INT, OpenApiParameter.QUERY, required=False, description='Page number'),
+            OpenApiParameter('page_size', OpenApiTypes.INT, OpenApiParameter.QUERY, required=False, description='Page size'),
+        ],
+    )
     async def get(self, request, conversation_id):
         """
         Get messages for a conversation - ASYNC VERSION
@@ -79,7 +87,7 @@ class MessageCreateView(AsyncAPIView):
     """
     permission_classes = [IsAuthenticated]
 
-    @extend_schema(tags=['Chat'], summary='Send message', description='Create a new message in a conversation. Rider/Driver only via API.')
+    @extend_schema(tags=['Chat'], summary='Send message', description='Create a new message in a conversation. Rider/Driver only via API.', request=MessageCreateSerializer)
     async def post(self, request, conversation_id):
         """
         Create a new message - ASYNC VERSION
@@ -165,7 +173,7 @@ class MessageMarkAsReadView(AsyncAPIView):
     """
     permission_classes = [IsAuthenticated]
 
-    @extend_schema(tags=['Chat'], summary='Mark messages read', description='Mark messages as read. Body: message_ids (list).')
+    @extend_schema(tags=['Chat'], summary='Mark messages read', description='Mark messages as read. Body: message_ids (list).', request=MessageMarkAsReadSerializer)
     async def post(self, request, conversation_id):
         """
         Mark messages as read - ASYNC VERSION

@@ -199,6 +199,8 @@ SPECTACULAR_SETTINGS = {
     'SERVE_INCLUDE_SCHEMA': False,
     # Path prefix so default tag is "accounts"/"order"/"chat" not "api"
     'SCHEMA_PATH_PREFIX': r'/api/v1',
+    # Request body komponentlari alohida koʻrinsin (Swagger UI da body maydonlari chiqishi uchun)
+    'COMPONENT_SPLIT_REQUEST': True,
 }
 
 SIMPLE_JWT = {

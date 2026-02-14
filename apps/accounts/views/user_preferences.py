@@ -56,7 +56,7 @@ class UserPreferencesView(AsyncAPIView):
             status=status.HTTP_200_OK
         )
 
-    @extend_schema(tags=['User Preferences'], summary='Create/update preferences', description='Create or update user preferences.')
+    @extend_schema(tags=['User Preferences'], summary='Create/update preferences', description='Create or update user preferences.', request=UserPreferencesSerializer)
     async def post(self, request):
         """
         Create or update user preferences - ASYNC VERSION
@@ -105,7 +105,7 @@ class UserPreferencesView(AsyncAPIView):
             status=status.HTTP_400_BAD_REQUEST
         )
 
-    @extend_schema(tags=['User Preferences'], summary='Full update preferences', description='Update user preferences (full update).')
+    @extend_schema(tags=['User Preferences'], summary='Full update preferences', description='Update user preferences (full update).', request=UserPreferencesSerializer)
     async def put(self, request):
         """
         Update user preferences (full update) - ASYNC VERSION
@@ -156,7 +156,7 @@ class UserPreferencesView(AsyncAPIView):
             status=status.HTTP_400_BAD_REQUEST
         )
 
-    @extend_schema(tags=['User Preferences'], summary='Partial update preferences', description='Update user preferences (partial update).')
+    @extend_schema(tags=['User Preferences'], summary='Partial update preferences', description='Update user preferences (partial update).', request=UserPreferencesSerializer)
     async def patch(self, request):
         """
         Partially update user preferences - ASYNC VERSION

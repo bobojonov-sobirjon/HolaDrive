@@ -6,7 +6,7 @@ from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from asgiref.sync import sync_to_async
 from drf_spectacular.utils import extend_schema
 
-from ..serializers import UserDetailSerializer
+from ..serializers import UserDetailSerializer, AvatarUpdateRequestSerializer
 from ..models import CustomUser
 
 
@@ -35,7 +35,7 @@ class UserDetailView(AsyncAPIView):
             status=status.HTTP_200_OK
         )
 
-    @extend_schema(tags=['User'], summary='Update user', description='Update authenticated user details. Use multipart/form-data. Avatar: file upload.')
+    @extend_schema(tags=['User'], summary='Update user', description='Update authenticated user details. Use multipart/form-data. Avatar: file upload.', request=UserDetailSerializer)
     async def put(self, request):
         """
         Update current user details - ASYNC VERSION
@@ -71,7 +71,7 @@ class UserDetailView(AsyncAPIView):
             status=status.HTTP_400_BAD_REQUEST
         )
 
-    @extend_schema(tags=['User'], summary='Partial update user', description='Partially update authenticated user details. Use multipart/form-data.')
+    @extend_schema(tags=['User'], summary='Partial update user', description='Partially update authenticated user details. Use multipart/form-data.', request=UserDetailSerializer)
     async def patch(self, request): 
         """
         Partially update current user details - ASYNC VERSION
@@ -116,11 +116,11 @@ class UserAvatarUpdateView(AsyncAPIView):
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
 
-    @extend_schema(tags=['User'], summary='Update avatar', description='Update profile picture (avatar). Use multipart/form-data, field name: avatar.')
+    @extend_schema(tags=['User'], summary='Update avatar', description='Update profile picture (avatar).', request=AvatarUpdateRequestSerializer)
     async def put(self, request):
         return await self._update_avatar(request)
 
-    @extend_schema(tags=['User'], summary='Update avatar (PATCH)', description='Update profile picture (avatar). Use multipart/form-data, field name: avatar.')
+    @extend_schema(tags=['User'], summary='Update avatar (PATCH)', description='Update profile picture (avatar).', request=AvatarUpdateRequestSerializer)
     async def patch(self, request):
         return await self._update_avatar(request)
 

@@ -39,6 +39,12 @@ class VehicleDetailsSerializer(serializers.ModelSerializer):
     Serializer for vehicle details with ride type support
     """
     images = VehicleImageSerializer(many=True, read_only=True)
+    images_data = serializers.ListField(
+        child=serializers.ImageField(allow_null=True),
+        required=False,
+        write_only=True,
+        help_text='Optional list of images (multipart/form-data)',
+    )
     supported_ride_types = serializers.PrimaryKeyRelatedField(
         many=True,
         queryset=get_ride_type_queryset(),
@@ -66,7 +72,7 @@ class VehicleDetailsSerializer(serializers.ModelSerializer):
             'default_ride_type', 'default_ride_type_name', 'default_ride_type_id',
             'supported_ride_types', 'supported_ride_types_names',
             'suggested_ride_types',
-            'images', 'created_at', 'updated_at'
+            'images', 'images_data', 'created_at', 'updated_at'
         )
         read_only_fields = ('id', 'user', 'created_at', 'updated_at', 'suggested_ride_types')
     

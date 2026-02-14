@@ -5,7 +5,7 @@ from rest_framework.permissions import IsAuthenticated
 from django.utils import timezone
 from django.db.models import Q, Prefetch
 from asgiref.sync import sync_to_async
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiTypes
 
 from apps.chat.models import Conversation, Message
 from apps.chat.serializers import (
@@ -21,7 +21,7 @@ class ConversationCreateView(AsyncAPIView):
     """
     permission_classes = [IsAuthenticated]
 
-    @extend_schema(tags=['Chat'], summary='Create conversation', description='Create a new conversation. Rider/Driver only.')
+    @extend_schema(tags=['Chat'], summary='Create conversation', description='Create a new conversation. Rider/Driver only.', request=ConversationCreateSerializer)
     async def post(self, request):
         """
         Create a new conversation - ASYNC VERSION
@@ -60,7 +60,12 @@ class ConversationListView(AsyncAPIView):
     """
     permission_classes = [IsAuthenticated]
 
-    @extend_schema(tags=['Chat'], summary='List conversations', description='Get list of conversations. Rider/Driver: own only; Support: all. Optional query: status.')
+    @extend_schema(
+        tags=['Chat'],
+        summary='List conversations',
+        description='Get list of conversations. Rider/Driver: own only; Support: all. Optional query: status.',
+        parameters=[OpenApiParameter('status', OpenApiTypes.STR, OpenApiParameter.QUERY, required=False, description='Filter by conversation status')],
+    )
     async def get(self, request):
         """
         Get list of conversations - ASYNC VERSION
@@ -152,7 +157,7 @@ class ConversationUpdateView(AsyncAPIView):
     """
     permission_classes = [IsAuthenticated]
 
-    @extend_schema(tags=['Chat'], summary='Update conversation', description='Update conversation (status, subject). Support only.')
+    @extend_schema(tags=['Chat'], summary='Update conversation', description='Update conversation (status, subject). Support only.', request=ConversationSerializer)
     async def patch(self, request, conversation_id):
         """
         Update conversation - ASYNC VERSION

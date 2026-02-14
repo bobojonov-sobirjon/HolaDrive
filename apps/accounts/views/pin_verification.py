@@ -15,7 +15,7 @@ class PinVerificationForUserView(AsyncAPIView):
     """
     permission_classes = [IsAuthenticated]
 
-    @extend_schema(tags=['PIN Verification'], summary='Create/update PIN', description='Create or update 4-digit PIN for the authenticated user. Request: pin (required).')
+    @extend_schema(tags=['PIN Verification'], summary='Create/update PIN', description='Create or update 4-digit PIN for the authenticated user. Request: pin (required).', request=PinVerificationForUserSerializer)
     async def post(self, request):
         """
         Create or update PIN for the authenticated user - ASYNC VERSION

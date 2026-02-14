@@ -49,7 +49,7 @@ class DriverPreferencesView(AsyncAPIView):
             status=status.HTTP_200_OK
         )
 
-    @extend_schema(tags=['Driver Preferences'], summary='Create/update preferences', description='Create or update driver preferences. Role: Driver.')
+    @extend_schema(tags=['Driver Preferences'], summary='Create/update preferences', description='Create or update driver preferences. Role: Driver.', request=DriverPreferencesSerializer)
     async def post(self, request):
         """
         Create or update driver preferences - ASYNC VERSION
@@ -92,7 +92,7 @@ class DriverPreferencesView(AsyncAPIView):
             status=status.HTTP_400_BAD_REQUEST
         )
 
-    @extend_schema(tags=['Driver Preferences'], summary='Full update preferences', description='Update driver preferences (full update). Role: Driver.')
+    @extend_schema(tags=['Driver Preferences'], summary='Full update preferences', description='Update driver preferences (full update). Role: Driver.', request=DriverPreferencesSerializer)
     async def put(self, request):
         """
         Update driver preferences (full update) - ASYNC VERSION
@@ -140,7 +140,7 @@ class DriverPreferencesView(AsyncAPIView):
             status=status.HTTP_400_BAD_REQUEST
         )
 
-    @extend_schema(tags=['Driver Preferences'], summary='Partial update preferences', description='Update driver preferences (partial update). Role: Driver.')
+    @extend_schema(tags=['Driver Preferences'], summary='Partial update preferences', description='Update driver preferences (partial update). Role: Driver.', request=DriverPreferencesSerializer)
     async def patch(self, request):
         """
         Partially update driver preferences - ASYNC VERSION

@@ -45,3 +45,8 @@ class UserDetailSerializer(serializers.ModelSerializer):
             representation['avatar'] = None
         return representation
 
+
+class AvatarUpdateRequestSerializer(serializers.Serializer):
+    """Request body for avatar update (multipart/form-data)."""
+    avatar = serializers.ImageField(required=True, help_text='Profile picture file')
+
