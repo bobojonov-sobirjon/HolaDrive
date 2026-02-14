@@ -10,9 +10,11 @@ from .models import (
     CustomUser, RiderUser, DriverUser,
     VerificationCode, PasswordResetToken, UserPreferences,
     DriverPreferences, VehicleDetails, VehicleImages,
-    DriverIdentification, DriverIdentificationItems, DriverIdentificationUploadDocument,
+    DriverIdentification, DriverIdentificationItems, DriverIdentificationFAQ,
+    DriverIdentificationUploadDocument,
     DriverVerification, UserDeviceToken,
-    InvitationGenerate, InvitationUsers, PinVerificationForUser
+    InvitationGenerate, InvitationUsers, PinVerificationForUser,
+    LegalPage,
 )
 try:
     from apps.order.models import RideType
@@ -434,6 +436,13 @@ class DriverIdentificationItemsInline(admin.TabularInline):
     }
 
 
+class DriverIdentificationFAQInline(admin.TabularInline):
+    model = DriverIdentificationFAQ
+    extra = 0
+    fields = ('question', 'link', 'file', 'order')
+    ordering = ('order',)
+
+
 @admin.register(DriverIdentification)
 class DriverIdentificationAdmin(admin.ModelAdmin):
     list_display = ('name', 'title', 'is_active', 'created_at', 'updated_at')
@@ -441,7 +450,7 @@ class DriverIdentificationAdmin(admin.ModelAdmin):
     search_fields = ('name', 'title', 'description')
     readonly_fields = ('created_at', 'updated_at')
     ordering = ('-created_at',)
-    inlines = [DriverIdentificationItemsInline]
+    inlines = [DriverIdentificationItemsInline, DriverIdentificationFAQInline]
     
     # CharField va TextField uchun kengaytirilgan ko'rinish
     formfield_overrides = {
@@ -460,11 +469,28 @@ class DriverIdentificationAdmin(admin.ModelAdmin):
         ('Image', {
             'fields': ('image',)
         }),
-        ('File & Link', {
-            'fields': ('file', 'link')
-        }),
         ('Timestamps', {'fields': ('created_at', 'updated_at')}),
     )
+
+
+@admin.register(DriverIdentificationFAQ)
+class DriverIdentificationFAQAdmin(admin.ModelAdmin):
+    list_display = ('question_short', 'driver_identification', 'order', 'created_at')
+    list_filter = ('driver_identification',)
+    search_fields = ('question',)
+    ordering = ('driver_identification', 'order', 'id')
+
+    def question_short(self, obj):
+        return (obj.question[:50] + '...') if len(obj.question) > 50 else obj.question
+    question_short.short_description = 'Question'
+
+
+@admin.register(LegalPage)
+class LegalPageAdmin(admin.ModelAdmin):
+    list_display = ('name', 'link', 'is_active', 'created_at', 'updated_at')
+    list_filter = ('is_active',)
+    search_fields = ('name',)
+    ordering = ('name',)
 
 
 admin.site.unregister(Site)

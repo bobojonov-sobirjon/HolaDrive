@@ -896,20 +896,6 @@ class DriverIdentification(models.Model):
         verbose_name="Description",
         help_text="Detailed description/instructions for the user"
     )
-    file = models.FileField(
-        upload_to='driver_identification_files/',
-        blank=True,
-        null=True,
-        verbose_name="File",
-        help_text="Optional file for the identification type"
-    )
-    link = models.URLField(
-        max_length=500,
-        blank=True,
-        null=True,
-        verbose_name="Link",
-        help_text="Optional link for the identification type"
-    )
     is_active = models.BooleanField(
         default=True,
         verbose_name="Is Active",
@@ -937,6 +923,50 @@ class DriverIdentification(models.Model):
 
     def __str__(self):
         return self.name
+
+
+class DriverIdentificationFAQ(models.Model):
+    """
+    FAQ entries for a driver identification (question, link, file).
+    """
+    driver_identification = models.ForeignKey(
+        DriverIdentification,
+        on_delete=models.CASCADE,
+        related_name='identification_faq',
+        verbose_name="Driver Identification",
+    )
+    question = models.CharField(
+        max_length=500,
+        verbose_name="Question",
+        help_text="FAQ question text",
+    )
+    link = models.URLField(
+        max_length=500,
+        blank=True,
+        null=True,
+        verbose_name="Link",
+    )
+    file = models.FileField(
+        upload_to='driver_identification_faq_files/',
+        blank=True,
+        null=True,
+        verbose_name="File",
+    )
+    order = models.PositiveIntegerField(
+        default=0,
+        verbose_name="Order",
+        help_text="Display order (lower first)",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Driver Identification FAQ"
+        verbose_name_plural = "Driver Identification FAQs"
+        ordering = ['order', 'id']
+
+    def __str__(self):
+        return self.question[:50] + ('...' if len(self.question) > 50 else '')
 
 
 class DriverIdentificationItems(models.Model):
@@ -1241,6 +1271,39 @@ class UserDeviceToken(models.Model):
             defaults={'token': token},
         )
         return obj
+
+
+class LegalPage(models.Model):
+    """
+    Single model for Privacy Policy, Terms of Service, etc.
+    name: e.g. "Privacy Policy", "Terms of Service"
+    link: URL to the page
+    """
+    name = models.CharField(
+        max_length=255,
+        unique=True,
+        verbose_name="Name",
+        help_text="e.g. Privacy Policy, Terms of Service"
+    )
+    link = models.URLField(
+        max_length=500,
+        verbose_name="Link",
+        help_text="URL to the page"
+    )
+    is_active = models.BooleanField(
+        default=True,
+        verbose_name="Is Active"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Legal Page"
+        verbose_name_plural = "Legal Pages"
+        ordering = ['name']
+
+    def __str__(self):
+        return self.name
 
 
 class RiderUser(CustomUser):

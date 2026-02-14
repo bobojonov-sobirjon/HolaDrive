@@ -20,6 +20,7 @@ from .driver_identification import (
 )
 from .invitations import InvitationGenerateSerializer, InvitationUsersSerializer
 from .pin_verification import PinVerificationForUserSerializer
+from .legal import LegalPageSerializer
 
 __all__ = [
     'RegistrationSerializer',
@@ -42,5 +43,6 @@ __all__ = [
     'InvitationGenerateSerializer',
     'InvitationUsersSerializer',
     'PinVerificationForUserSerializer',
+    'LegalPageSerializer',
 ]
 

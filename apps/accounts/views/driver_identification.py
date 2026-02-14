@@ -330,6 +330,7 @@ class DriverIdentificationListView(AsyncAPIView):
         **Authentication Required:** Yes (JWT Token)
         
         **Example Response:**
+        Each identification includes `identification_faq`: list of FAQ objects (question, link, file).
         ```json
         {
             "message": "Driver identifications retrieved successfully",
@@ -338,11 +339,14 @@ class DriverIdentificationListView(AsyncAPIView):
                 {
                     "id": 1,
                     "name": "Driver License",
-                    "image": "http://example.com/media/driver_identification_icons/license.png",
+                    "image": "http://example.com/.../license.png",
                     "title": "Take a photo of your Driver's License",
-                    "description": "Make sure your Driver's License is not expired...",
+                    "description": "...",
                     "is_active": true,
                     "items": [],
+                    "identification_faq": [
+                        { "id": 1, "question": "How to upload?", "link": "https://...", "file": null, "order": 0 }
+                    ],
                     "created_at": "2024-01-01T00:00:00Z",
                     "updated_at": "2024-01-01T00:00:00Z"
                 }
@@ -397,7 +401,7 @@ class DriverIdentificationListView(AsyncAPIView):
         """
         def get_identifications():
             return list(DriverIdentification.objects.filter(is_active=True)
-                       .prefetch_related('items').order_by('id'))
+                       .prefetch_related('items', 'identification_faq').order_by('id'))
         identifications = await sync_to_async(get_identifications)()
         
         serializer = DriverIdentificationSerializer(

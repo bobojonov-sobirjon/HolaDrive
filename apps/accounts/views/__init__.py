@@ -9,7 +9,9 @@ from .authentication import (
 )
 from .user import (
     UserDetailView,
+    UserAvatarUpdateView,
 )
+from .legal import LegalPageListView
 from .user_preferences import (
     UserPreferencesView,
     UserPreferencesDeleteView
@@ -42,6 +44,8 @@ __all__ = [
     'VerifyResetCodeView',
     'ResetPasswordConfirmView',
     'UserDetailView',
+    'UserAvatarUpdateView',
+    'LegalPageListView',
     'UserPreferencesView',
     'UserPreferencesDeleteView',
     'DriverPreferencesView',

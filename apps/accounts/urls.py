@@ -2,8 +2,9 @@ from django.urls import path
 from .views import (
     RegistrationView, LoginView, SendVerificationCodeView,
     VerifyCodeView, ResetPasswordRequestView, VerifyResetCodeView,
-    ResetPasswordConfirmView, UserDetailView,
+    ResetPasswordConfirmView, UserDetailView, UserAvatarUpdateView,
     UserPreferencesView, UserPreferencesDeleteView,
+    LegalPageListView,
     DriverPreferencesView, VehicleDetailsView, VehicleDetailView, VehicleImageView,
     DriverIdentificationUploadView,
     DriverIdentificationUserStatusView,
@@ -29,6 +30,10 @@ urlpatterns = [
     
     # User endpoints
     path('me/', UserDetailView.as_view(), name='user-detail'),
+    path('me/avatar/', UserAvatarUpdateView.as_view(), name='user-avatar-update'),
+    
+    # Legal pages (Privacy Policy, Terms of Service)
+    path('legal-pages/', LegalPageListView.as_view(), name='legal-pages-list'),
     
     # User Preferences endpoints
     path('preferences/', UserPreferencesView.as_view(), name='user-preferences'),

@@ -2,6 +2,7 @@ from rest_framework import serializers
 from ..models import (
     DriverIdentification,
     DriverIdentificationItems,
+    DriverIdentificationFAQ,
     DriverIdentificationUploadDocument,
     DriverVerification,
 )
@@ -17,32 +18,59 @@ class DriverIdentificationItemsSerializer(serializers.ModelSerializer):
         read_only_fields = ('id', 'created_at')
 
 
+class DriverIdentificationFAQSerializer(serializers.ModelSerializer):
+    """
+    Serializer for driver identification FAQ (question, link, file).
+    """
+    class Meta:
+        model = DriverIdentificationFAQ
+        fields = ('id', 'question', 'link', 'file', 'order', 'created_at', 'updated_at')
+        read_only_fields = ('id', 'created_at', 'updated_at')
+
+    def to_representation(self, instance):
+        representation = super().to_representation(instance)
+        request = self.context.get('request')
+        if request:
+            if instance.file:
+                representation['file'] = request.build_absolute_uri(instance.file.url)
+            else:
+                representation['file'] = None
+        return representation
+
+
 class DriverIdentificationSerializer(serializers.ModelSerializer):
     """
-    Serializer for driver identification types
+    Serializer for driver identification types.
+    identification_faq: alohida data, har bir identification uchun FAQ ro'yxati.
     """
     items = DriverIdentificationItemsSerializer(many=True, read_only=True)
-    
+    identification_faq = serializers.SerializerMethodField()
+
     class Meta:
         model = DriverIdentification
         fields = (
             'id', 'name', 'image', 'title', 'description',
-            'file', 'link',
-            'is_active', 'items', 'created_at', 'updated_at'
+            'is_active', 'items', 'identification_faq', 'created_at', 'updated_at'
         )
         read_only_fields = ('id', 'created_at', 'updated_at')
-    
+
+    def get_identification_faq(self, instance):
+        faqs = instance.identification_faq.all()
+        serializer = DriverIdentificationFAQSerializer(
+            faqs,
+            many=True,
+            context=self.context
+        )
+        return serializer.data
+
     def to_representation(self, instance):
         """
-        Override to include full URL for image and file fields
+        Override to include full URL for image field
         """
         representation = super().to_representation(instance)
         request = self.context.get('request')
-        if request:
-            if instance.image:
-                representation['image'] = request.build_absolute_uri(instance.image.url)
-            if instance.file:
-                representation['file'] = request.build_absolute_uri(instance.file.url)
+        if request and instance.image:
+            representation['image'] = request.build_absolute_uri(instance.image.url)
         return representation
 
 
