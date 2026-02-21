@@ -21,7 +21,8 @@ from .vehicle import VehicleDetailsView, VehicleDetailView, VehicleImageView
 from .driver_identification import (
     DriverIdentificationUploadView,
     DriverIdentificationUserStatusView,
-    DriverIdentificationListView
+    DriverIdentificationListView,
+    DriverAgreementListView,
 )
 from .driver_verification import (
     DriverVerificationDetailView,
@@ -55,6 +56,7 @@ __all__ = [
     'DriverIdentificationUploadView',
     'DriverIdentificationUserStatusView',
     'DriverIdentificationListView',
+    'DriverAgreementListView',
     'DriverVerificationDetailView',
     'DriverVerificationMeView',
     'DriverVerificationSubmitView',

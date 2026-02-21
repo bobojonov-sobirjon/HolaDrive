@@ -5,7 +5,9 @@ from ..models import (
     DriverIdentificationFAQ,
     DriverIdentificationUploadDocument,
     DriverVerification,
+    DriverAgreement,
 )
+
 
 
 class DriverIdentificationItemsSerializer(serializers.ModelSerializer):
@@ -45,11 +47,12 @@ class DriverIdentificationSerializer(serializers.ModelSerializer):
     """
     items = DriverIdentificationItemsSerializer(many=True, read_only=True)
     identification_faq = serializers.SerializerMethodField()
+    display_type_display = serializers.CharField(source='get_display_type_display', read_only=True)
 
     class Meta:
         model = DriverIdentification
         fields = (
-            'id', 'name', 'image', 'title', 'description',
+            'id', 'name', 'display_type', 'display_type_display', 'image', 'title', 'description',
             'is_active', 'items', 'identification_faq', 'created_at', 'updated_at'
         )
         read_only_fields = ('id', 'created_at', 'updated_at')
@@ -92,13 +95,22 @@ class DriverIdentificationUploadDocumentSerializer(serializers.ModelSerializer):
         source='driver_identification.title',
         read_only=True
     )
+    driver_identification_display_type = serializers.CharField(
+        source='driver_identification.display_type',
+        read_only=True
+    )
+    driver_identification_display_type_display = serializers.CharField(
+        source='driver_identification.get_display_type_display',
+        read_only=True
+    )
     document_file = serializers.FileField(required=True)
     
     class Meta:
         model = DriverIdentificationUploadDocument
         fields = (
             'id', 'user', 'driver_identification', 'driver_identification_name',
-            'driver_identification_title', 'document_file', 'created_at', 'updated_at'
+            'driver_identification_title', 'driver_identification_display_type',
+            'driver_identification_display_type_display', 'document_file', 'created_at', 'updated_at'
         )
         read_only_fields = ('id', 'user', 'created_at', 'updated_at')
     
@@ -147,6 +159,8 @@ class DriverIdentificationUserStatusSerializer(serializers.Serializer):
     driver_identification_id = serializers.IntegerField()
     driver_identification_name = serializers.CharField()
     driver_identification_title = serializers.CharField()
+    driver_identification_display_type = serializers.CharField()
+    driver_identification_display_type_display = serializers.CharField()
     driver_identification_upload_id = serializers.IntegerField(allow_null=True)
     is_upload_user = serializers.BooleanField()
     document_file = serializers.CharField(allow_null=True, allow_blank=True)
@@ -173,3 +187,13 @@ class DriverVerificationSerializer(serializers.ModelSerializer):
             'updated_at',
         )
         read_only_fields = fields
+
+
+class DriverAgreementSerializer(serializers.ModelSerializer):
+    """
+    Serializer for driver agreements
+    """
+    class Meta:
+        model = DriverAgreement
+        fields = ('id', 'name', 'file', 'created_at', 'updated_at')
+        read_only_fields = ('id', 'created_at', 'updated_at')

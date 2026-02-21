@@ -9,6 +9,7 @@ from .views import (
     DriverIdentificationUploadView,
     DriverIdentificationUserStatusView,
     DriverIdentificationListView,
+    DriverAgreementListView,
     DriverVerificationDetailView,
     DriverVerificationMeView,
     DriverVerificationSubmitView,
@@ -66,4 +67,7 @@ urlpatterns = [
     
     # PIN Verification endpoints
     path('pin-verification/', PinVerificationForUserView.as_view(), name='pin-verification'),
+    
+    # Driver Agreement endpoints
+    path('driver/agreement/list/', DriverAgreementListView.as_view(), name='driver-agreement-list'),
 ]

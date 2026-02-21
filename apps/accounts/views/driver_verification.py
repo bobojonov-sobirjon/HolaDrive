@@ -74,10 +74,10 @@ class DriverVerificationDetailView(DriverVerificationBaseView):
         ver_serializer = DriverVerificationSerializer(verification)
         ver_data = await sync_to_async(lambda: ver_serializer.data)()
 
-        # Get all active identifications with items
+        # Get all active identifications with items and FAQ
         identifications = await sync_to_async(list)(
             DriverIdentification.objects.filter(is_active=True)
-            .prefetch_related('items')
+            .prefetch_related('items', 'identification_faq')
             .order_by('id')
         )
         ident_serializer = DriverIdentificationSerializer(

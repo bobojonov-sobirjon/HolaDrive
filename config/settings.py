@@ -108,17 +108,15 @@ DATABASES = {
         'PASSWORD': os.getenv('DB_PASSWORD', '0576'),
         'HOST': os.getenv('DB_HOST', 'localhost'),
         'PORT': os.getenv('DB_PORT', '5432'),
-        # Connection pooling - connections 10 minut davomida saqlanadi
-        'CONN_MAX_AGE': 600,  # 10 minut (sekundlarda)
+        'CONN_MAX_AGE': 600,
         'OPTIONS': {
-            'connect_timeout': 10,  # Connection timeout 10 sekund
+            'connect_timeout': 10,
         }
     }
 }
 
 
 # Password validation
-# https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
 
 AUTH_PASSWORD_VALIDATORS = [
     {
@@ -136,8 +134,6 @@ AUTH_PASSWORD_VALIDATORS = [
 ]
 
 
-# Internationalization
-# https://docs.djangoproject.com/en/5.2/topics/i18n/
 
 LANGUAGE_CODE = 'en-us'
 
@@ -148,14 +144,11 @@ USE_I18N = True
 USE_TZ = True
 
 
-# Static files (CSS, JavaScript, Images)
-# https://docs.djangoproject.com/en/5.2/howto/static-files/
 
 STATIC_URL = 'static/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 
 MEDIA_URL = "/media/"
-# Production uchun /var/www/media, development uchun local media folder
 MEDIA_ROOT = os.getenv('MEDIA_ROOT', '/var/www/media')
 
 
@@ -163,8 +156,6 @@ LOCALE_PATHS = [
     os.path.join(BASE_DIR, 'locale'),
 ]
 
-# Default primary key field type
-# https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
@@ -197,10 +188,9 @@ SPECTACULAR_SETTINGS = {
     'DESCRIPTION': 'Hola Drive and Hola Driver APIs - JWT Authentication Required',
     'VERSION': '1.0.0',
     'SERVE_INCLUDE_SCHEMA': False,
-    # Path prefix so default tag is "accounts"/"order"/"chat" not "api"
     'SCHEMA_PATH_PREFIX': r'/api/v1',
-    # Request body komponentlari alohida koʻrinsin (Swagger UI da body maydonlari chiqishi uchun)
     'COMPONENT_SPLIT_REQUEST': True,
+    
 }
 
 SIMPLE_JWT = {
@@ -249,76 +239,23 @@ TWILIO_ACCOUNT_SID = os.getenv('TWILIO_ACCOUNT_SID')
 TWILIO_AUTH_TOKEN = os.getenv('TWILIO_AUTH_TOKEN')
 TWILIO_PHONE_NUMBER = os.getenv('TWILIO_PHONE_NUMBER')
 
-# Swagger JWT Configuration
-SWAGGER_SETTINGS = {
-    'SECURITY_DEFINITIONS': {
-        # JWT Bearer auth header (used by security=[{'Bearer': []}] in views)
-        'Bearer': {
-            'type': 'apiKey',
-            'name': 'Authorization',
-            'in': 'header',
-            'description': 'JWT Authorization header using the Bearer scheme. Example: "Bearer <token>"'
-        },
-        # OAuth2 password flow used by the custom swagger token endpoint
-        'OAuth2': {
-            'type': 'oauth2',
-            'authorizationUrl': '',
-            'tokenUrl': '/api/auth/oauth/token/',
-            'flow': 'password',
-            'scopes': {
-                'read': 'Read access',
-                'write': 'Write access'
-            }
-        }
-    },
-    'USE_SESSION_AUTH': False,
-    'JSON_EDITOR': True,
-    'SUPPORTED_SUBMIT_METHODS': [
-        'get',
-        'post',
-        'put',
-        'delete',
-        'patch'
-    ],
-    'OPERATIONS_SORTER': 'alpha',
-    'TAGS_SORTER': 'alpha',
-    'DEFAULT_MODEL_RENDERING': 'example',
-    'DOC_EXPANSION': 'none',
-    'DEEP_LINKING': True,
-    'SHOW_EXTENSIONS': True,
-    'SHOW_COMMON_EXTENSIONS': True,
-    'OAUTH2_REDIRECT_URL': 'http://localhost:8000/swagger/',
-    'OAUTH2_CONFIG': {
-        'clientId': 'swagger',
-        'clientSecret': 'swagger-secret',
-        'realm': 'swagger',
-        'appName': 'Holo Drive API',
-        'scopeSeparator': ' ',
-        'additionalQueryStringParams': {},
-        'useBasicAuthenticationWithAccessCodeGrant': False,
-        'usePkceWithAuthorizationCodeGrant': False
-    }
-}
 
 # Django Channels Configuration
 ASGI_APPLICATION = 'config.asgi.application'
 
 # Channel Layers Configuration
-# For development without Redis, use InMemoryChannelLayer:
 CHANNEL_LAYERS = {
     'default': {
         'BACKEND': 'channels.layers.InMemoryChannelLayer'
     },
 }
 
-# Logging Configuration
-# Create logs directory if it doesn't exist
 LOGS_DIR = os.path.join(BASE_DIR, 'logs')
 if not os.path.exists(LOGS_DIR):
     try:
         os.makedirs(LOGS_DIR, exist_ok=True)
     except Exception:
-        pass  # If we can't create logs directory, just use console logging
+        pass
 
 LOGGING = {
     'version': 1,
@@ -367,7 +304,6 @@ LOGGING = {
     },
 }
 
-# Add file handler only if logs directory exists
 if os.path.exists(LOGS_DIR):
     LOGGING['handlers']['file'] = {
         'class': 'logging.FileHandler',
@@ -379,7 +315,6 @@ if os.path.exists(LOGS_DIR):
     LOGGING['loggers']['apps.notification']['handlers'].append('file')
     LOGGING['loggers']['apps.order']['handlers'].append('file')
 
-# Celery Configuration
 CELERY_BROKER_URL = os.getenv('CELERY_BROKER_URL', 'redis://localhost:6379/0')
 CELERY_RESULT_BACKEND = os.getenv('CELERY_RESULT_BACKEND', 'redis://localhost:6379/0')
 CELERY_ACCEPT_CONTENT = ['json']
@@ -388,7 +323,7 @@ CELERY_RESULT_SERIALIZER = 'json'
 CELERY_TIMEZONE = 'UTC'
 CELERY_ENABLE_UTC = True
 CELERY_TASK_TRACK_STARTED = True
-CELERY_TASK_TIME_LIMIT = 30 * 60  # 30 minutes
-CELERY_TASK_SOFT_TIME_LIMIT = 25 * 60  # 25 minutes
+CELERY_TASK_TIME_LIMIT = 30 * 60
+CELERY_TASK_SOFT_TIME_LIMIT = 25 * 60
 CELERY_WORKER_PREFETCH_MULTIPLIER = 1
 CELERY_WORKER_MAX_TASKS_PER_CHILD = 1000

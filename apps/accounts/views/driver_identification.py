@@ -1,11 +1,12 @@
 from rest_framework import status
 from apps.common.views import AsyncAPIView
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from asgiref.sync import sync_to_async
 from django.db.models import Q
 from drf_spectacular.utils import extend_schema
+from ..models import DriverAgreement
 
 from ..serializers import (
     DriverIdentificationSerializer,
@@ -14,7 +15,7 @@ from ..serializers import (
     DriverIdentificationUserStatusSerializer,
 )
 from ..models import DriverIdentification, DriverIdentificationUploadDocument
-
+from ..serializers import DriverAgreementSerializer
 
 class DriverIdentificationUploadView(AsyncAPIView):
     """
@@ -158,6 +159,8 @@ class DriverIdentificationUserStatusView(AsyncAPIView):
                     'driver_identification_id': identification.id,
                     'driver_identification_name': identification.name,
                     'driver_identification_title': identification.title,
+                    'driver_identification_display_type': identification.display_type,
+                    'driver_identification_display_type_display': identification.get_display_type_display(),
                     'driver_identification_upload_id': upload.id,
                     'is_upload_user': True,
                     'document_file': document_file
@@ -167,6 +170,8 @@ class DriverIdentificationUserStatusView(AsyncAPIView):
                     'driver_identification_id': identification.id,
                     'driver_identification_name': identification.name,
                     'driver_identification_title': identification.title,
+                    'driver_identification_display_type': identification.display_type,
+                    'driver_identification_display_type_display': identification.get_display_type_display(),
                     'driver_identification_upload_id': None,
                     'is_upload_user': False,
                     'document_file': ""
@@ -210,6 +215,39 @@ class DriverIdentificationListView(AsyncAPIView):
         return Response(
             {
                 'message': 'Driver identifications retrieved successfully',
+                'status': 'success',
+                'data': serializer_data
+            },
+            status=status.HTTP_200_OK
+        )
+
+
+class DriverAgreementListView(AsyncAPIView):
+    """
+    Get all active driver agreements endpoint - GET
+    
+    Returns all active driver agreements.
+    """
+    permission_classes = [AllowAny]
+
+    @extend_schema(tags=['Driver Agreement'], summary='List agreements', description='Get all active driver agreements.')
+    async def get(self, request):
+        """
+        Get all active driver agreements - ASYNC VERSION
+        """
+        def get_agreements():
+            return list(DriverAgreement.objects.filter(is_active=True).order_by('id'))
+        agreements = await sync_to_async(get_agreements)()
+        
+        serializer = DriverAgreementSerializer(
+            agreements,
+            many=True,
+            context={'request': request}
+        )
+        serializer_data = await sync_to_async(lambda: serializer.data)()
+        return Response(
+            {
+                'message': 'Driver agreements retrieved successfully',
                 'status': 'success',
                 'data': serializer_data
             },

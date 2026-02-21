@@ -868,6 +868,11 @@ class VehicleImages(models.Model):
 
 
 class DriverIdentification(models.Model):
+    
+    IDENTIFICATION_TYPES = (
+        ('upload', 'Photo Upload'),
+        ('terms', 'Terms and Conditions'),
+    )
     """
     Model for storing driver identification types (dynamic identification items)
     Admin can create different identification types like Driver's License, Profile Photo, etc.
@@ -877,6 +882,13 @@ class DriverIdentification(models.Model):
         unique=True,
         verbose_name="Name",
         help_text="Unique name for the identification type (e.g., 'Driver License', 'Profile Photo')"
+    )
+    display_type = models.CharField(
+        max_length=20, 
+        choices=IDENTIFICATION_TYPES, 
+        default='upload',
+        verbose_name="Display Type",
+        help_text="Whether to display a photo upload or only terms and conditions"
     )
     image = models.ImageField(
         upload_to='driver_identification_icons/',
@@ -993,7 +1005,7 @@ class DriverIdentificationItems(models.Model):
 
     class Meta:
         verbose_name = "Driver Identification Item"
-        verbose_name_plural = "Driver Identification Items"
+        verbose_name_plural = "Driver Identification Items (Type: Upload)"
         ordering = ['-created_at']
         indexes = [
             models.Index(fields=['driver_identification'], name='driver_id_item_id_idx'),
@@ -1055,6 +1067,40 @@ class DriverIdentificationUploadDocument(models.Model):
 
     def __str__(self):
         return f"{self.user.email} - {self.driver_identification.name}"
+
+
+class DriverAgreement(models.Model):
+    """
+    Model for storing driver agreements
+    """
+    name = models.CharField(
+        max_length=255,
+        verbose_name="Name",
+        help_text="Name of the agreement"
+    )
+    is_active = models.BooleanField(
+        default=True,
+        verbose_name="Is Active",
+        help_text="Whether this agreement is visible to drivers"
+    )
+    file = models.FileField(
+        upload_to='driver_agreements/',
+        verbose_name="File",
+        help_text="File of the agreement"
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name="Created At"
+    )
+    updated_at = models.DateTimeField(
+        auto_now=True,
+        verbose_name="Updated At"
+    )
+
+    class Meta:
+        verbose_name = "Driver Agreement"
+        verbose_name_plural = "05. Driver Agreements"
+        ordering = ['-updated_at']
 
 
 class DriverVerification(models.Model):
@@ -1138,7 +1184,7 @@ class DriverVerification(models.Model):
         Override save to detect status changes and create Notification.
         """
         import logging
-        from apps.notification.models import Notification  # local import to avoid circular
+        from apps.notification.models import Notification
         from apps.notification.services import send_push_to_user
 
         logger = logging.getLogger(__name__)

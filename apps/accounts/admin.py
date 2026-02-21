@@ -14,7 +14,7 @@ from .models import (
     DriverIdentificationUploadDocument,
     DriverVerification, UserDeviceToken,
     InvitationGenerate, InvitationUsers, PinVerificationForUser,
-    LegalPage,
+    LegalPage, DriverAgreement
 )
 try:
     from apps.order.models import RideType
@@ -193,12 +193,68 @@ class VehicleDetailsInline(admin.StackedInline):
 class DriverIdentificationUploadDocumentInline(admin.TabularInline):
     """
     Inline admin for DriverIdentificationUploadDocument
+    Shows all uploaded documents for this DriverIdentification
     """
     model = DriverIdentificationUploadDocument
+    fk_name = 'driver_identification'
     extra = 0
-    fields = ('driver_identification', 'document_file', 'document_preview', 'created_at', 'updated_at')
+    fields = ('user', 'document_file', 'document_preview', 'created_at', 'updated_at')
     readonly_fields = ('document_preview', 'created_at', 'updated_at')
     ordering = ('-updated_at',)
+    can_delete = True
+    show_change_link = True
+
+    def document_preview(self, obj):
+        """
+        Fayl preview:
+        - Agar rasm bo'lsa, Vehicle Images dagidek kartochka ko'rinishida <img>
+        - Aks holda oddiy "Open file" link
+        """
+        if not obj or not obj.document_file:
+            return format_html('<span style="color:#999;">No file</span>')
+
+        url = obj.document_file.url
+        mime_type, _ = mimetypes.guess_type(url)
+
+        # Rasm bo'lsa: VehicleImages bilan bir xil karta
+        if mime_type and mime_type.startswith('image/'):
+            return format_html(
+                '''
+                <div style="text-align: center; border: 1px solid #ddd; padding: 5px; border-radius: 5px; display: inline-block; margin: 5px;">
+                    <img src="{}" style="max-width: 200px; max-height: 200px; border-radius: 3px;" />
+                    <br/>
+                    <small style="color: #666;">{}</small>
+                </div>
+                ''',
+                url,
+                obj.created_at.strftime("%Y-%m-%d %H:%M") if obj.created_at else '',
+            )
+
+        # Boshqa fayllar uchun oddiy link
+        return format_html('<a href="{}" target="_blank">Open file</a>', url)
+
+    document_preview.short_description = "Preview"
+
+
+@admin.register(DriverIdentificationUploadDocument)
+class DriverIdentificationUploadDocumentAdmin(admin.ModelAdmin):
+    """
+    Admin for DriverIdentificationUploadDocument - alohida sahifada ko'rsatiladi
+    """
+    list_display = ('user', 'driver_identification', 'document_preview', 'created_at', 'updated_at')
+    list_filter = ('driver_identification', 'created_at', 'updated_at')
+    search_fields = ('user__email', 'user__username', 'driver_identification__name')
+    readonly_fields = ('document_preview', 'created_at', 'updated_at')
+    ordering = ('-updated_at',)
+    
+    fieldsets = (
+        ('Document Information', {
+            'fields': ('user', 'driver_identification', 'document_file', 'document_preview')
+        }),
+        ('Timestamps', {
+            'fields': ('created_at', 'updated_at')
+        }),
+    )
 
     def document_preview(self, obj):
         """
@@ -373,7 +429,6 @@ class DriverUserAdmin(UserAdmin):
         PinVerificationForDriverInline,
         DriverPreferencesInline,
         VehicleDetailsInline,
-        DriverIdentificationUploadDocumentInline,
         UserDeviceTokenInline,
     ]
     
@@ -464,7 +519,7 @@ class DriverIdentificationAdmin(admin.ModelAdmin):
     
     fieldsets = (
         ('Basic Information', {
-            'fields': ('name', 'title', 'description', 'is_active')
+            'fields': ('display_type', 'name', 'title', 'description', 'is_active')
         }),
         ('Image', {
             'fields': ('image',)
@@ -491,6 +546,25 @@ class LegalPageAdmin(admin.ModelAdmin):
     list_filter = ('is_active',)
     search_fields = ('name',)
     ordering = ('name',)
+    
+
+@admin.register(DriverAgreement)
+class DriverAgreementAdmin(admin.ModelAdmin):
+    list_display = ('name', 'file', 'created_at', 'updated_at')
+    list_filter = ('created_at', 'updated_at')
+    search_fields = ('name',)
+    ordering = ('name',)
+
+    readonly_fields = ('created_at', 'updated_at')
+
+    fieldsets = (
+        ('Agreement Information', {
+            'fields': ('name', 'file')
+        }),
+        ('Timestamps', {
+            'fields': ('created_at', 'updated_at'),
+        }),
+    )
 
 
 admin.site.unregister(Site)
