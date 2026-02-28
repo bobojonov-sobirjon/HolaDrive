@@ -937,6 +937,57 @@ class DriverIdentification(models.Model):
         return self.name
 
 
+class TermsAndConditionsAcceptance(models.Model):
+    """
+    Model for storing terms and conditions acceptance by drivers
+    """
+    user = models.ForeignKey(
+        CustomUser,
+        on_delete=models.CASCADE,
+        related_name='terms_and_conditions_acceptance',
+    )
+    driver_identification = models.ForeignKey(
+        DriverIdentification,
+        on_delete=models.CASCADE,
+        related_name='terms_and_conditions_acceptance',
+    )
+    is_accepted = models.BooleanField(
+        default=True,
+        verbose_name="Is Accepted",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Terms and Conditions Acceptance"
+        verbose_name_plural = "Terms and Conditions Acceptances"
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['user'], name='terms_accept_user_idx'),
+            models.Index(fields=['driver_identification'], name='terms_accept_id_idx'),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=['user', 'driver_identification'],
+                name='terms_accept_user_di_uniq',
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.user.email} - {self.driver_identification.name}"
+
+    @classmethod
+    def accept_driver_identification(cls, user, driver_identification):
+        """Create or update acceptance for user + driver_identification."""
+        if not user or not driver_identification:
+            return None
+        obj, _ = cls.objects.update_or_create(
+            user=user,
+            driver_identification=driver_identification,
+            defaults={'is_accepted': True},
+        )
+        return obj
+
 class DriverIdentificationFAQ(models.Model):
     """
     FAQ entries for a driver identification (question, link, file).
@@ -1344,12 +1395,78 @@ class LegalPage(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        verbose_name = "Legal Page"
-        verbose_name_plural = "Legal Pages"
+        verbose_name = "Legal Agreement"
+        verbose_name_plural = "Legal Agreements"
         ordering = ['name']
 
     def __str__(self):
         return self.name
+    
+
+class AcceptanceOfAgreement(models.Model):
+    """
+    Model for storing user acceptance of agreements
+    """
+    user = models.ForeignKey(
+        CustomUser,
+        on_delete=models.CASCADE,
+        related_name='acceptance_of_agreements',
+    )
+    agreement = models.ForeignKey(
+        LegalPage,
+        on_delete=models.CASCADE,
+        related_name='acceptance_of_agreements',
+    )
+    is_accepted = models.BooleanField(
+        default=True,
+        verbose_name="Is Accepted",
+        help_text="Whether this agreement is accepted by the user",
+    )
+    accepted_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        verbose_name = "Acceptance of Agreement"
+        verbose_name_plural = "Acceptance of Agreements"
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['user'], name='acc_agree_user_idx'),
+            models.Index(fields=['agreement'], name='acc_agree_agmt_idx'),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=['user', 'agreement'],
+                name='unique_user_agreement_acceptance',
+            ),
+        ]
+    
+    def __str__(self):
+        return f"{self.user.email} - {self.agreement.name}"
+    
+    @classmethod
+    def accept_agreement(cls, user, agreement):
+        """
+        Accept an agreement for a user
+        """
+        if not user or not agreement:
+            return None
+
+        obj, _ = cls.objects.update_or_create(
+            user=user,
+            agreement=agreement,
+            defaults={'accepted_at': timezone.now()},
+        )
+        return obj
+
+    @classmethod
+    def is_agreement_accepted(cls, user, agreement):
+        """
+        Check if a user has accepted an agreement
+        """
+        if not user or not agreement:
+            return False
+        return cls.objects.filter(user=user, agreement=agreement).exists()
 
 
 class RiderUser(CustomUser):

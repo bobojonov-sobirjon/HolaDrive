@@ -323,7 +323,14 @@ class DriverAssignmentService:
         except Exception as e:
             # Log error but don't fail assignment
             logger.error(f"Failed to send async push notification to driver {driver.id}: {e}")
-        
+
+        # Real-time WebSocket: notify driver of new order
+        try:
+            from .driver_orders_websocket import send_new_order_to_driver
+            send_new_order_to_driver(order, driver)
+        except Exception as e:
+            logger.warning(f"Failed to send WebSocket new_order to driver {driver.id}: {e}")
+
         return order_driver
     
     @staticmethod

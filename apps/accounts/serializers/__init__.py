@@ -19,6 +19,8 @@ from .driver_identification import (
     DriverIdentificationUserStatusSerializer,
     DriverVerificationSerializer,
     DriverAgreementSerializer,
+    TermsAndConditionsAcceptanceSerializer,
+    TermsAndConditionsAcceptanceCreateSerializer,
 )
 from .invitations import InvitationGenerateSerializer, InvitationUsersSerializer
 from .pin_verification import PinVerificationForUserSerializer
@@ -49,5 +51,7 @@ __all__ = [
     'PinVerificationForUserSerializer',
     'LegalPageSerializer',
     'DriverAgreementSerializer',
+    'TermsAndConditionsAcceptanceSerializer',
+    'TermsAndConditionsAcceptanceCreateSerializer',
 ]
 

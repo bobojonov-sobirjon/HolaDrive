@@ -11,7 +11,12 @@ from .user import (
     UserDetailView,
     UserAvatarUpdateView,
 )
-from .legal import LegalPageListView
+from .legal import (
+    LegalPageListView,
+    AcceptanceOfAgreementCreateView,
+    AcceptanceOfAgreementListView,
+    AcceptanceOfAgreementDetailView,
+)
 from .user_preferences import (
     UserPreferencesView,
     UserPreferencesDeleteView
@@ -23,6 +28,9 @@ from .driver_identification import (
     DriverIdentificationUserStatusView,
     DriverIdentificationListView,
     DriverAgreementListView,
+    TermsAndConditionsAcceptanceCreateView,
+    TermsAndConditionsAcceptanceListView,
+    TermsAndConditionsAcceptanceDetailView,
 )
 from .driver_verification import (
     DriverVerificationDetailView,
@@ -47,6 +55,9 @@ __all__ = [
     'UserDetailView',
     'UserAvatarUpdateView',
     'LegalPageListView',
+    'AcceptanceOfAgreementCreateView',
+    'AcceptanceOfAgreementListView',
+    'AcceptanceOfAgreementDetailView',
     'UserPreferencesView',
     'UserPreferencesDeleteView',
     'DriverPreferencesView',
@@ -57,6 +68,9 @@ __all__ = [
     'DriverIdentificationUserStatusView',
     'DriverIdentificationListView',
     'DriverAgreementListView',
+    'TermsAndConditionsAcceptanceCreateView',
+    'TermsAndConditionsAcceptanceListView',
+    'TermsAndConditionsAcceptanceDetailView',
     'DriverVerificationDetailView',
     'DriverVerificationMeView',
     'DriverVerificationSubmitView',

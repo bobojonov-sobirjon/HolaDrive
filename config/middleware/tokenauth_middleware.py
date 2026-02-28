@@ -79,6 +79,15 @@ class TokenAuthMiddleware(BaseMiddleware):
                     # Check if it looks like a JWT token (contains dots and is long enough)
                     elif "." in potential_token and len(potential_token) > 50:
                         token_key = potential_token
+
+            # Check if path has format: /ws/driver/orders/TOKEN or /ws/driver/orders/token=TOKEN
+            elif len(path_parts) >= 4 and path_parts[0] == "ws" and path_parts[1] == "driver" and path_parts[2] == "orders":
+                if len(path_parts) > 3:
+                    potential_token = path_parts[3]
+                    if potential_token.startswith("token="):
+                        token_key = potential_token[6:]
+                    elif "." in potential_token and len(potential_token) > 50:
+                        token_key = potential_token
         
         if token_key:
             # Use JWT authentication

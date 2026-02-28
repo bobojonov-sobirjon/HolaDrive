@@ -5,11 +5,17 @@ from .views import (
     ResetPasswordConfirmView, UserDetailView, UserAvatarUpdateView,
     UserPreferencesView, UserPreferencesDeleteView,
     LegalPageListView,
+    AcceptanceOfAgreementCreateView,
+    AcceptanceOfAgreementListView,
+    AcceptanceOfAgreementDetailView,
     DriverPreferencesView, VehicleDetailsView, VehicleDetailView, VehicleImageView,
     DriverIdentificationUploadView,
     DriverIdentificationUserStatusView,
     DriverIdentificationListView,
     DriverAgreementListView,
+    TermsAndConditionsAcceptanceCreateView,
+    TermsAndConditionsAcceptanceListView,
+    TermsAndConditionsAcceptanceDetailView,
     DriverVerificationDetailView,
     DriverVerificationMeView,
     DriverVerificationSubmitView,
@@ -35,6 +41,10 @@ urlpatterns = [
     
     # Legal pages (Privacy Policy, Terms of Service)
     path('legal-pages/', LegalPageListView.as_view(), name='legal-pages-list'),
+    # Acceptance of Agreement endpoints
+    path('acceptance-of-agreement/', AcceptanceOfAgreementCreateView.as_view(), name='acceptance-of-agreement-create'),
+    path('acceptance-of-agreement/list/', AcceptanceOfAgreementListView.as_view(), name='acceptance-of-agreement-list'),
+    path('acceptance-of-agreement/<int:pk>/', AcceptanceOfAgreementDetailView.as_view(), name='acceptance-of-agreement-detail'),
     
     # User Preferences endpoints
     path('preferences/', UserPreferencesView.as_view(), name='user-preferences'),
@@ -50,6 +60,11 @@ urlpatterns = [
     # Vehicle Image endpoints (Driver only)
     path('vehicle/image/<int:pk>/', VehicleImageView.as_view(), name='vehicle-image-detail'),
     
+    # Terms and Conditions Acceptance endpoints
+    path('terms-and-conditions-acceptance/', TermsAndConditionsAcceptanceCreateView.as_view(), name='terms-conditions-acceptance-create'),
+    path('terms-and-conditions-acceptance/list/', TermsAndConditionsAcceptanceListView.as_view(), name='terms-conditions-acceptance-list'),
+    path('terms-and-conditions-acceptance/<int:pk>/', TermsAndConditionsAcceptanceDetailView.as_view(), name='terms-conditions-acceptance-detail'),
+
     # Driver Identification endpoints
     path('driver/identification/upload/', DriverIdentificationUploadView.as_view(), name='driver-identification-upload'),
     path('driver/identification/status/', DriverIdentificationUserStatusView.as_view(), name='driver-identification-status'),

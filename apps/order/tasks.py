@@ -47,10 +47,18 @@ def check_order_timeouts():
                 )
                 
                 # Mark as timeout
+                timed_out_driver_id = order_driver.driver.id
                 order_driver.status = OrderDriver.DriverRequestStatus.TIMEOUT
                 order_driver.save()
                 timeout_count += 1
-                
+
+                # Real-time WebSocket: notify old driver that order was removed
+                try:
+                    from apps.order.services.driver_orders_websocket import send_order_timeout_to_driver
+                    send_order_timeout_to_driver(timed_out_driver_id, order_driver.order.id)
+                except Exception as e:
+                    logger.warning(f"Failed to send WebSocket order_timeout to driver {timed_out_driver_id}: {e}")
+
                 # Reassign to next driver
                 try:
                     next_order_driver = DriverAssignmentService.assign_to_next_driver(order_driver.order)

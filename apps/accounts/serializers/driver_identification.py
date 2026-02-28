@@ -6,6 +6,7 @@ from ..models import (
     DriverIdentificationUploadDocument,
     DriverVerification,
     DriverAgreement,
+    TermsAndConditionsAcceptance,
 )
 
 
@@ -197,3 +198,32 @@ class DriverAgreementSerializer(serializers.ModelSerializer):
         model = DriverAgreement
         fields = ('id', 'name', 'file', 'created_at', 'updated_at')
         read_only_fields = ('id', 'created_at', 'updated_at')
+
+
+class TermsAndConditionsAcceptanceCreateSerializer(serializers.Serializer):
+    """Serializer for POST - accept by DriverIdentification IDs"""
+    driver_identification_data = serializers.ListField(
+        child=serializers.IntegerField(min_value=1),
+        min_length=1,
+        help_text='List of DriverIdentification IDs to accept'
+    )
+
+    def validate_driver_identification_data(self, value):
+        objs = DriverIdentification.objects.filter(id__in=value, is_active=True)
+        found_ids = set(objs.values_list('id', flat=True))
+        invalid_ids = set(value) - found_ids
+        if invalid_ids:
+            raise serializers.ValidationError(
+                f'Invalid or inactive DriverIdentification IDs: {sorted(invalid_ids)}'
+            )
+        return list(found_ids)
+
+
+class TermsAndConditionsAcceptanceSerializer(serializers.ModelSerializer):
+    """Serializer for response - full object with nested driver_identification"""
+    driver_identification = DriverIdentificationSerializer(read_only=True)
+
+    class Meta:
+        model = TermsAndConditionsAcceptance
+        fields = ('id', 'user', 'driver_identification', 'is_accepted', 'created_at', 'updated_at')
+        read_only_fields = fields

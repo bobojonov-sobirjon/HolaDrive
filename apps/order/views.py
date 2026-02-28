@@ -431,7 +431,14 @@ class DriverNearbyOrdersView(AsyncAPIView):
                     # Mark as timeout
                     order_driver.status = OrderDriver.DriverRequestStatus.TIMEOUT
                     await sync_to_async(order_driver.save)()
-                    
+
+                    # Real-time WebSocket: notify driver that order was removed
+                    try:
+                        from apps.order.services.driver_orders_websocket import send_order_timeout_to_driver
+                        await sync_to_async(send_order_timeout_to_driver)(user.id, order.id)
+                    except Exception:
+                        pass
+
                     # Reassign to next driver (MUHIM: oldingi driver exclude qilinadi)
                     try:
                         next_order_driver = await sync_to_async(DriverAssignmentService.assign_to_next_driver)(order)

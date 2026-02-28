@@ -14,7 +14,7 @@ from .models import (
     DriverIdentificationUploadDocument,
     DriverVerification, UserDeviceToken,
     InvitationGenerate, InvitationUsers, PinVerificationForUser,
-    LegalPage, DriverAgreement
+    LegalPage, DriverAgreement, AcceptanceOfAgreement, TermsAndConditionsAcceptance
 )
 try:
     from apps.order.models import RideType
@@ -546,7 +546,29 @@ class LegalPageAdmin(admin.ModelAdmin):
     list_filter = ('is_active',)
     search_fields = ('name',)
     ordering = ('name',)
-    
+
+
+@admin.register(AcceptanceOfAgreement)
+class AcceptanceOfAgreementAdmin(admin.ModelAdmin):
+    list_display = ('id', 'user', 'agreement', 'is_accepted', 'accepted_at', 'created_at', 'updated_at')
+    list_filter = ('is_accepted', 'agreement', 'created_at')
+    search_fields = ('user__email', 'agreement__name')
+    ordering = ('-created_at',)
+    raw_id_fields = ('user', 'agreement')
+    readonly_fields = ('accepted_at', 'created_at', 'updated_at')
+    list_select_related = ('user', 'agreement')
+
+
+@admin.register(TermsAndConditionsAcceptance)
+class TermsAndConditionsAcceptanceAdmin(admin.ModelAdmin):
+    list_display = ('id', 'user', 'driver_identification', 'is_accepted', 'created_at', 'updated_at')
+    list_filter = ('is_accepted', 'driver_identification', 'created_at')
+    search_fields = ('user__email', 'driver_identification__name')
+    ordering = ('-created_at',)
+    raw_id_fields = ('user', 'driver_identification')
+    readonly_fields = ('created_at', 'updated_at')
+    list_select_related = ('user', 'driver_identification')
+
 
 @admin.register(DriverAgreement)
 class DriverAgreementAdmin(admin.ModelAdmin):

@@ -3,6 +3,7 @@ WebSocket URL routing for Django Channels
 """
 from django.urls import re_path
 from apps.chat import consumers
+from apps.order import consumers as order_consumers
 
 websocket_urlpatterns = [
     # Allow token in path after conversation_id (for mobile app compatibility)
@@ -12,5 +13,8 @@ websocket_urlpatterns = [
     # Notifications path - user_id is extracted from JWT token, not from path
     # Pattern matches: /ws/notifications/ or /ws/notifications/TOKEN or /ws/notifications/?token=TOKEN
     re_path(r'^ws/notifications(?:/.*)?/?$', consumers.NotificationConsumer.as_asgi()),
+    # Driver orders - real-time order updates (new order, order timeout)
+    # Pattern: /ws/driver/orders/ or /ws/driver/orders/?token=TOKEN
+    re_path(r'^ws/driver/orders(?:/.*)?/?$', order_consumers.DriverOrdersConsumer.as_asgi()),
 ]
 

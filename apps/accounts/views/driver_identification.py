@@ -6,7 +6,7 @@ from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from asgiref.sync import sync_to_async
 from django.db.models import Q
 from drf_spectacular.utils import extend_schema
-from ..models import DriverAgreement
+from ..models import DriverAgreement, TermsAndConditionsAcceptance
 
 from ..serializers import (
     DriverIdentificationSerializer,
@@ -15,7 +15,11 @@ from ..serializers import (
     DriverIdentificationUserStatusSerializer,
 )
 from ..models import DriverIdentification, DriverIdentificationUploadDocument
-from ..serializers import DriverAgreementSerializer
+from ..serializers import (
+    DriverAgreementSerializer,
+    TermsAndConditionsAcceptanceSerializer,
+    TermsAndConditionsAcceptanceCreateSerializer,
+)
 
 class DriverIdentificationUploadView(AsyncAPIView):
     """
@@ -250,6 +254,131 @@ class DriverAgreementListView(AsyncAPIView):
                 'message': 'Driver agreements retrieved successfully',
                 'status': 'success',
                 'data': serializer_data
+            },
+            status=status.HTTP_200_OK
+        )
+
+
+class TermsAndConditionsAcceptanceCreateView(AsyncAPIView):
+    """
+    POST - Accept terms and conditions. Body: { "driver_identification_data": [1, 2, 3] }
+    Creates TermsAndConditionsAcceptance for each DriverIdentification ID with request.user.
+    """
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        tags=['Terms and Conditions Acceptance'],
+        summary='Accept terms and conditions',
+        description='Accept multiple driver identifications by IDs. User is taken from request.',
+        request=TermsAndConditionsAcceptanceCreateSerializer,
+        responses={201: TermsAndConditionsAcceptanceSerializer(many=True)},
+    )
+    async def post(self, request):
+        serializer = TermsAndConditionsAcceptanceCreateSerializer(data=request.data)
+        is_valid = await sync_to_async(serializer.is_valid)()
+        if not is_valid:
+            errors = await sync_to_async(lambda: serializer.errors)()
+            return Response(
+                {'message': 'Validation error', 'status': 'error', 'errors': errors},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        def create_acceptances():
+            ids = serializer.validated_data['driver_identification_data']
+            user = request.user
+            result = []
+            for di_id in ids:
+                di = DriverIdentification.objects.get(id=di_id)
+                obj = TermsAndConditionsAcceptance.accept_driver_identification(user=user, driver_identification=di)
+                result.append(obj)
+            return result
+
+        acceptances = await sync_to_async(create_acceptances)()
+        response_serializer = TermsAndConditionsAcceptanceSerializer(
+            acceptances, many=True, context={'request': request}
+        )
+        data = await sync_to_async(lambda: response_serializer.data)()
+        return Response(
+            {
+                'message': 'Terms and conditions accepted successfully',
+                'status': 'success',
+                'data': data,
+            },
+            status=status.HTTP_201_CREATED
+        )
+
+
+class TermsAndConditionsAcceptanceListView(AsyncAPIView):
+    """
+    GET - List all TermsAndConditionsAcceptance for request.user
+    """
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        tags=['Terms and Conditions Acceptance'],
+        summary='List my acceptances',
+        description='Get all terms and conditions acceptances for the authenticated user.',
+        responses={200: TermsAndConditionsAcceptanceSerializer(many=True)},
+    )
+    async def get(self, request):
+        def get_list():
+            return list(
+                TermsAndConditionsAcceptance.objects.filter(user=request.user)
+                .select_related('driver_identification')
+                .prefetch_related('driver_identification__items', 'driver_identification__identification_faq')
+                .order_by('-created_at')
+            )
+
+        items = await sync_to_async(get_list)()
+        serializer = TermsAndConditionsAcceptanceSerializer(items, many=True, context={'request': request})
+        data = await sync_to_async(lambda: serializer.data)()
+        return Response(
+            {
+                'message': 'Terms and conditions acceptances retrieved successfully',
+                'status': 'success',
+                'data': data,
+            },
+            status=status.HTTP_200_OK
+        )
+
+
+class TermsAndConditionsAcceptanceDetailView(AsyncAPIView):
+    """
+    GET - Get single TermsAndConditionsAcceptance by ID, only if it belongs to request.user
+    """
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        tags=['Terms and Conditions Acceptance'],
+        summary='Get acceptance by ID',
+        description='Get a single terms and conditions acceptance by ID. Only returns if it belongs to the authenticated user.',
+        responses={200: TermsAndConditionsAcceptanceSerializer, 404: None},
+    )
+    async def get(self, request, pk):
+        def get_object():
+            try:
+                return TermsAndConditionsAcceptance.objects.select_related(
+                    'driver_identification'
+                ).prefetch_related(
+                    'driver_identification__items', 'driver_identification__identification_faq'
+                ).get(pk=pk, user=request.user)
+            except TermsAndConditionsAcceptance.DoesNotExist:
+                return None
+
+        obj = await sync_to_async(get_object)()
+        if obj is None:
+            return Response(
+                {'message': 'Not found', 'status': 'error'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        serializer = TermsAndConditionsAcceptanceSerializer(obj, context={'request': request})
+        data = await sync_to_async(lambda: serializer.data)()
+        return Response(
+            {
+                'message': 'Terms and conditions acceptance retrieved successfully',
+                'status': 'success',
+                'data': data,
             },
             status=status.HTTP_200_OK
         )
