@@ -45,9 +45,23 @@ Ulanishdan keyin darhol - driverning hozirgi pending orderlari (avtomatik):
       "id": 123,
       "order_code": "ORD-000123",
       "status": "pending",
+      "order_type": "pickup",
+      "created_at": "2026-02-21T10:00:00",
+      "requested_at": "2026-02-21T10:00:05",
+      "estimated_time": "15 min",
       "address_from": "...",
       "address_to": "...",
-      "distance_to_pickup_km": 2.5
+      "distance_to_pickup_km": 2.5,
+      "net_price": 12500.50,
+      "client": {
+        "id": 10,
+        "first_name": "John",
+        "last_name": "Doe",
+        "full_name": "John Doe",
+        "phone_number": "+998901234567",
+        "email": "john@example.com",
+        "avatar": "/media/avatars/xxx.jpg"
+      }
     }
   ],
   "message": "Current pending orders"
@@ -67,13 +81,25 @@ Yangi order driverga tushganda:
     "status": "pending",
     "order_type": "pickup",
     "created_at": "2026-02-21T10:00:00",
+    "requested_at": "2026-02-21T10:00:05",
+    "estimated_time": "15 min",
     "address_from": "...",
     "address_to": "...",
     "latitude_from": "41.311081",
     "longitude_from": "69.240562",
     "latitude_to": "41.299496",
     "longitude_to": "69.240074",
-    "distance_to_pickup_km": 2.5
+    "distance_to_pickup_km": 2.5,
+    "net_price": 12500.50,
+    "client": {
+      "id": 10,
+      "first_name": "John",
+      "last_name": "Doe",
+      "full_name": "John Doe",
+      "phone_number": "+998901234567",
+      "email": "john@example.com",
+      "avatar": "/media/avatars/xxx.jpg"
+    }
   },
   "message": "New ride request available"
 }

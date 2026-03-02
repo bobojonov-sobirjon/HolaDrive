@@ -327,7 +327,7 @@ class DriverAssignmentService:
         # Real-time WebSocket: notify driver of new order
         try:
             from .driver_orders_websocket import send_new_order_to_driver
-            send_new_order_to_driver(order, driver)
+            send_new_order_to_driver(order, driver, order_driver.requested_at)
         except Exception as e:
             logger.warning(f"Failed to send WebSocket new_order to driver {driver.id}: {e}")
 

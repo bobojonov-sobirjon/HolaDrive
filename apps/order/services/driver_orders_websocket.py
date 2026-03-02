@@ -21,7 +21,7 @@ def get_driver_current_orders(driver):
     order_drivers = OrderDriver.objects.filter(
         driver=driver,
         status=OrderDriver.DriverRequestStatus.REQUESTED
-    ).select_related('order').prefetch_related('order__order_items')
+    ).select_related('order', 'order__user').prefetch_related('order__order_items')
 
     orders_data = []
     for order_driver in order_drivers:
@@ -32,19 +32,48 @@ def get_driver_current_orders(driver):
             elapsed = (timezone.now() - order_driver.requested_at).total_seconds()
             if elapsed >= DriverAssignmentService.TIMEOUT_SECONDS:
                 continue  # Skip timed out - Celery will handle
-        order_dict = _order_to_dict(order, driver)
+        order_dict = _order_to_dict(order, driver, order_driver.requested_at)
         if order_dict:
             orders_data.append(order_dict)
     return orders_data
 
 
-def _order_to_dict(order, driver=None):
+def _order_to_dict(order, driver=None, requested_at=None):
     """
-    Build order dict for WebSocket (matches DriverNearbyOrderSerializer structure).
+    Build order dict for WebSocket.
+    Includes: vaqt (time), client (rider) info, net_price.
     """
     first_item = order.order_items.first()
     if not first_item:
         return None
+
+    # Net price - sum of (adjusted_price or calculated_price) for all items
+    net_price = 0
+    for item in order.order_items.all():
+        price = item.adjusted_price or item.calculated_price
+        if price is not None:
+            net_price += float(price)
+    net_price = round(net_price, 2) if net_price else None
+
+    # Client (rider) ma'lumotlari
+    user = order.user
+    client_info = None
+    if user:
+        avatar_url = None
+        if user.avatar:
+            try:
+                avatar_url = user.avatar.url  # Relative path, client prepends base URL
+            except (ValueError, AttributeError):
+                avatar_url = None
+        client_info = {
+            'id': user.id,
+            'first_name': user.first_name or '',
+            'last_name': user.last_name or '',
+            'full_name': user.get_full_name() or user.email or '',
+            'phone_number': user.phone_number or '',
+            'email': user.email or '',
+            'avatar': avatar_url,
+        }
 
     result = {
         'id': order.id,
@@ -52,6 +81,8 @@ def _order_to_dict(order, driver=None):
         'status': order.status,
         'order_type': order.order_type,
         'created_at': order.created_at.isoformat() if order.created_at else None,
+        'requested_at': requested_at.isoformat() if requested_at else None,
+        'estimated_time': first_item.estimated_time,
         'address_from': first_item.address_from,
         'address_to': first_item.address_to,
         'latitude_from': str(first_item.latitude_from) if first_item.latitude_from else None,
@@ -59,6 +90,8 @@ def _order_to_dict(order, driver=None):
         'latitude_to': str(first_item.latitude_to) if first_item.latitude_to else None,
         'longitude_to': str(first_item.longitude_to) if first_item.longitude_to else None,
         'distance_to_pickup_km': None,
+        'net_price': net_price,
+        'client': client_info,
     }
 
     if driver and driver.latitude and driver.longitude and first_item.latitude_from and first_item.longitude_from:
@@ -72,7 +105,7 @@ def _order_to_dict(order, driver=None):
     return result
 
 
-def send_new_order_to_driver(order, driver):
+def send_new_order_to_driver(order, driver, requested_at=None):
     """
     Send new_order WebSocket message to driver when order is assigned.
     Called from DriverAssignmentService.assign_order_to_driver and assign_to_next_driver.
@@ -83,7 +116,7 @@ def send_new_order_to_driver(order, driver):
         if not channel_layer:
             return
 
-        order_data = _order_to_dict(order, driver)
+        order_data = _order_to_dict(order, driver, requested_at)
         if not order_data:
             return
 
