@@ -145,7 +145,7 @@ class OrderSerializer(serializers.ModelSerializer):
     )
     status = serializers.ChoiceField(
         choices=Order.OrderStatus.choices,
-        help_text="Order status: pending, confirmed, cancelled, completed, refunded, failed"
+        help_text="Order status: pending, confirmed, in_progress, cancelled, completed, refunded, failed"
     )
     
     class Meta:

@@ -45,6 +45,30 @@ class DriverOrderActionSerializer(serializers.Serializer):
     order_id = serializers.IntegerField()
     action = serializers.ChoiceField(choices=['accept', 'reject'])
 
+
+class DriverPickupSerializer(serializers.Serializer):
+    """Serializer for driver pickup confirmation (client in car)."""
+    order_id = serializers.IntegerField()
+
+    def validate_order_id(self, value):
+        try:
+            Order.objects.get(id=value)
+        except Order.DoesNotExist:
+            raise serializers.ValidationError("Order not found.")
+        return value
+
+
+class DriverCompleteSerializer(serializers.Serializer):
+    """Serializer for driver complete/dropoff confirmation (ride finished)."""
+    order_id = serializers.IntegerField()
+
+    def validate_order_id(self, value):
+        try:
+            Order.objects.get(id=value)
+        except Order.DoesNotExist:
+            raise serializers.ValidationError("Order not found.")
+        return value
+
     def validate_order_id(self, value):
         try:
             Order.objects.get(id=value)

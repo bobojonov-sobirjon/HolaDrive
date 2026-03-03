@@ -79,7 +79,8 @@ class DriverAssignmentService:
         for order_driver in active_order_drivers:
             if order_driver.order.status in [
                 Order.OrderStatus.PENDING,  # Driver accept qilgan, lekin hali boshlanmagan
-                Order.OrderStatus.CONFIRMED,  # Driver accept qilgan va ride boshlangan
+                Order.OrderStatus.CONFIRMED,  # Driver accept qilgan, klientga borayapti
+                Order.OrderStatus.IN_PROGRESS,  # Driver pickup qilgan, ride davom etmoqda
             ]:
                 # Driver has active order - check if destination is near new pickup (Uber-style)
                 if new_order_pickup_lat and new_order_pickup_lon:

@@ -12,6 +12,8 @@ from .order_schedule import OrderScheduleSerializer
 from .driver import (
     DriverNearbyOrderSerializer,
     DriverOrderActionSerializer,
+    DriverPickupSerializer,
+    DriverCompleteSerializer,
     DriverLocationUpdateSerializer,
     DriverLocationSerializer,
     DriverInfoSerializer,
@@ -38,6 +40,8 @@ __all__ = [
     'OrderScheduleSerializer',
     'DriverNearbyOrderSerializer',
     'DriverOrderActionSerializer',
+    'DriverPickupSerializer',
+    'DriverCompleteSerializer',
     'DriverLocationUpdateSerializer',
     'DriverLocationSerializer',
     'DriverInfoSerializer',

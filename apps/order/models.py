@@ -7,7 +7,8 @@ class Order(models.Model):
     
     class OrderStatus(models.TextChoices):
         PENDING = 'pending', 'Pending'
-        CONFIRMED = 'confirmed', 'Confirmed'
+        CONFIRMED = 'confirmed', 'Confirmed'       # Driver accepted, going to pickup
+        IN_PROGRESS = 'in_progress', 'In Progress' # Driver picked up client, ride in progress
         CANCELLED = 'cancelled', 'Cancelled'
         COMPLETED = 'completed', 'Completed'
         REFUNDED = 'refunded', 'Refunded'
@@ -606,6 +607,18 @@ class OrderDriver(models.Model):
         blank=True,
         verbose_name='Responded At',
         help_text='When driver accepted or rejected this order.'
+    )
+    pickup_confirmed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name='Pickup Confirmed At',
+        help_text='When driver confirmed pickup (client in car).'
+    )
+    completed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name='Completed At',
+        help_text='When driver completed the ride (drop-off).'
     )
     created_at = models.DateTimeField(auto_now_add=True)
 

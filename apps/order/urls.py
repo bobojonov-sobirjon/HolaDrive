@@ -12,6 +12,8 @@ from .views import (
     OrderScheduleCreateView,
     DriverNearbyOrdersView,
     DriverOrderActionView,
+    DriverPickupView,
+    DriverCompleteView,
     DriverLocationUpdateView,
     DriverLocationForOrderView,
     DriverEarningsView,
@@ -36,6 +38,8 @@ urlpatterns = [
     # Advanced driver features
     path('driver/nearby-orders/', DriverNearbyOrdersView.as_view(), name='driver-nearby-orders'),
     path('driver/order-action/', DriverOrderActionView.as_view(), name='driver-order-action'),
+    path('driver/pickup/', DriverPickupView.as_view(), name='driver-pickup'),
+    path('driver/complete/', DriverCompleteView.as_view(), name='driver-complete'),
 
     # Real-time tracking
     path('driver/location/update/', DriverLocationUpdateView.as_view(), name='driver-location-update'),

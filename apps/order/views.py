@@ -17,6 +17,8 @@ from .serializers import (
     OrderScheduleSerializer,
     DriverNearbyOrderSerializer,
     DriverOrderActionSerializer,
+    DriverPickupSerializer,
+    DriverCompleteSerializer,
     DriverLocationUpdateSerializer,
     DriverLocationSerializer,
     DriverInfoSerializer,
@@ -609,6 +611,153 @@ class DriverOrderActionView(AsyncAPIView):
             },
             status=status.HTTP_200_OK,
         )
+
+
+class DriverPickupView(AsyncAPIView):
+    """
+    Driver confirms pickup: client is in the car, ride started.
+    Order.status: confirmed -> in_progress
+    OrderDriver.pickup_confirmed_at: set to now
+    """
+    permission_classes = [IsAuthenticated]
+
+    async def _check_driver_role(self, user):
+        groups = await sync_to_async(list)(user.groups.all())
+        names = [g.name for g in groups]
+        return 'Driver' in names
+
+    @extend_schema(tags=['Driver'], summary='Confirm pickup', description='Driver confirms client is picked up (ride started). Body: order_id. Role: Driver.', request=DriverPickupSerializer)
+    async def post(self, request):
+        user = request.user
+        is_driver = await self._check_driver_role(user)
+        if not is_driver:
+            return Response({'message': 'Only drivers can access this endpoint', 'status': 'error'}, status=status.HTTP_403_FORBIDDEN)
+
+        serializer = DriverPickupSerializer(data=request.data)
+        is_valid = await sync_to_async(lambda: serializer.is_valid())()
+        if not is_valid:
+            errors = await sync_to_async(lambda: serializer.errors)()
+            return Response({'message': 'Validation error', 'status': 'error', 'errors': errors}, status=status.HTTP_400_BAD_REQUEST)
+
+        order_id = (await sync_to_async(lambda: serializer.validated_data)())['order_id']
+
+        try:
+            order = await Order.objects.select_related('user').aget(id=order_id)
+        except Order.DoesNotExist:
+            return Response({'message': 'Order not found', 'status': 'error'}, status=status.HTTP_404_NOT_FOUND)
+
+        order_driver = await OrderDriver.objects.filter(
+            order=order,
+            driver=user,
+            status=OrderDriver.DriverRequestStatus.ACCEPTED,
+        ).afirst()
+
+        if not order_driver:
+            return Response(
+                {'message': 'This order is not assigned to you or is not in accepted state', 'status': 'error'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if order.status != Order.OrderStatus.CONFIRMED:
+            return Response(
+                {'message': f'Order must be confirmed to confirm pickup. Current status: {order.status}', 'status': 'error'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        from django.utils import timezone
+        now = timezone.now()
+        order_driver.pickup_confirmed_at = now
+        order.status = Order.OrderStatus.IN_PROGRESS
+        await sync_to_async(order_driver.save)(update_fields=['pickup_confirmed_at'])
+        await sync_to_async(order.save)(update_fields=['status'])
+
+        try:
+            from apps.notification.services import send_push_to_user
+            send_push_to_user(
+                user=order.user,
+                title="Ride started",
+                body="Driver has picked you up. Your ride has started.",
+                data={"order_id": order.id, "order_code": order.order_code, "type": "ride_started"}
+            )
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).error(f"Failed to send pickup push to rider {order.user.id}: {e}")
+
+        return Response({'message': 'Pickup confirmed successfully', 'status': 'success'}, status=status.HTTP_200_OK)
+
+
+class DriverCompleteView(AsyncAPIView):
+    """
+    Driver confirms drop-off: ride finished, client delivered.
+    Order.status: in_progress -> completed
+    OrderDriver.completed_at: set to now
+    """
+    permission_classes = [IsAuthenticated]
+
+    async def _check_driver_role(self, user):
+        groups = await sync_to_async(list)(user.groups.all())
+        names = [g.name for g in groups]
+        return 'Driver' in names
+
+    @extend_schema(tags=['Driver'], summary='Confirm complete/dropoff', description='Driver confirms ride completed (client dropped off). Body: order_id. Role: Driver.', request=DriverCompleteSerializer)
+    async def post(self, request):
+        user = request.user
+        is_driver = await self._check_driver_role(user)
+        if not is_driver:
+            return Response({'message': 'Only drivers can access this endpoint', 'status': 'error'}, status=status.HTTP_403_FORBIDDEN)
+
+        serializer = DriverCompleteSerializer(data=request.data)
+        is_valid = await sync_to_async(lambda: serializer.is_valid())()
+        if not is_valid:
+            errors = await sync_to_async(lambda: serializer.errors)()
+            return Response({'message': 'Validation error', 'status': 'error', 'errors': errors}, status=status.HTTP_400_BAD_REQUEST)
+
+        order_id = (await sync_to_async(lambda: serializer.validated_data)())['order_id']
+
+        try:
+            order = await Order.objects.select_related('user').aget(id=order_id)
+        except Order.DoesNotExist:
+            return Response({'message': 'Order not found', 'status': 'error'}, status=status.HTTP_404_NOT_FOUND)
+
+        order_driver = await OrderDriver.objects.filter(
+            order=order,
+            driver=user,
+            status=OrderDriver.DriverRequestStatus.ACCEPTED,
+        ).afirst()
+
+        if not order_driver:
+            return Response(
+                {'message': 'This order is not assigned to you or is not in accepted state', 'status': 'error'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if order.status != Order.OrderStatus.IN_PROGRESS:
+            return Response(
+                {'message': f'Order must be in progress to complete. Current status: {order.status}', 'status': 'error'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        from django.utils import timezone
+        now = timezone.now()
+        order_driver.completed_at = now
+        order.status = Order.OrderStatus.COMPLETED
+        await sync_to_async(order_driver.save)(update_fields=['completed_at'])
+        await sync_to_async(order.save)(update_fields=['status'])
+
+        try:
+            from apps.notification.services import send_push_to_user
+            send_push_to_user(
+                user=order.user,
+                title="Ride completed",
+                body="Thank you for riding with us. Your ride has been completed.",
+                data={"order_id": order.id, "order_code": order.order_code, "type": "ride_completed"}
+            )
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).error(f"Failed to send complete push to rider {order.user.id}: {e}")
+
+        return Response({'message': 'Ride completed successfully', 'status': 'success'}, status=status.HTTP_200_OK)
+
 
 class DriverLocationUpdateView(AsyncAPIView):
     """
