@@ -244,9 +244,16 @@ TWILIO_PHONE_NUMBER = os.getenv('TWILIO_PHONE_NUMBER')
 ASGI_APPLICATION = 'config.asgi.application'
 
 # Channel Layers Configuration
+# InMemoryChannelLayer - Redis o'rnatilmagan bo'lsa ishlatiladi
+# Real-time new_order/order_timeout (Celery dan) uchun Redis kerak: pip install channels-redis
+# Redis o'rnatilgan bo'lsa default=true. O'chirish uchun CHANNEL_LAYERS_REDIS=false
+_use_redis = os.getenv('CHANNEL_LAYERS_REDIS', 'true').lower() == 'true'
 CHANNEL_LAYERS = {
     'default': {
-        'BACKEND': 'channels.layers.InMemoryChannelLayer'
+        'BACKEND': 'channels_redis.core.RedisChannelLayer',
+        'CONFIG': {'hosts': [os.getenv('REDIS_URL', 'redis://localhost:6379/1')]},
+    } if _use_redis else {
+        'BACKEND': 'channels.layers.InMemoryChannelLayer',
     },
 }
 

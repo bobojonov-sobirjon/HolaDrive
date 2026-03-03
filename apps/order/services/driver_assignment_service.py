@@ -44,7 +44,7 @@ class DriverAssignmentService:
     - Waiting time between search attempts to allow drivers to become available
     """
     
-    TIMEOUT_SECONDS = 300  # 5 minutes timeout (300 seconds)
+    TIMEOUT_SECONDS = 20  # 20 seconds timeout
     SEARCH_RADIUSES = [5.0, 10.0, 15.0, 20.0]  # km - search in expanding circles
     WAIT_BETWEEN_RADIUSES = 10  # seconds - wait before expanding search radius
     MAX_DESTINATION_DISTANCE_KM = 3.0  # km - max distance from driver's destination to new pickup (Uber-style)

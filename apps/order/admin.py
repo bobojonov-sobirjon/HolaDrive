@@ -15,6 +15,25 @@ class OrderAdmin(admin.ModelAdmin):
     search_fields = ('order_code', 'user__email', 'user__username')
     readonly_fields = ('order_code', 'created_at', 'updated_at')
     ordering = ('-created_at',)
+    actions = ['assign_driver_action']
+
+    def save_model(self, request, obj, form, change):
+        super().save_model(request, obj, form, change)
+        # Yangi order yaratilganda driver assign qilish
+        if not change and obj.status == Order.OrderStatus.PENDING:
+            try:
+                from apps.order.tasks import assign_driver_to_order_async
+                assign_driver_to_order_async.delay(obj.id)
+            except Exception:
+                pass
+
+    @admin.action(description='Assign driver to selected orders')
+    def assign_driver_action(self, request, queryset):
+        from apps.order.tasks import assign_driver_to_order_async
+        pending = queryset.filter(status=Order.OrderStatus.PENDING)
+        for order in pending:
+            assign_driver_to_order_async.delay(order.id)
+        self.message_user(request, f'Driver assignment triggered for {pending.count()} order(s)')
     
     # CharField va TextField uchun kengaytirilgan ko'rinish
     formfield_overrides = {

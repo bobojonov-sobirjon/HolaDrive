@@ -26,6 +26,7 @@ def check_order_timeouts():
     requested_order_drivers = OrderDriver.objects.filter(
         status=OrderDriver.DriverRequestStatus.REQUESTED
     ).select_related('order', 'driver')
+    total_requested = requested_order_drivers.count()
     
     timeout_count = 0
     reassigned_count = 0
@@ -196,7 +197,6 @@ def assign_driver_to_order_async(order_id):
         order_driver = DriverAssignmentService.assign_to_next_driver(order)
         if order_driver:
             logger.info(f"Order {order_id} assigned to driver {order_driver.driver.id} via async task")
-            # Return JSON-serializable dict instead of OrderDriver object
             return {
                 'order_id': order_id,
                 'driver_id': order_driver.driver.id,
