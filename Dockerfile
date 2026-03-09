@@ -12,6 +12,7 @@ RUN apt-get update && apt-get install -y \
     postgresql-client \
     build-essential \
     libpq-dev \
+    portaudio19-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
@@ -24,6 +25,11 @@ COPY . /app/
 # Create media and static directories
 RUN mkdir -p /var/www/media && \
     mkdir -p /app/staticfiles
+
+# Entrypoint to run migrations before starting the app
+COPY entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
+ENTRYPOINT ["/app/entrypoint.sh"]
 
 # Expose port
 EXPOSE 8000

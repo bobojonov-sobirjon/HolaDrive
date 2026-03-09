@@ -32,21 +32,69 @@ HoloDrive is a mobile backend API that connects passengers with drivers. The pla
 - Docker and Docker Compose
 - Python 3.11+ (for local development)
 
-### Installation
-
-1. Clone the repository
-2. Create a `.env` file with your database credentials
-3. Run `docker-compose up` to start the services
-
 ### Environment Variables
 
-Configure these variables in your `.env` file:
+Create a `.env` file in the project root with:
 
-- `DB_NAME` - Database name
-- `DB_USER` - Database user
-- `DB_PASSWORD` - Database password
-- `DB_HOST` - Database host
-- `DB_PORT` - Database port
+```env
+DB_NAME=holo-drive
+DB_USER=postgres
+DB_PASSWORD=your_password
+DB_HOST=db
+DB_PORT=5432
+```
+
+---
+
+## Docker
+
+### Build and Run
+
+```bash
+# Build and start containers (foreground)
+docker compose up --build
+
+# Or run in background (detached)
+docker compose up -d --build
+```
+
+- **API:** http://127.0.0.1:8000
+- **Swagger docs:** http://127.0.0.1:8000/swagger/
+
+### Migrations
+
+Migrations run automatically on container start (via `entrypoint.sh`).
+
+**Manual migration** (containers running):
+
+```bash
+docker compose exec web python manage.py migrate
+```
+
+**Migration when containers are stopped:**
+
+```bash
+docker compose run --rm web python manage.py migrate
+```
+
+### Other Useful Commands
+
+```bash
+# Create superuser
+docker compose exec web python manage.py createsuperuser
+
+# Django shell
+docker compose exec web python manage.py shell
+
+# View logs
+docker compose logs -f web
+
+# Stop containers
+docker compose down
+
+# Stop and remove volumes (resets database)
+docker compose down -v
+```
 
 ## API Documentation
 
