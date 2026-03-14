@@ -1,6 +1,7 @@
 from rest_framework import status
 from rest_framework.response import Response
 from apps.common.views import AsyncAPIView
+from apps.common.throttles import LoginRateThrottle
 from rest_framework.permissions import AllowAny
 from rest_framework_simplejwt.tokens import RefreshToken
 from drf_spectacular.utils import extend_schema
@@ -138,10 +139,8 @@ class RegistrationView(AsyncAPIView):
 
 
 class LoginView(AsyncAPIView):
-    """
-    User login endpoint
-    """
     permission_classes = [AllowAny]
+    throttle_classes = [LoginRateThrottle]
 
     @extend_schema(tags=['Authentication'], summary='Login', description='Login with email+password OR phone only. Phone: send phone_number (password not required), then verify-code. Email: send email and password. Optional: device_token, device_type.', request=LoginSerializer)
     async def post(self, request):

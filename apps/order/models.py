@@ -7,8 +7,8 @@ class Order(models.Model):
     
     class OrderStatus(models.TextChoices):
         PENDING = 'pending', 'Pending'
-        CONFIRMED = 'confirmed', 'Confirmed'       # Driver accepted, going to pickup
-        IN_PROGRESS = 'in_progress', 'In Progress' # Driver picked up client, ride in progress
+        CONFIRMED = 'confirmed', 'Confirmed'
+        IN_PROGRESS = 'in_progress', 'In Progress'
         CANCELLED = 'cancelled', 'Cancelled'
         COMPLETED = 'completed', 'Completed'
         REFUNDED = 'refunded', 'Refunded'
@@ -73,7 +73,6 @@ class RideType(models.Model):
         """
         from decimal import Decimal
         
-        # Convert all to Decimal to avoid type errors
         base_price = Decimal(str(self.base_price)) if self.base_price else Decimal('0')
         price_per_km = Decimal(str(self.price_per_km)) if self.price_per_km else Decimal('0')
         distance = Decimal(str(distance_km))
@@ -241,21 +240,17 @@ class OrderItem(models.Model):
             self.min_price, self.max_price = self.calculate_price_range()
             self.save()
         
-        # Validate price range
         if self.min_price and new_price < self.min_price:
             raise ValueError(f"Price cannot be less than {self.min_price}")
         if self.max_price and new_price > self.max_price:
             raise ValueError(f"Price cannot be more than {self.max_price}")
         
-        # Set adjusted price
         self.adjusted_price = Decimal(str(new_price))
         self.is_price_adjusted = True
         
-        # Calculate adjustment percentage
         adjustment = ((self.adjusted_price - self.original_price) / self.original_price) * 100
         self.price_adjustment_percentage = round(adjustment, 2)
         
-        # Update calculated_price to adjusted_price
         self.calculated_price = self.adjusted_price
         
         self.save()
@@ -302,17 +297,12 @@ class OrderItem(models.Model):
         
         distance = float(self.distance_km)
         
-        # Average speed: 45 km/h (city average)
-        # This can be adjusted based on ride_type or other factors
         avg_speed_kmh = 45.0
         
-        # Calculate time in hours
         time_hours = distance / avg_speed_kmh
         
-        # Convert to minutes
         time_minutes = int(time_hours * 60)
         
-        # Format as "XX min" or "Xh XXm" if more than 60 minutes
         if time_minutes < 60:
             self.estimated_time = f"{time_minutes} min"
         else:
@@ -330,16 +320,12 @@ class OrderItem(models.Model):
         from decimal import Decimal
         from apps.order.services import SurgePricingService
         
-        # Skip if already has original_price and not updating
         if self.original_price and not self._state.adding:
-            # Only recalculate if ride_type or distance changed
             return
         
-        # Need ride_type and distance to calculate price
         if not self.ride_type or not self.distance_km:
             return
         
-        # Calculate surge multiplier
         surge_multiplier = Decimal('1.00')
         if self.latitude_from and self.longitude_from:
             surge_multiplier = Decimal(str(SurgePricingService.get_multiplier(
@@ -347,7 +333,6 @@ class OrderItem(models.Model):
                 float(self.longitude_from)
             )))
         
-        # Calculate original price using RideType method
         if self.ride_type.base_price and self.ride_type.price_per_km:
             original_price = self.ride_type.calculate_price(
                 float(self.distance_km),
@@ -355,11 +340,9 @@ class OrderItem(models.Model):
             )
             self.original_price = Decimal(str(original_price))
             
-            # Set calculated_price same as original_price (initially)
             if not self.adjusted_price:
                 self.calculated_price = self.original_price
             
-            # Calculate min and max prices
             self.min_price, self.max_price = self.calculate_price_range()
     
     def update_adjustment_info(self):
@@ -369,18 +352,14 @@ class OrderItem(models.Model):
         from decimal import Decimal
         
         if self.adjusted_price and self.original_price:
-            # Calculate adjustment percentage
             adjustment = ((self.adjusted_price - self.original_price) / self.original_price) * 100
             self.price_adjustment_percentage = round(adjustment, 2)
             self.is_price_adjusted = True
-            # Update calculated_price to adjusted_price
             self.calculated_price = self.adjusted_price
         else:
-            # Reset if adjusted_price is removed
             if not self.adjusted_price:
                 self.is_price_adjusted = False
                 self.price_adjustment_percentage = None
-                # Reset calculated_price to original_price
                 if self.original_price:
                     self.calculated_price = self.original_price
     
@@ -388,16 +367,12 @@ class OrderItem(models.Model):
         """
         Override save to automatically calculate fields
         """
-        # Calculate distance if not provided
         self.calculate_distance_automatically()
         
-        # Calculate estimated time if distance is available
         self.calculate_estimated_time_automatically()
         
-        # Calculate prices automatically
         self.calculate_prices_automatically()
         
-        # Update adjustment info if adjusted_price is set
         self.update_adjustment_info()
         
         super().save(*args, **kwargs)
@@ -465,7 +440,6 @@ class OrderPreferences(models.Model):
     
     order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name='order_preferences')
     
-    # Rider Preferences
     chatting_preference = models.CharField(max_length=20, choices=ChattingPreference.choices, default=ChattingPreference.NO_COMMUNICATION)
     temperature_preference = models.CharField(max_length=20, choices=TemperaturePreference.choices, default=TemperaturePreference.COMFORTABLE)
     music_preference = models.CharField(max_length=20, choices=MusicPreference.choices, default=MusicPreference.POP)
@@ -474,7 +448,6 @@ class OrderPreferences(models.Model):
     kids_chair_preference = models.CharField(max_length=20, choices=KidsChairPreferences.choices, default=KidsChairPreferences.NO)
     wheelchair_preference = models.CharField(max_length=20, choices=WheelchairPreferences.choices, default=WheelchairPreferences.NO)
     
-    # Driver Preferences    
     gender_preference = models.CharField(max_length=20, choices=GenderPreferences.choices, default=GenderPreferences.OTHER)
     favorite_driver_preference = models.CharField(max_length=20, choices=FavoriteDriverPreferences.choices, default=FavoriteDriverPreferences.NO)
     
@@ -704,10 +677,25 @@ class CancelOrder(models.Model):
         WRONG_ADDRESS_SHOWN = 'wrong_address_shown', 'Wrong Address Shown'
         THE_PRICE_IS_NOT_REASONABLE = 'the_price_is_not_reasonable', 'The Price is Not Reasonable'
         EMERGENCY_SITUATION = 'emergency_situation', 'Emergency Situation'
+        RIDER_NOT_AT_PICKUP = 'rider_not_at_pickup', 'Rider Not at Pickup Location'
+        RIDER_ASKED_TO_CANCEL = 'rider_asked_to_cancel', 'Rider Asked to Cancel'
+        VEHICLE_ISSUE = 'vehicle_issue', 'Vehicle Issue'
+        SAFETY_CONCERN = 'safety_concern', 'Safety Concern'
         OTHER = 'other', 'Other'
     
+    class CancelledBy(models.TextChoices):
+        RIDER = 'rider', 'Rider'
+        DRIVER = 'driver', 'Driver'
+    
     order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name='cancel_orders')
-    driver = models.ForeignKey(OrderDriver, on_delete=models.CASCADE, related_name='cancel_orders')
+    driver = models.ForeignKey(OrderDriver, on_delete=models.CASCADE, related_name='cancel_orders', null=True, blank=True)
+    cancelled_by = models.CharField(
+        max_length=20,
+        choices=CancelledBy.choices,
+        default=CancelledBy.RIDER,
+        verbose_name='Cancelled By',
+        help_text='Who cancelled the order (rider or driver)'
+    )
     reason = models.CharField(max_length=255, choices=CancelReason.choices, default=CancelReason.OTHER)
     other_reason = models.TextField(verbose_name='Other Reason', null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -756,7 +744,6 @@ class OrderPaymentSplit(models.Model):
         help_text='User who needs to pay their share'
     )
     
-    # Split Information
     split_type = models.CharField(
         max_length=20,
         choices=SplitType.choices,
@@ -779,7 +766,6 @@ class OrderPaymentSplit(models.Model):
         help_text='Percentage of total fare (for custom splits)'
     )
     
-    # Payment Status
     payment_status = models.CharField(
         max_length=20,
         choices=PaymentStatus.choices,
@@ -787,7 +773,6 @@ class OrderPaymentSplit(models.Model):
         verbose_name='Payment Status'
     )
     
-    # Invitation
     invitation_token = models.CharField(
         max_length=100,
         unique=True,
@@ -807,7 +792,6 @@ class OrderPaymentSplit(models.Model):
         help_text='Whether co-rider accepted the split fare invitation'
     )
     
-    # Payment Confirmation
     payment_confirmed_at = models.DateTimeField(
         null=True,
         blank=True,
@@ -884,7 +868,6 @@ class PromoCode(models.Model):
         help_text='Unique promo code (e.g., SAVE20, WELCOME50)'
     )
     
-    # Discount Information
     discount_type = models.CharField(
         max_length=20,
         choices=DiscountType.choices,
@@ -898,7 +881,6 @@ class PromoCode(models.Model):
         help_text='Percentage (e.g., 20 for 20%) or Fixed Amount (e.g., 10.00)'
     )
     
-    # User-specific or General
     user = models.ForeignKey(
         CustomUser,
         on_delete=models.CASCADE,
@@ -909,7 +891,6 @@ class PromoCode(models.Model):
         help_text='If set, this promo code is only for this specific user. If null, it\'s general.'
     )
     
-    # Usage Limits
     max_uses = models.IntegerField(
         null=True,
         blank=True,
@@ -922,7 +903,6 @@ class PromoCode(models.Model):
         help_text='Number of times this code has been used'
     )
     
-    # Validity
     is_active = models.BooleanField(
         default=True,
         verbose_name='Is Active'
@@ -940,7 +920,6 @@ class PromoCode(models.Model):
         help_text='End date/time for promo code validity'
     )
     
-    # Minimum Order Amount
     min_order_amount = models.DecimalField(
         max_digits=10,
         decimal_places=2,
@@ -950,7 +929,6 @@ class PromoCode(models.Model):
         help_text='Minimum order amount required to use this promo code'
     )
     
-    # Maximum Discount Amount (for percentage discounts)
     max_discount_amount = models.DecimalField(
         max_digits=10,
         decimal_places=2,
@@ -1002,11 +980,9 @@ class PromoCode(models.Model):
         """
         Check if this promo code can be used by specific user
         """
-        # If user-specific, check if it's for this user
         if self.user:
             return self.user == user
         
-        # General promo code can be used by anyone
         return True
     
     def calculate_discount(self, order_amount):
@@ -1018,14 +994,12 @@ class PromoCode(models.Model):
         if not self.is_valid():
             return Decimal('0.00')
         
-        # Check minimum order amount
         if self.min_order_amount and order_amount < self.min_order_amount:
             return Decimal('0.00')
         
         if self.discount_type == 'percentage':
             discount = (order_amount * self.discount_value) / 100
             
-            # Apply maximum discount limit if set
             if self.max_discount_amount:
                 discount = min(discount, self.max_discount_amount)
         else:  # fixed_amount
@@ -1063,7 +1037,6 @@ class OrderPromoCode(models.Model):
         verbose_name='Promo Code'
     )
     
-    # Discount Information
     discount_amount = models.DecimalField(
         max_digits=10,
         decimal_places=2,
@@ -1083,7 +1056,6 @@ class OrderPromoCode(models.Model):
         help_text='Order amount after applying discount'
     )
     
-    # Applied by
     applied_by = models.ForeignKey(
         CustomUser,
         on_delete=models.SET_NULL,
@@ -1244,7 +1216,6 @@ class TripRating(models.Model):
         is_new = self.pk is None
         super().save(*args, **kwargs)
         
-        # Send push notification to driver when rating is created
         if is_new:
             from apps.notification.tasks import send_push_notification_async
             
@@ -1261,7 +1232,6 @@ class TripRating(models.Model):
                 'rider_name': self.rider.get_full_name(),
             }
             
-            # Send push notification asynchronously
             send_push_notification_async.delay(
                 user_id=self.driver.id,
                 title=title,
@@ -1280,4 +1250,131 @@ class TripRating(models.Model):
             models.Index(fields=['rating'], name='trip_rating_rating_idx'),
             models.Index(fields=['status'], name='trip_rating_status_idx'),
             models.Index(fields=['created_at'], name='trip_rating_created_idx'),
+        ]
+
+
+class OrderChat(models.Model):
+    """
+    Chat between Rider and Driver for a specific order.
+    Created automatically when driver accepts the order.
+    """
+    class ChatStatus(models.TextChoices):
+        ACTIVE = 'active', 'Active'
+        CLOSED = 'closed', 'Closed'
+    
+    order = models.OneToOneField(
+        Order,
+        on_delete=models.CASCADE,
+        related_name='chat',
+        verbose_name='Order'
+    )
+    rider = models.ForeignKey(
+        CustomUser,
+        on_delete=models.CASCADE,
+        related_name='rider_chats',
+        verbose_name='Rider',
+        help_text='Rider who created the order'
+    )
+    driver = models.ForeignKey(
+        CustomUser,
+        on_delete=models.CASCADE,
+        related_name='driver_chats',
+        verbose_name='Driver',
+        help_text='Driver assigned to the order'
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=ChatStatus.choices,
+        default=ChatStatus.ACTIVE,
+        verbose_name='Status'
+    )
+    last_message_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name='Last Message At'
+    )
+    unread_count_rider = models.IntegerField(default=0, verbose_name='Unread Count (Rider)')
+    unread_count_driver = models.IntegerField(default=0, verbose_name='Unread Count (Driver)')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    objects = models.Manager()
+    
+    def __str__(self):
+        return f"Chat for Order {self.order.order_code}"
+    
+    class Meta:
+        verbose_name = 'Order Chat'
+        verbose_name_plural = '13 Order Chats'
+        ordering = ['-last_message_at', '-created_at']
+        indexes = [
+            models.Index(fields=['order'], name='order_chat_order_idx'),
+            models.Index(fields=['rider'], name='order_chat_rider_idx'),
+            models.Index(fields=['driver'], name='order_chat_driver_idx'),
+            models.Index(fields=['status'], name='order_chat_status_idx'),
+        ]
+
+
+class OrderChatMessage(models.Model):
+    """
+    Message in an order chat between Rider and Driver.
+    """
+    class SenderType(models.TextChoices):
+        RIDER = 'rider', 'Rider'
+        DRIVER = 'driver', 'Driver'
+    
+    chat = models.ForeignKey(
+        OrderChat,
+        on_delete=models.CASCADE,
+        related_name='messages',
+        verbose_name='Chat'
+    )
+    sender = models.ForeignKey(
+        CustomUser,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name='order_chat_messages',
+        verbose_name='Sender'
+    )
+    sender_type = models.CharField(
+        max_length=10,
+        choices=SenderType.choices,
+        verbose_name='Sender Type'
+    )
+    message = models.TextField(verbose_name='Message')
+    is_read = models.BooleanField(default=False, verbose_name='Is Read')
+    attachment = models.FileField(
+        upload_to='order_chat/attachments/',
+        null=True,
+        blank=True,
+        verbose_name='Attachment'
+    )
+    file_type = models.CharField(
+        max_length=20,
+        null=True,
+        blank=True,
+        choices=[
+            ('image', 'Image'),
+            ('file', 'File'),
+            ('audio', 'Audio'),
+        ],
+        verbose_name='File Type'
+    )
+    file_name = models.CharField(max_length=255, null=True, blank=True, verbose_name='File Name')
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    objects = models.Manager()
+    
+    def __str__(self):
+        sender_name = self.sender.get_full_name() if self.sender else "Unknown"
+        return f"{sender_name}: {self.message[:30]}..."
+    
+    class Meta:
+        verbose_name = 'Order Chat Message'
+        verbose_name_plural = '14 Order Chat Messages'
+        ordering = ['created_at']
+        indexes = [
+            models.Index(fields=['chat'], name='order_chat_msg_chat_idx'),
+            models.Index(fields=['sender'], name='order_chat_msg_sender_idx'),
+            models.Index(fields=['created_at'], name='order_chat_msg_created_idx'),
         ]

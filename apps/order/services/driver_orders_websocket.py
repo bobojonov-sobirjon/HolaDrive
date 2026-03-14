@@ -47,8 +47,6 @@ def _order_to_dict(order, driver=None, requested_at=None):
     if not first_item:
         return None
 
-    # Net price - sum of (adjusted_price or calculated_price or original_price) for all items
-    # Fallback: agar hech qanday narx bo'lmasa va ride_type + distance_km bor bo'lsa, hisobla
     net_price = 0
     for item in order.order_items.all():
         price = item.adjusted_price or item.calculated_price or item.original_price
@@ -62,7 +60,6 @@ def _order_to_dict(order, driver=None, requested_at=None):
                 pass
     net_price = round(net_price, 2) if net_price else 0
 
-    # Client (rider) ma'lumotlari
     user = order.user
     client_info = None
     if user:

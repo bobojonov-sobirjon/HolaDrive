@@ -14,6 +14,7 @@ from .views import (
     DriverOrderActionView,
     DriverPickupView,
     DriverCompleteView,
+    DriverCancelOrderView,
     DriverLocationUpdateView,
     DriverLocationForOrderView,
     DriverEarningsView,
@@ -21,6 +22,9 @@ from .views import (
     DriverOnlineStatusView,
     TripRatingCreateView,
     RatingFeedbackTagsListView,
+    OrderChatDetailView,
+    OrderChatMessagesView,
+    OrderChatSendMessageView,
 )
 
 urlpatterns = [
@@ -40,6 +44,7 @@ urlpatterns = [
     path('driver/order-action/', DriverOrderActionView.as_view(), name='driver-order-action'),
     path('driver/pickup/', DriverPickupView.as_view(), name='driver-pickup'),
     path('driver/complete/', DriverCompleteView.as_view(), name='driver-complete'),
+    path('driver/cancel/', DriverCancelOrderView.as_view(), name='driver-cancel'),
 
     # Real-time tracking
     path('driver/location/update/', DriverLocationUpdateView.as_view(), name='driver-location-update'),
@@ -53,4 +58,9 @@ urlpatterns = [
     # Trip rating
     path('rating/create/', TripRatingCreateView.as_view(), name='trip-rating-create'),
     path('rating/feedback-tags/', RatingFeedbackTagsListView.as_view(), name='rating-feedback-tags'),
+
+    # Order chat (Rider <-> Driver)
+    path('<int:order_id>/chat/', OrderChatDetailView.as_view(), name='order-chat-detail'),
+    path('<int:order_id>/chat/messages/', OrderChatMessagesView.as_view(), name='order-chat-messages'),
+    path('<int:order_id>/chat/send/', OrderChatSendMessageView.as_view(), name='order-chat-send'),
 ]

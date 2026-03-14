@@ -1,11 +1,9 @@
 from rest_framework import serializers
+from django.db import transaction
 from ..models import Order, OrderItem
 
 
 class OrderCreateSerializer(serializers.Serializer):
-    """
-    Serializer for creating Order and OrderItem
-    """
     address_from = serializers.CharField(max_length=255, required=True)
     address_to = serializers.CharField(max_length=255, required=True)
     latitude_from = serializers.DecimalField(
@@ -38,32 +36,23 @@ class OrderCreateSerializer(serializers.Serializer):
     )
     
     def validate_order_type(self, value):
-        """
-        Validate order_type: 1 = PICKUP, 2 = FOR_ME
-        """
         if value not in [1, 2]:
             raise serializers.ValidationError("order_type must be 1 (PICKUP) or 2 (FOR_ME)")
         return value
     
+    @transaction.atomic
     def create(self, validated_data):
-        """
-        Create Order and OrderItem
-        After creation, automatically assign to nearest driver (Uber model)
-        """
         user = self.context['request'].user
         
-        # Convert order_type: 1 = 'pickup', 2 = 'for_me'
         order_type_value = validated_data.pop('order_type')
         order_type = Order.OrderType.PICKUP if order_type_value == 1 else Order.OrderType.FOR_ME
         
-        # Create Order
         order = Order.objects.create(
             user=user,
             order_type=order_type,
             status=Order.OrderStatus.PENDING
         )
         
-        # Create OrderItem
         order_item = OrderItem.objects.create(
             order=order,
             address_from=validated_data['address_from'],
@@ -76,12 +65,10 @@ class OrderCreateSerializer(serializers.Serializer):
             is_final_stop=True
         )
         
-        # Automatically assign to nearest driver (Uber model) - ASYNC via Celery task
         try:
             from apps.order.tasks import assign_driver_to_order_async
-            assign_driver_to_order_async.delay(order.id)  # Non-blocking async task
+            assign_driver_to_order_async.delay(order.id)
         except ImportError:
-            # Fallback to sync if Celery task not available
             import logging
             logger = logging.getLogger(__name__)
             logger.warning("Celery task not available, using sync driver assignment")
@@ -91,7 +78,6 @@ class OrderCreateSerializer(serializers.Serializer):
             except Exception as e:
                 logger.error(f"Failed to assign driver to order {order.id}: {e}")
         except Exception as e:
-            # Log error but don't fail order creation
             import logging
             logger = logging.getLogger(__name__)
             logger.error(f"Failed to schedule async driver assignment for order {order.id}: {e}")

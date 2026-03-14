@@ -1,6 +1,7 @@
 from rest_framework import status
 from rest_framework.response import Response
 from apps.common.views import AsyncAPIView
+from apps.common.throttles import OrderCreateThrottle
 from rest_framework.permissions import IsAuthenticated
 from asgiref.sync import sync_to_async
 from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiTypes
@@ -29,38 +30,30 @@ from .serializers import (
     TripRatingSerializer,
     RatingFeedbackTagSerializer,
 )
-from .serializers.cancel_order import OrderCancelSerializer
-from .models import Order, OrderItem, OrderDriver, OrderPreferences, TripRating
+from .serializers.cancel_order import OrderCancelSerializer, DriverCancelSerializer
+from .serializers.order_chat import OrderChatSerializer, OrderChatMessageSerializer, OrderChatSendMessageSerializer
+from .models import Order, OrderItem, OrderDriver, OrderPreferences, TripRating, CancelOrder, OrderChat, OrderChatMessage
 from apps.accounts.models import CustomUser, DriverPreferences
 from .services.surge_pricing_service import calculate_distance
 from .services.driver_assignment_service import DriverAssignmentService
 
 class OrderCreateView(AsyncAPIView):
-    """
-    Create Order and OrderItem
-    """
     permission_classes = [IsAuthenticated]
+    throttle_classes = [OrderCreateThrottle]
 
     @extend_schema(tags=['Order'], summary='Create order', description='Create order and order items.', request=OrderCreateSerializer)
     async def post(self, request):
-        """
-        Create Order and OrderItem - ASYNC VERSION
-        """
         serializer = OrderCreateSerializer(data=request.data, context={'request': request})
         
-        # Validate serializer (sync operation)
         is_valid = await sync_to_async(lambda: serializer.is_valid())()
         
         if is_valid:
-            # Save order (async)
             order = await sync_to_async(serializer.save)()
             
-            # Optimize query: prefetch related data to avoid N+1 queries (async)
             order = await Order.objects.select_related('user').prefetch_related(
                 'order_items__ride_type'
             ).aget(pk=order.pk)
             
-            # Serialize order (sync operation wrapped)
             order_serializer = OrderSerializer(order)
             serializer_data = await sync_to_async(lambda: order_serializer.data)()
             
@@ -73,7 +66,6 @@ class OrderCreateView(AsyncAPIView):
                 status=status.HTTP_201_CREATED
             )
         
-        # Get errors (sync operation)
         errors = await sync_to_async(lambda: serializer.errors)()
         return Response(
             {
@@ -85,9 +77,6 @@ class OrderCreateView(AsyncAPIView):
         )
 
 class OrderPreferencesGetView(AsyncAPIView):
-    """
-    Get Order Preferences by Order ID
-    """
     permission_classes = [IsAuthenticated]
 
     @extend_schema(
@@ -97,9 +86,6 @@ class OrderPreferencesGetView(AsyncAPIView):
         parameters=[OpenApiParameter('order_id', OpenApiTypes.INT, OpenApiParameter.QUERY, required=True, description='Order ID')],
     )
     async def get(self, request):
-        """
-        Get Order Preferences by Order ID - ASYNC VERSION
-        """
         order_id = request.query_params.get('order_id')
         
         if not order_id:
@@ -122,7 +108,6 @@ class OrderPreferencesGetView(AsyncAPIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        # Check if order exists and belongs to user
         try:
             order = await Order.objects.select_related('user').aget(
                 id=order_id,
@@ -137,7 +122,6 @@ class OrderPreferencesGetView(AsyncAPIView):
                 status=status.HTTP_404_NOT_FOUND
             )
         
-        # Get preferences for this order
         preferences = await OrderPreferences.objects.filter(
             order=order
         ).select_related('order').afirst()
@@ -151,87 +135,6 @@ class OrderPreferencesGetView(AsyncAPIView):
                 status=status.HTTP_404_NOT_FOUND
             )
         
-        # Serialize preferences (sync operation wrapped)
-        serializer = OrderPreferencesSerializer(preferences, context={'request': request})
-        serializer_data = await sync_to_async(lambda: serializer.data)()
-        
-        return Response(
-            {
-                'message': 'Order preferences retrieved successfully',
-                'status': 'success',
-                'data': serializer_data
-            },
-            status=status.HTTP_200_OK
-        )
-
-class OrderPreferencesGetView(AsyncAPIView):
-    """
-    Get Order Preferences by Order ID
-    """
-    permission_classes = [IsAuthenticated]
-
-    @extend_schema(
-        tags=['Order'],
-        summary='Get order preferences',
-        description='Get order preferences by order_id (query param).',
-        parameters=[OpenApiParameter('order_id', OpenApiTypes.INT, OpenApiParameter.QUERY, required=True, description='Order ID')],
-    )
-    async def get(self, request):
-        """
-        Get Order Preferences by Order ID - ASYNC VERSION
-        """
-        order_id = request.query_params.get('order_id')
-        
-        if not order_id:
-            return Response(
-                {
-                    'message': 'order_id parameter is required',
-                    'status': 'error'
-                },
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        try:
-            order_id = int(order_id)
-        except (ValueError, TypeError):
-            return Response(
-                {
-                    'message': 'Invalid order_id. Must be an integer.',
-                    'status': 'error'
-                },
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        # Check if order exists and belongs to user
-        try:
-            order = await Order.objects.select_related('user').aget(
-                id=order_id,
-                user=request.user
-            )
-        except Order.DoesNotExist:
-            return Response(
-                {
-                    'message': 'Order not found or you do not have permission to access it',
-                    'status': 'error'
-                },
-                status=status.HTTP_404_NOT_FOUND
-            )
-        
-        # Get preferences for this order
-        preferences = await OrderPreferences.objects.filter(
-            order=order
-        ).select_related('order').afirst()
-        
-        if not preferences:
-            return Response(
-                {
-                    'message': 'Order preferences not found for this order',
-                    'status': 'error'
-                },
-                status=status.HTTP_404_NOT_FOUND
-            )
-        
-        # Serialize preferences (sync operation wrapped)
         serializer = OrderPreferencesSerializer(preferences, context={'request': request})
         serializer_data = await sync_to_async(lambda: serializer.data)()
         
@@ -245,26 +148,17 @@ class OrderPreferencesGetView(AsyncAPIView):
         )
 
 class OrderPreferencesCreateView(AsyncAPIView):
-    """
-    Create or Update Order Preferences
-    """
     permission_classes = [IsAuthenticated]
 
     @extend_schema(tags=['Order'], summary='Create order preferences', description='Create or update order preferences.', request=OrderPreferencesSerializer)
     async def post(self, request):
-        """
-        Create or Update Order Preferences - ASYNC VERSION
-        """
         serializer = OrderPreferencesSerializer(data=request.data, context={'request': request})
         
-        # Validate serializer (sync operation)
         is_valid = await sync_to_async(lambda: serializer.is_valid())()
         
         if is_valid:
-            # Save preferences (async)
             preferences = await sync_to_async(serializer.save)()
             
-            # Serialize preferences (sync operation wrapped)
             pref_serializer = OrderPreferencesSerializer(preferences)
             serializer_data = await sync_to_async(lambda: pref_serializer.data)()
             
@@ -277,7 +171,6 @@ class OrderPreferencesCreateView(AsyncAPIView):
                 status=status.HTTP_201_CREATED
             )
         
-        # Get errors (sync operation)
         errors = await sync_to_async(lambda: serializer.errors)()
         return Response(
             {
@@ -289,26 +182,17 @@ class OrderPreferencesCreateView(AsyncAPIView):
         )
 
 class AdditionalPassengerCreateView(AsyncAPIView):
-    """
-    Create Additional Passenger
-    """
     permission_classes = [IsAuthenticated]
 
     @extend_schema(tags=['Order'], summary='Add passenger', description='Create additional passenger for an order.', request=AdditionalPassengerSerializer)
     async def post(self, request):
-        """
-        Create Additional Passenger - ASYNC VERSION
-        """
         serializer = AdditionalPassengerSerializer(data=request.data, context={'request': request})
         
-        # Validate serializer (sync operation)
         is_valid = await sync_to_async(lambda: serializer.is_valid())()
         
         if is_valid:
-            # Save passenger (async)
             passenger = await sync_to_async(serializer.save)()
             
-            # Serialize passenger (sync operation wrapped)
             pass_serializer = AdditionalPassengerSerializer(passenger)
             serializer_data = await sync_to_async(lambda: pass_serializer.data)()
             
@@ -321,7 +205,6 @@ class AdditionalPassengerCreateView(AsyncAPIView):
                 status=status.HTTP_201_CREATED
             )
         
-        # Get errors (sync operation)
         errors = await sync_to_async(lambda: serializer.errors)()
         return Response(
             {
@@ -333,26 +216,17 @@ class AdditionalPassengerCreateView(AsyncAPIView):
         )
 
 class OrderScheduleCreateView(AsyncAPIView):
-    """
-    Create Order Schedule
-    """
     permission_classes = [IsAuthenticated]
 
     @extend_schema(tags=['Order'], summary='Create schedule', description='Create order schedule (pickup/drop-off time).', request=OrderScheduleSerializer)
     async def post(self, request):
-        """
-        Create Order Schedule - ASYNC VERSION
-        """
         serializer = OrderScheduleSerializer(data=request.data, context={'request': request})
         
-        # Validate serializer (sync operation)
         is_valid = await sync_to_async(lambda: serializer.is_valid())()
         
         if is_valid:
-            # Save schedule (async)
             schedule = await sync_to_async(serializer.save)()
             
-            # Serialize schedule (sync operation wrapped)
             sched_serializer = OrderScheduleSerializer(schedule)
             serializer_data = await sync_to_async(lambda: sched_serializer.data)()
             
@@ -365,7 +239,6 @@ class OrderScheduleCreateView(AsyncAPIView):
                 status=status.HTTP_201_CREATED
             )
         
-        # Get errors (sync operation)
         errors = await sync_to_async(lambda: serializer.errors)()
         return Response(
             {
@@ -377,11 +250,6 @@ class OrderScheduleCreateView(AsyncAPIView):
         )
 
 class DriverNearbyOrdersView(AsyncAPIView):
-    """
-    List nearby pending orders for authenticated driver.
-    Uses driver's current location (CustomUser.latitude/longitude)
-    and driver preferences (maximum_pickup_distance) to filter orders.
-    """
     permission_classes = [IsAuthenticated]
 
     async def _check_driver_role(self, user):
@@ -403,7 +271,6 @@ class DriverNearbyOrdersView(AsyncAPIView):
                 status=status.HTTP_403_FORBIDDEN,
             )
 
-        # Get orders assigned to this driver with status=requested (Uber model)
         order_drivers_qs = (
             OrderDriver.objects.filter(
                 driver=user,
@@ -414,52 +281,43 @@ class DriverNearbyOrdersView(AsyncAPIView):
         )
         order_drivers = await sync_to_async(list)(order_drivers_qs)
 
-        # Filter only pending orders (not yet accepted by another driver)
         nearby_orders = []
         for order_driver in order_drivers:
             order = order_driver.order
             
-            # Only include if order is still pending
             if order.status != Order.OrderStatus.PENDING:
                 continue
             
-            # Check timeout (5 minutes = 300 seconds)
             from django.utils import timezone
             from apps.order.services.driver_assignment_service import DriverAssignmentService
             
             if order_driver.requested_at:
                 time_elapsed = timezone.now() - order_driver.requested_at
-                if time_elapsed.total_seconds() >= DriverAssignmentService.TIMEOUT_SECONDS:  # Timeout
-                    # Mark as timeout
+                if time_elapsed.total_seconds() >= DriverAssignmentService.TIMEOUT_SECONDS:
                     order_driver.status = OrderDriver.DriverRequestStatus.TIMEOUT
                     await sync_to_async(order_driver.save)()
 
-                    # Real-time WebSocket: notify driver that order was removed
                     try:
                         from apps.order.services.driver_orders_websocket import send_order_timeout_to_driver
                         await sync_to_async(send_order_timeout_to_driver)(user.id, order.id)
                     except Exception:
                         pass
 
-                    # Reassign to next driver (MUHIM: oldingi driver exclude qilinadi)
                     try:
                         next_order_driver = await sync_to_async(DriverAssignmentService.assign_to_next_driver)(order)
                         if next_order_driver:
-                            # Keyingi driverga yuborildi, bu driver endi ko'rmaydi
                             pass
                     except Exception as e:
                         import logging
                         logger = logging.getLogger(__name__)
                         logger.error(f"Failed to reassign order {order.id} after timeout: {e}")
                     
-                    # Bu driver endi bu orderni ko'rmaydi (timeout bo'lgan)
                     continue
             
             first_item = order.order_items.first()
             if not first_item or not first_item.latitude_from or not first_item.longitude_from:
                 continue
 
-            # Calculate distance if driver location is available
             if user.latitude and user.longitude:
                 distance = calculate_distance(
                     user.latitude,
@@ -485,12 +343,6 @@ class DriverNearbyOrdersView(AsyncAPIView):
         )
 
 class DriverOrderActionView(AsyncAPIView):
-    """
-    Driver can accept or reject a pending order.
-    - accept: creates/updates OrderDriver with status='accepted' and sets Order.status='confirmed'
-    - reject: creates/updates OrderDriver with status='rejected' (Order stays pending)
-    """
-
     permission_classes = [IsAuthenticated]
 
     async def _check_driver_role(self, user):
@@ -531,7 +383,6 @@ class DriverOrderActionView(AsyncAPIView):
 
         order = await Order.objects.select_related('user').aget(id=order_id)
 
-        # Check if order is assigned to this driver
         order_driver = await OrderDriver.objects.filter(
             order=order,
             driver=user,
@@ -547,7 +398,6 @@ class DriverOrderActionView(AsyncAPIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Only allow actions on pending orders
         if order.status != Order.OrderStatus.PENDING and action == 'accept':
             return Response(
                 {
@@ -559,16 +409,27 @@ class DriverOrderActionView(AsyncAPIView):
 
         from django.utils import timezone
 
-        # Update status based on action
         if action == 'accept':
-            # Accept: assign to this driver
             order_driver.status = OrderDriver.DriverRequestStatus.ACCEPTED
             order.status = Order.OrderStatus.CONFIRMED
             order_driver.responded_at = timezone.now()
             await sync_to_async(order_driver.save)()
             await sync_to_async(order.save)()
             
-            # Send push notification to rider
+            try:
+                from .models import OrderChat
+                await sync_to_async(OrderChat.objects.get_or_create)(
+                    order=order,
+                    defaults={
+                        'rider': order.user,
+                        'driver': user,
+                        'status': OrderChat.ChatStatus.ACTIVE
+                    }
+                )
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).error(f"Failed to create OrderChat for order {order.id}: {e}")
+            
             try:
                 from apps.notification.services import send_push_to_user
                 send_push_to_user(
@@ -586,12 +447,10 @@ class DriverOrderActionView(AsyncAPIView):
                 logger = logging.getLogger(__name__)
                 logger.error(f"Failed to send push notification to rider {order.user.id}: {e}")
         else:
-            # Reject: mark as rejected and reassign to next driver
             order_driver.status = OrderDriver.DriverRequestStatus.REJECTED
             order_driver.responded_at = timezone.now()
             await sync_to_async(order_driver.save)()
             
-            # Reassign to next nearest driver
             try:
                 next_order_driver = await sync_to_async(DriverAssignmentService.assign_to_next_driver)(order)
                 if next_order_driver:
@@ -614,11 +473,6 @@ class DriverOrderActionView(AsyncAPIView):
 
 
 class DriverPickupView(AsyncAPIView):
-    """
-    Driver confirms pickup: client is in the car, ride started.
-    Order.status: confirmed -> in_progress
-    OrderDriver.pickup_confirmed_at: set to now
-    """
     permission_classes = [IsAuthenticated]
 
     async def _check_driver_role(self, user):
@@ -687,11 +541,6 @@ class DriverPickupView(AsyncAPIView):
 
 
 class DriverCompleteView(AsyncAPIView):
-    """
-    Driver confirms drop-off: ride finished, client delivered.
-    Order.status: in_progress -> completed
-    OrderDriver.completed_at: set to now
-    """
     permission_classes = [IsAuthenticated]
 
     async def _check_driver_role(self, user):
@@ -759,11 +608,88 @@ class DriverCompleteView(AsyncAPIView):
         return Response({'message': 'Ride completed successfully', 'status': 'success'}, status=status.HTTP_200_OK)
 
 
+class DriverCancelOrderView(AsyncAPIView):
+    permission_classes = [IsAuthenticated]
+
+    async def _check_driver_role(self, user):
+        groups = await sync_to_async(list)(user.groups.all())
+        names = [g.name for g in groups]
+        return 'Driver' in names
+
+    @extend_schema(tags=['Driver'], summary='Cancel order (driver)', description='Driver cancels an order. Body: order_id, reason, optional other_reason. Role: Driver.', request=DriverCancelSerializer)
+    async def post(self, request):
+        user = request.user
+        is_driver = await self._check_driver_role(user)
+        if not is_driver:
+            return Response({'message': 'Only drivers can access this endpoint', 'status': 'error'}, status=status.HTTP_403_FORBIDDEN)
+
+        serializer = DriverCancelSerializer(data=request.data)
+        is_valid = await sync_to_async(lambda: serializer.is_valid())()
+        if not is_valid:
+            errors = await sync_to_async(lambda: serializer.errors)()
+            return Response({'message': 'Validation error', 'status': 'error', 'errors': errors}, status=status.HTTP_400_BAD_REQUEST)
+
+        validated_data = await sync_to_async(lambda: serializer.validated_data)()
+        order_id = validated_data['order_id']
+        reason = validated_data['reason']
+        other_reason = validated_data.get('other_reason', '')
+
+        try:
+            order = await Order.objects.select_related('user').aget(id=order_id)
+        except Order.DoesNotExist:
+            return Response({'message': 'Order not found', 'status': 'error'}, status=status.HTTP_404_NOT_FOUND)
+
+        order_driver = await OrderDriver.objects.filter(
+            order=order,
+            driver=user,
+            status=OrderDriver.DriverRequestStatus.ACCEPTED,
+        ).afirst()
+
+        if not order_driver:
+            return Response(
+                {'message': 'This order is not assigned to you', 'status': 'error'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if order.status == Order.OrderStatus.CANCELLED:
+            return Response({'message': 'Order is already cancelled', 'status': 'error'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if order.status == Order.OrderStatus.COMPLETED:
+            return Response({'message': 'Cannot cancel a completed order', 'status': 'error'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if order.status not in [Order.OrderStatus.CONFIRMED, Order.OrderStatus.IN_PROGRESS]:
+            return Response(
+                {'message': f'Cannot cancel order with status: {order.status}', 'status': 'error'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        order.status = Order.OrderStatus.CANCELLED
+        await sync_to_async(order.save)(update_fields=['status'])
+
+        await sync_to_async(CancelOrder.objects.create)(
+            order=order,
+            driver=order_driver,
+            cancelled_by=CancelOrder.CancelledBy.DRIVER,
+            reason=reason,
+            other_reason=other_reason if reason == 'other' else None
+        )
+
+        try:
+            from apps.notification.services import send_push_to_user
+            send_push_to_user(
+                user=order.user,
+                title="Ride cancelled",
+                body="Your ride has been cancelled by the driver.",
+                data={"order_id": order.id, "order_code": order.order_code, "type": "ride_cancelled_by_driver"}
+            )
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).error(f"Failed to send cancel push to rider {order.user.id}: {e}")
+
+        return Response({'message': 'Order cancelled successfully', 'status': 'success'}, status=status.HTTP_200_OK)
+
+
 class DriverLocationUpdateView(AsyncAPIView):
-    """
-    Update driver's current GPS location.
-    Stores latitude/longitude on CustomUser model.
-    """
     permission_classes = [IsAuthenticated]
 
     async def _check_driver_role(self, user):
@@ -823,10 +749,6 @@ class DriverLocationUpdateView(AsyncAPIView):
         )
 
 class DriverLocationForOrderView(AsyncAPIView):
-    """
-    Rider can get driver's current location for a specific order.
-    Only works if order is assigned to a driver (OrderDriver with status=accepted).
-    """
     permission_classes = [IsAuthenticated]
 
     @extend_schema(tags=['Order'], summary='Driver location for order', description="Rider: get driver's current location for an order (when driver is assigned).")
@@ -853,7 +775,6 @@ class DriverLocationForOrderView(AsyncAPIView):
                 status=status.HTTP_403_FORBIDDEN,
             )
 
-        # Get accepted driver
         order_driver = await OrderDriver.objects.filter(
             order=order,
             status=OrderDriver.DriverRequestStatus.ACCEPTED,
@@ -878,13 +799,11 @@ class DriverLocationForOrderView(AsyncAPIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Get driver's vehicle details (first vehicle)
         from apps.accounts.models import VehicleDetails
         vehicle = await sync_to_async(
             lambda: VehicleDetails.objects.filter(user=driver).select_related('default_ride_type').first()
         )()
 
-        # Get completed trips count
         completed_trips_count = await sync_to_async(
             lambda: Order.objects.filter(
                 order_drivers__driver=driver,
@@ -893,7 +812,6 @@ class DriverLocationForOrderView(AsyncAPIView):
             ).count()
         )()
 
-        # Calculate average rating
         ratings = await sync_to_async(list)(
             TripRating.objects.filter(driver=driver, status='approved').values_list('rating', flat=True)
         )
@@ -901,8 +819,6 @@ class DriverLocationForOrderView(AsyncAPIView):
         if ratings:
             average_rating = round(sum(ratings) / len(ratings), 2)
 
-        # Build driver info data
-        # Get avatar URL
         avatar_url = None
         if driver.avatar:
             request_obj = request
@@ -937,27 +853,19 @@ class DriverLocationForOrderView(AsyncAPIView):
         )
 
 class PriceEstimateView(AsyncAPIView):
-    """
-    Get price estimates for all ride types
-    """
     permission_classes = [IsAuthenticated]
 
     @extend_schema(tags=['Order'], summary='Price estimate', description='Get price estimates for all active ride types (from/to coordinates).', request=PriceEstimateSerializer)
     async def post(self, request):
-        """
-        Calculate price estimates for all active ride types - ASYNC VERSION
-        """
         from apps.order.models import RideType
         from apps.order.services.surge_pricing_service import SurgePricingService, calculate_distance
         from decimal import Decimal
         
         serializer = PriceEstimateSerializer(data=request.data)
         
-        # Validate serializer (sync operation)
         is_valid = await sync_to_async(lambda: serializer.is_valid())()
         
         if is_valid:
-            # Get validated data (sync operation)
             validated_data = await sync_to_async(lambda: serializer.validated_data)()
             
             lat_from = float(validated_data['latitude_from'])
@@ -965,16 +873,12 @@ class PriceEstimateView(AsyncAPIView):
             lat_to = float(validated_data['latitude_to'])
             lon_to = float(validated_data['longitude_to'])
             
-            # Calculate distance (sync function, but can run in thread)
             distance_km = await sync_to_async(calculate_distance)(lat_from, lon_from, lat_to, lon_to)
             
-            # Get surge multiplier (sync function)
             surge_multiplier = await sync_to_async(SurgePricingService.get_multiplier)(lat_from, lon_from)
             
-            # Get all active ride types (async query)
             ride_types = await sync_to_async(list)(RideType.objects.filter(is_active=True))
             
-            # Process estimates (sync operations in async context)
             estimates = []
             for ride_type in ride_types:
                 if ride_type.base_price and ride_type.price_per_km:
@@ -1007,7 +911,6 @@ class PriceEstimateView(AsyncAPIView):
                 status=status.HTTP_200_OK
             )
         
-        # Get errors (sync operation)
         errors = await sync_to_async(lambda: serializer.errors)()
         return Response(
             {
@@ -1019,22 +922,14 @@ class PriceEstimateView(AsyncAPIView):
         )
 
 class OrderItemUpdateView(AsyncAPIView):
-    """
-    Update OrderItem with ride_type
-    """
     permission_classes = [IsAuthenticated]
 
     @extend_schema(tags=['Order'], summary='Update order item', description='Update order item (e.g. ride_type).', request=OrderItemUpdateSerializer)
     async def patch(self, request, order_item_id):
-        """
-        Update OrderItem with ride_type - ASYNC VERSION
-        """
         try:
-            # Optimize query: use select_related to avoid N+1 queries (async)
             order_item = await OrderItem.objects.select_related(
                 'order__user', 'ride_type'
             ).aget(id=order_item_id)
-            # Check if order belongs to user
             if order_item.order.user != request.user:
                 return Response(
                     {
@@ -1059,16 +954,12 @@ class OrderItemUpdateView(AsyncAPIView):
             context={'request': request}
         )
         
-        # Validate serializer (sync operation)
         is_valid = await sync_to_async(lambda: serializer.is_valid())()
         
         if is_valid:
-            # Save updated item (async)
             updated_item = await sync_to_async(serializer.save)()
-            # Re-fetch with optimized query to avoid N+1 in serializer (async)
             updated_item = await OrderItem.objects.select_related('ride_type').aget(pk=updated_item.pk)
             
-            # Serialize order item (sync operation wrapped)
             order_item_serializer = OrderItemSerializer(updated_item)
             serializer_data = await sync_to_async(lambda: order_item_serializer.data)()
             
@@ -1081,7 +972,6 @@ class OrderItemUpdateView(AsyncAPIView):
                 status=status.HTTP_200_OK
             )
         
-        # Get errors (sync operation)
         errors = await sync_to_async(lambda: serializer.errors)()
         return Response(
             {
@@ -1093,22 +983,14 @@ class OrderItemUpdateView(AsyncAPIView):
         )
 
 class OrderItemManagePriceView(AsyncAPIView):
-    """
-    Manage (adjust) OrderItem price
-    """
     permission_classes = [IsAuthenticated]
 
     @extend_schema(tags=['Order'], summary='Manage order item price', description='Adjust order item price.', request=OrderItemManagePriceSerializer)
     async def patch(self, request, order_item_id):
-        """
-        Adjust OrderItem price - ASYNC VERSION
-        """
         try:
-            # Optimize query: use select_related to avoid N+1 queries (async)
             order_item = await OrderItem.objects.select_related(
                 'order__user', 'ride_type'
             ).aget(id=order_item_id)
-            # Check if order belongs to user
             if order_item.order.user != request.user:
                 return Response(
                     {
@@ -1128,15 +1010,12 @@ class OrderItemManagePriceView(AsyncAPIView):
         
         serializer = OrderItemManagePriceSerializer(data=request.data)
         
-        # Validate serializer (sync operation)
         is_valid = await sync_to_async(lambda: serializer.is_valid())()
         
         if is_valid:
-            # Get validated data (sync operation)
             validated_data = await sync_to_async(lambda: serializer.validated_data)()
             adjusted_price = validated_data['adjusted_price']
             
-            # Check if original_price exists
             if not order_item.original_price:
                 return Response(
                     {
@@ -1146,14 +1025,12 @@ class OrderItemManagePriceView(AsyncAPIView):
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
-            # Ensure min_price and max_price are calculated (sync method)
             if not order_item.min_price or not order_item.max_price:
                 min_price, max_price = await sync_to_async(order_item.calculate_price_range)()
                 order_item.min_price = min_price
                 order_item.max_price = max_price
                 await sync_to_async(order_item.save)()
             
-            # Validate price range
             from decimal import Decimal
             adjusted_price_decimal = Decimal(str(adjusted_price))
             
@@ -1187,13 +1064,10 @@ class OrderItemManagePriceView(AsyncAPIView):
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
-            # Adjust price using the model method (sync method)
             try:
                 await sync_to_async(order_item.adjust_price)(float(adjusted_price))
-                # Re-fetch with optimized query to avoid N+1 in serializer (async)
                 order_item = await OrderItem.objects.select_related('ride_type').aget(pk=order_item.pk)
                 
-                # Serialize order item (sync operation wrapped)
                 order_item_serializer = OrderItemSerializer(order_item)
                 serializer_data = await sync_to_async(lambda: order_item_serializer.data)()
                 
@@ -1214,7 +1088,6 @@ class OrderItemManagePriceView(AsyncAPIView):
                     status=status.HTTP_400_BAD_REQUEST
                 )
         
-        # Get errors (sync operation)
         errors = await sync_to_async(lambda: serializer.errors)()
         return Response(
             {
@@ -1226,20 +1099,12 @@ class OrderItemManagePriceView(AsyncAPIView):
         )
 
 class OrderCancelView(AsyncAPIView):
-    """
-    Cancel an order
-    """
     permission_classes = [IsAuthenticated]
 
     @extend_schema(tags=['Order'], summary='Cancel order', description='Cancel an order. Body: reason, optional other_reason.', request=OrderCancelSerializer)
     async def post(self, request, order_id):
-        """
-        Cancel an order - ASYNC VERSION
-        """
         try:
-            # Optimize query: use select_related to avoid N+1 queries (async)
             order = await Order.objects.select_related('user').aget(id=order_id)
-            # Check if order belongs to user
             if order.user != request.user:
                 return Response(
                     {
@@ -1257,7 +1122,6 @@ class OrderCancelView(AsyncAPIView):
                 status=status.HTTP_404_NOT_FOUND
             )
         
-        # Check if order can be cancelled
         if order.status == Order.OrderStatus.CANCELLED:
             return Response(
                 {
@@ -1278,40 +1142,33 @@ class OrderCancelView(AsyncAPIView):
         
         serializer = OrderCancelSerializer(data=request.data)
         
-        # Validate serializer (sync operation)
         is_valid = await sync_to_async(lambda: serializer.is_valid())()
         
         if is_valid:
-            # Get validated data (sync operation)
             validated_data = await sync_to_async(lambda: serializer.validated_data)()
             reason = validated_data['reason']
             other_reason = validated_data.get('other_reason', '')
             
-            # Update order status to cancelled (async)
             order.status = Order.OrderStatus.CANCELLED
             await sync_to_async(order.save)()
             
-            # Create CancelOrder record if driver exists
-            from .models import OrderDriver, CancelOrder
             order_driver = await sync_to_async(
                 lambda: OrderDriver.objects.select_related('driver').filter(order=order).first()
             )()
             
-            if order_driver:
-                await sync_to_async(CancelOrder.objects.create)(
-                    order=order,
-                    driver=order_driver,
-                    reason=reason,
-                    other_reason=other_reason if reason == CancelOrder.CancelReason.OTHER else None
-                )
+            await sync_to_async(CancelOrder.objects.create)(
+                order=order,
+                driver=order_driver,
+                cancelled_by=CancelOrder.CancelledBy.RIDER,
+                reason=reason,
+                other_reason=other_reason if reason == CancelOrder.CancelReason.OTHER else None
+            )
             
-            # Re-fetch order with optimized query to avoid N+1 in serializer (async)
             order = await Order.objects.select_related('user').prefetch_related(
                 'order_items__ride_type',
                 'order_drivers__driver'
             ).aget(pk=order.pk)
             
-            # Serialize order (sync operation wrapped)
             order_serializer = OrderSerializer(order)
             serializer_data = await sync_to_async(lambda: order_serializer.data)()
             
@@ -1324,7 +1181,6 @@ class OrderCancelView(AsyncAPIView):
                 status=status.HTTP_200_OK
             )
         
-        # Get errors (sync operation)
         errors = await sync_to_async(lambda: serializer.errors)()
         return Response(
             {
@@ -1336,9 +1192,6 @@ class OrderCancelView(AsyncAPIView):
         )
 
 class MyOrderListView(AsyncAPIView):
-    """
-    Get current user's orders
-    """
     permission_classes = [IsAuthenticated]
 
     @extend_schema(
@@ -1353,23 +1206,17 @@ class MyOrderListView(AsyncAPIView):
         ],
     )
     async def get(self, request):
-        """
-        Get current user's orders with optional filtering - ASYNC VERSION
-        Optimized with select_related and prefetch_related to avoid N+1 queries
-        """
         from rest_framework.pagination import PageNumberPagination
         
-        # Get user's orders with optimized queries to avoid N+1 problem (async)
         orders_queryset = Order.objects.filter(user=request.user).select_related(
-            'user'  # Optimize user foreign key access
+            'user'
         ).prefetch_related(
-            'order_items__ride_type',  # Optimize order_items and ride_type access
-            'order_preferences',  # Optimize order preferences access
-            'order_drivers__driver',  # Optimize order drivers and driver access
-            'additional_passengers',  # Optimize additional passengers access
+            'order_items__ride_type',
+            'order_preferences',
+            'order_drivers__driver',
+            'additional_passengers',
         ).order_by('-created_at')
         
-        # Filter by status if provided
         status_filter = request.query_params.get('status', None)
         if status_filter:
             status_choices = await sync_to_async(lambda: [choice[0] for choice in Order.OrderStatus.choices])()
@@ -1387,7 +1234,6 @@ class MyOrderListView(AsyncAPIView):
                     status=status.HTTP_400_BAD_REQUEST
                 )
         
-        # Filter by order_type if provided
         order_type_filter = request.query_params.get('order_type', None)
         if order_type_filter:
             order_type_choices = await sync_to_async(lambda: [choice[0] for choice in Order.OrderType.choices])()
@@ -1405,28 +1251,22 @@ class MyOrderListView(AsyncAPIView):
                     status=status.HTTP_400_BAD_REQUEST
                 )
         
-        # Convert queryset to list (async)
         orders = await sync_to_async(list)(orders_queryset)
         
-        # Pagination (sync operation wrapped)
         paginator = PageNumberPagination()
         paginator.page_size = int(request.query_params.get('page_size', 10))
         paginated_orders = await sync_to_async(paginator.paginate_queryset)(orders, request)
         
         if paginated_orders is not None:
-            # Serialize orders (sync operation wrapped)
             serializer = OrderSerializer(paginated_orders, many=True)
             serializer_data = await sync_to_async(lambda: serializer.data)()
             
-            # Get paginated response (sync operation)
             response = await sync_to_async(paginator.get_paginated_response)(serializer_data)
-            # Add custom message and status to paginated response
             response.data['message'] = 'Orders retrieved successfully'
             response.data['status'] = 'success'
             response.data['data'] = response.data.pop('results')
             return response
         
-        # If no pagination
         serializer = OrderSerializer(orders, many=True)
         serializer_data = await sync_to_async(lambda: serializer.data)()
         orders_count = await sync_to_async(len)(orders)
@@ -1442,9 +1282,6 @@ class MyOrderListView(AsyncAPIView):
         )
 
 class DriverEarningsView(AsyncAPIView):
-    """
-    Get driver earnings summary (today, weekly, monthly, total).
-    """
     permission_classes = [IsAuthenticated]
 
     @extend_schema(tags=['Driver'], summary='Earnings', description='Get driver earnings summary (today, weekly, monthly, total). Role: Driver.')
@@ -1537,9 +1374,6 @@ class DriverEarningsView(AsyncAPIView):
         return 'Driver' in names
 
 class DriverRideHistoryView(AsyncAPIView):
-    """
-    Get driver ride history (completed orders).
-    """
     permission_classes = [IsAuthenticated]
 
     async def _check_driver_role(self, user):
@@ -1568,17 +1402,14 @@ class DriverRideHistoryView(AsyncAPIView):
 
         from rest_framework.pagination import PageNumberPagination
 
-        # Get completed orders for this driver
         completed_orders = Order.objects.filter(
             order_drivers__driver=user,
             order_drivers__status=OrderDriver.DriverRequestStatus.ACCEPTED,
             status=Order.OrderStatus.COMPLETED
         ).select_related('user').prefetch_related('order_items').order_by('-updated_at')
 
-        # Convert to list (async)
         orders = await sync_to_async(list)(completed_orders)
 
-        # Pagination
         paginator = PageNumberPagination()
         paginator.page_size = int(request.query_params.get('page_size', 10))
         paginated_orders = await sync_to_async(paginator.paginate_queryset)(orders, request)
@@ -1593,7 +1424,6 @@ class DriverRideHistoryView(AsyncAPIView):
             response.data['data'] = response.data.pop('results')
             return response
 
-        # If no pagination
         serializer = DriverRideHistorySerializer(orders, many=True)
         serializer_data = await sync_to_async(lambda: serializer.data)()
         count = await sync_to_async(len)(orders)
@@ -1609,9 +1439,6 @@ class DriverRideHistoryView(AsyncAPIView):
         )
 
 class DriverOnlineStatusView(AsyncAPIView):
-    """
-    Get or update driver online/offline status.
-    """
     permission_classes = [IsAuthenticated]
 
     async def _check_driver_role(self, user):
@@ -1633,7 +1460,6 @@ class DriverOnlineStatusView(AsyncAPIView):
                 status=status.HTTP_403_FORBIDDEN,
             )
 
-        # Refresh user from database to get latest is_online status
         user = await CustomUser.objects.aget(id=user.id)
 
         serializer = DriverOnlineStatusSerializer({'is_online': user.is_online})
@@ -1679,7 +1505,6 @@ class DriverOnlineStatusView(AsyncAPIView):
         data = await sync_to_async(lambda: serializer.validated_data)()
         is_online = data['is_online']
 
-        # Update user's online status
         user.is_online = is_online
         await sync_to_async(user.save)(update_fields=['is_online'])
 
@@ -1696,9 +1521,6 @@ class DriverOnlineStatusView(AsyncAPIView):
         )
 
 class TripRatingCreateView(AsyncAPIView):
-    """
-    Create a rating for a completed trip.
-    """
     permission_classes = [IsAuthenticated]
 
     @extend_schema(tags=['Rating'], summary='Create rating', description='Create a rating for a completed trip.', request=TripRatingCreateSerializer)
@@ -1726,7 +1548,6 @@ class TripRatingCreateView(AsyncAPIView):
         tip_amount = validated_data.get('tip_amount', 0)
         feedback_tag_ids = validated_data.get('feedback_tag_ids', [])
 
-        # Get order and verify ownership
         try:
             order = await Order.objects.select_related('user').prefetch_related(
                 'order_drivers__driver'
@@ -1749,7 +1570,6 @@ class TripRatingCreateView(AsyncAPIView):
                 status=status.HTTP_403_FORBIDDEN,
             )
 
-        # Get driver from order
         order_driver = await sync_to_async(
             lambda: order.order_drivers.filter(status=OrderDriver.DriverRequestStatus.ACCEPTED).first()
         )()
@@ -1765,7 +1585,6 @@ class TripRatingCreateView(AsyncAPIView):
 
         driver = order_driver.driver
 
-        # Create rating
         trip_rating = await sync_to_async(TripRating.objects.create)(
             order=order,
             rider=user,
@@ -1775,7 +1594,6 @@ class TripRatingCreateView(AsyncAPIView):
             tip_amount=tip_amount or 0,
         )
 
-        # Add feedback tags if provided
         if feedback_tag_ids:
             from apps.order.models import RatingFeedbackTag
             tags = await sync_to_async(list)(
@@ -1783,7 +1601,6 @@ class TripRatingCreateView(AsyncAPIView):
             )
             await sync_to_async(trip_rating.feedback_tags.set)(tags)
 
-        # Re-fetch with tags
         trip_rating = await TripRating.objects.select_related(
             'order', 'rider', 'driver'
         ).prefetch_related('feedback_tags').aget(pk=trip_rating.pk)
@@ -1801,9 +1618,6 @@ class TripRatingCreateView(AsyncAPIView):
         )
 
 class RatingFeedbackTagsListView(AsyncAPIView):
-    """
-    Get available feedback tags based on rating value.
-    """
     permission_classes = [IsAuthenticated]
 
     @extend_schema(
@@ -1844,10 +1658,8 @@ class RatingFeedbackTagsListView(AsyncAPIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Determine tag type based on rating
         tag_type = 'positive' if rating >= 4 else 'negative'
 
-        # Get tags
         from apps.order.models import RatingFeedbackTag
         tags = await sync_to_async(list)(
             RatingFeedbackTag.objects.filter(tag_type=tag_type, is_active=True).order_by('name')
@@ -1868,3 +1680,188 @@ class RatingFeedbackTagsListView(AsyncAPIView):
             },
             status=status.HTTP_200_OK,
         )
+
+
+class OrderChatDetailView(AsyncAPIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(tags=['Order Chat'], summary='Get order chat', description='Get chat for a specific order. Returns chat details if exists.')
+    async def get(self, request, order_id: int):
+        user = request.user
+
+        try:
+            order = await Order.objects.select_related('user').aget(id=order_id)
+        except Order.DoesNotExist:
+            return Response({'message': 'Order not found', 'status': 'error'}, status=status.HTTP_404_NOT_FOUND)
+
+        order_driver = await OrderDriver.objects.filter(
+            order=order,
+            status=OrderDriver.DriverRequestStatus.ACCEPTED
+        ).select_related('driver').afirst()
+
+        is_rider = order.user == user
+        is_driver = order_driver and order_driver.driver == user
+
+        if not is_rider and not is_driver:
+            return Response({'message': 'You do not have access to this chat', 'status': 'error'}, status=status.HTTP_403_FORBIDDEN)
+
+        try:
+            chat = await OrderChat.objects.select_related('rider', 'driver', 'order').aget(order=order)
+        except OrderChat.DoesNotExist:
+            return Response({'message': 'Chat not found. Chat is created when driver accepts the order.', 'status': 'error'}, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = OrderChatSerializer(chat, context={'request': request})
+        data = await sync_to_async(lambda: serializer.data)()
+
+        return Response({'message': 'Chat retrieved successfully', 'status': 'success', 'data': data}, status=status.HTTP_200_OK)
+
+
+class OrderChatMessagesView(AsyncAPIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        tags=['Order Chat'],
+        summary='Get chat messages',
+        description='Get all messages in an order chat. Marks messages as read.',
+        parameters=[OpenApiParameter('page_size', OpenApiTypes.INT, OpenApiParameter.QUERY, required=False, description='Number of messages per page')]
+    )
+    async def get(self, request, order_id: int):
+        user = request.user
+
+        try:
+            order = await Order.objects.select_related('user').aget(id=order_id)
+        except Order.DoesNotExist:
+            return Response({'message': 'Order not found', 'status': 'error'}, status=status.HTTP_404_NOT_FOUND)
+
+        order_driver = await OrderDriver.objects.filter(
+            order=order,
+            status=OrderDriver.DriverRequestStatus.ACCEPTED
+        ).select_related('driver').afirst()
+
+        is_rider = order.user == user
+        is_driver = order_driver and order_driver.driver == user
+
+        if not is_rider and not is_driver:
+            return Response({'message': 'You do not have access to this chat', 'status': 'error'}, status=status.HTTP_403_FORBIDDEN)
+
+        try:
+            chat = await OrderChat.objects.aget(order=order)
+        except OrderChat.DoesNotExist:
+            return Response({'message': 'Chat not found', 'status': 'error'}, status=status.HTTP_404_NOT_FOUND)
+
+        messages = OrderChatMessage.objects.filter(chat=chat).select_related('sender').order_by('created_at')
+        messages_list = await sync_to_async(list)(messages)
+
+        if is_rider:
+            await sync_to_async(lambda: OrderChatMessage.objects.filter(chat=chat, sender_type='driver', is_read=False).update(is_read=True))()
+            chat.unread_count_rider = 0
+            await sync_to_async(chat.save)(update_fields=['unread_count_rider'])
+        else:
+            await sync_to_async(lambda: OrderChatMessage.objects.filter(chat=chat, sender_type='rider', is_read=False).update(is_read=True))()
+            chat.unread_count_driver = 0
+            await sync_to_async(chat.save)(update_fields=['unread_count_driver'])
+
+        serializer = OrderChatMessageSerializer(messages_list, many=True, context={'request': request})
+        data = await sync_to_async(lambda: serializer.data)()
+
+        return Response({
+            'message': 'Messages retrieved successfully',
+            'status': 'success',
+            'data': data,
+            'count': len(messages_list)
+        }, status=status.HTTP_200_OK)
+
+
+class OrderChatSendMessageView(AsyncAPIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(tags=['Order Chat'], summary='Send message', description='Send a message in an order chat.', request=OrderChatSendMessageSerializer)
+    async def post(self, request, order_id: int):
+        user = request.user
+
+        serializer = OrderChatSendMessageSerializer(data=request.data)
+        is_valid = await sync_to_async(lambda: serializer.is_valid())()
+        if not is_valid:
+            errors = await sync_to_async(lambda: serializer.errors)()
+            return Response({'message': 'Validation error', 'status': 'error', 'errors': errors}, status=status.HTTP_400_BAD_REQUEST)
+
+        message_text = (await sync_to_async(lambda: serializer.validated_data)())['message']
+
+        try:
+            order = await Order.objects.select_related('user').aget(id=order_id)
+        except Order.DoesNotExist:
+            return Response({'message': 'Order not found', 'status': 'error'}, status=status.HTTP_404_NOT_FOUND)
+
+        order_driver = await OrderDriver.objects.filter(
+            order=order,
+            status=OrderDriver.DriverRequestStatus.ACCEPTED
+        ).select_related('driver').afirst()
+
+        is_rider = order.user == user
+        is_driver = order_driver and order_driver.driver == user
+
+        if not is_rider and not is_driver:
+            return Response({'message': 'You do not have access to this chat', 'status': 'error'}, status=status.HTTP_403_FORBIDDEN)
+
+        try:
+            chat = await OrderChat.objects.aget(order=order)
+        except OrderChat.DoesNotExist:
+            return Response({'message': 'Chat not found', 'status': 'error'}, status=status.HTTP_404_NOT_FOUND)
+
+        from django.utils import timezone
+        sender_type = 'rider' if is_rider else 'driver'
+
+        message = await sync_to_async(OrderChatMessage.objects.create)(
+            chat=chat,
+            sender=user,
+            sender_type=sender_type,
+            message=message_text
+        )
+
+        chat.last_message_at = timezone.now()
+        if sender_type == 'rider':
+            chat.unread_count_driver += 1
+        else:
+            chat.unread_count_rider += 1
+        await sync_to_async(chat.save)()
+
+        try:
+            from channels.layers import get_channel_layer
+            from asgiref.sync import async_to_sync
+            channel_layer = get_channel_layer()
+            if channel_layer:
+                sender_name = user.get_full_name() or user.username
+                group_name = f'order_chat_{order_id}'
+                await channel_layer.group_send(group_name, {
+                    'type': 'chat_message',
+                    'message_id': message.id,
+                    'message': message_text,
+                    'sender_id': user.id,
+                    'sender_name': sender_name,
+                    'sender_type': sender_type,
+                    'created_at': message.created_at.isoformat(),
+                    'attachment_url': None,
+                    'file_type': None,
+                    'file_name': None,
+                })
+        except Exception:
+            pass
+
+        try:
+            from apps.notification.tasks import send_push_notification_async
+            receiver_id = chat.driver.id if is_rider else chat.rider.id
+            sender_name = user.get_full_name() or user.username
+            message_preview = message_text[:50] + '...' if len(message_text) > 50 else message_text
+            send_push_notification_async.delay(
+                user_id=receiver_id,
+                title=f"New message from {sender_name}",
+                body=message_preview,
+                data={"type": "order_chat_message", "order_id": order_id, "message_id": message.id}
+            )
+        except Exception:
+            pass
+
+        msg_serializer = OrderChatMessageSerializer(message, context={'request': request})
+        data = await sync_to_async(lambda: msg_serializer.data)()
+
+        return Response({'message': 'Message sent successfully', 'status': 'success', 'data': data}, status=status.HTTP_201_CREATED)
