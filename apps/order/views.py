@@ -31,8 +31,7 @@ from .serializers import (
     RatingFeedbackTagSerializer,
 )
 from .serializers.cancel_order import OrderCancelSerializer, DriverCancelSerializer
-from .serializers.order_chat import OrderChatSerializer, OrderChatMessageSerializer, OrderChatSendMessageSerializer
-from .models import Order, OrderItem, OrderDriver, OrderPreferences, TripRating, CancelOrder, OrderChat, OrderChatMessage
+from .models import Order, OrderItem, OrderDriver, OrderPreferences, TripRating, CancelOrder
 from apps.accounts.models import CustomUser, DriverPreferences
 from .services.surge_pricing_service import calculate_distance
 from .services.driver_assignment_service import DriverAssignmentService
@@ -417,18 +416,16 @@ class DriverOrderActionView(AsyncAPIView):
             await sync_to_async(order.save)()
             
             try:
-                from .models import OrderChat
-                await sync_to_async(OrderChat.objects.get_or_create)(
-                    order=order,
-                    defaults={
-                        'rider': order.user,
-                        'driver': user,
-                        'status': OrderChat.ChatStatus.ACTIVE
-                    }
-                )
+                from apps.chat.models import ChatRoom
+                def set_receiver_and_status():
+                    ChatRoom.objects.filter(order=order).update(
+                        receiver=user,
+                        status=ChatRoom.RoomStatus.PROCESS,
+                    )
+                await sync_to_async(set_receiver_and_status)()
             except Exception as e:
                 import logging
-                logging.getLogger(__name__).error(f"Failed to create OrderChat for order {order.id}: {e}")
+                logging.getLogger(__name__).error(f"Failed to update ChatRoom for order {order.id}: {e}")
             
             try:
                 from apps.notification.services import send_push_to_user
@@ -592,7 +589,12 @@ class DriverCompleteView(AsyncAPIView):
         order.status = Order.OrderStatus.COMPLETED
         await sync_to_async(order_driver.save)(update_fields=['completed_at'])
         await sync_to_async(order.save)(update_fields=['status'])
-
+        try:
+            from apps.chat.models import ChatRoom
+            await sync_to_async(lambda: ChatRoom.objects.filter(order=order).update(status=ChatRoom.RoomStatus.COMPLETED))()
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).error(f"Failed to update ChatRoom status for order {order.id}: {e}")
         try:
             from apps.notification.services import send_push_to_user
             send_push_to_user(
@@ -665,7 +667,12 @@ class DriverCancelOrderView(AsyncAPIView):
 
         order.status = Order.OrderStatus.CANCELLED
         await sync_to_async(order.save)(update_fields=['status'])
-
+        try:
+            from apps.chat.models import ChatRoom
+            await sync_to_async(lambda: ChatRoom.objects.filter(order=order).update(status=ChatRoom.RoomStatus.CANCEL))()
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).error(f"Failed to update ChatRoom status for order {order.id}: {e}")
         await sync_to_async(CancelOrder.objects.create)(
             order=order,
             driver=order_driver,
@@ -1151,7 +1158,12 @@ class OrderCancelView(AsyncAPIView):
             
             order.status = Order.OrderStatus.CANCELLED
             await sync_to_async(order.save)()
-            
+            try:
+                from apps.chat.models import ChatRoom
+                await sync_to_async(lambda: ChatRoom.objects.filter(order=order).update(status=ChatRoom.RoomStatus.CANCEL))()
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).error(f"Failed to update ChatRoom status for order {order.id}: {e}")
             order_driver = await sync_to_async(
                 lambda: OrderDriver.objects.select_related('driver').filter(order=order).first()
             )()
@@ -1706,13 +1718,15 @@ class OrderChatDetailView(AsyncAPIView):
             return Response({'message': 'You do not have access to this chat', 'status': 'error'}, status=status.HTTP_403_FORBIDDEN)
 
         try:
-            chat = await OrderChat.objects.select_related('rider', 'driver', 'order').aget(order=order)
-        except OrderChat.DoesNotExist:
-            return Response({'message': 'Chat not found. Chat is created when driver accepts the order.', 'status': 'error'}, status=status.HTTP_404_NOT_FOUND)
-
-        serializer = OrderChatSerializer(chat, context={'request': request})
+            from apps.chat.models import ChatRoom
+            from apps.chat.serializers.room import ChatRoomSerializer
+            room = await ChatRoom.objects.select_related('order', 'initiator', 'receiver').aget(order=order)
+        except Exception:
+            room = None
+        if not room:
+            return Response({'message': 'Chat room not found', 'status': 'error'}, status=status.HTTP_404_NOT_FOUND)
+        serializer = ChatRoomSerializer(room, context={'request': request})
         data = await sync_to_async(lambda: serializer.data)()
-
         return Response({'message': 'Chat retrieved successfully', 'status': 'success', 'data': data}, status=status.HTTP_200_OK)
 
 
@@ -1745,23 +1759,17 @@ class OrderChatMessagesView(AsyncAPIView):
             return Response({'message': 'You do not have access to this chat', 'status': 'error'}, status=status.HTTP_403_FORBIDDEN)
 
         try:
-            chat = await OrderChat.objects.aget(order=order)
-        except OrderChat.DoesNotExist:
-            return Response({'message': 'Chat not found', 'status': 'error'}, status=status.HTTP_404_NOT_FOUND)
+            from apps.chat.models import ChatRoom, ChatMessage
+            from apps.chat.serializers.room import ChatMessageSerializer
+            room = await ChatRoom.objects.aget(order=order)
+        except Exception:
+            room = None
+        if not room:
+            return Response({'message': 'Chat room not found', 'status': 'error'}, status=status.HTTP_404_NOT_FOUND)
 
-        messages = OrderChatMessage.objects.filter(chat=chat).select_related('sender').order_by('created_at')
+        messages = ChatMessage.objects.filter(room=room).select_related('sender').order_by('created_at')
         messages_list = await sync_to_async(list)(messages)
-
-        if is_rider:
-            await sync_to_async(lambda: OrderChatMessage.objects.filter(chat=chat, sender_type='driver', is_read=False).update(is_read=True))()
-            chat.unread_count_rider = 0
-            await sync_to_async(chat.save)(update_fields=['unread_count_rider'])
-        else:
-            await sync_to_async(lambda: OrderChatMessage.objects.filter(chat=chat, sender_type='rider', is_read=False).update(is_read=True))()
-            chat.unread_count_driver = 0
-            await sync_to_async(chat.save)(update_fields=['unread_count_driver'])
-
-        serializer = OrderChatMessageSerializer(messages_list, many=True, context={'request': request})
+        serializer = ChatMessageSerializer(messages_list, many=True, context={'request': request})
         data = await sync_to_async(lambda: serializer.data)()
 
         return Response({
@@ -1770,98 +1778,3 @@ class OrderChatMessagesView(AsyncAPIView):
             'data': data,
             'count': len(messages_list)
         }, status=status.HTTP_200_OK)
-
-
-class OrderChatSendMessageView(AsyncAPIView):
-    permission_classes = [IsAuthenticated]
-
-    @extend_schema(tags=['Order Chat'], summary='Send message', description='Send a message in an order chat.', request=OrderChatSendMessageSerializer)
-    async def post(self, request, order_id: int):
-        user = request.user
-
-        serializer = OrderChatSendMessageSerializer(data=request.data)
-        is_valid = await sync_to_async(lambda: serializer.is_valid())()
-        if not is_valid:
-            errors = await sync_to_async(lambda: serializer.errors)()
-            return Response({'message': 'Validation error', 'status': 'error', 'errors': errors}, status=status.HTTP_400_BAD_REQUEST)
-
-        message_text = (await sync_to_async(lambda: serializer.validated_data)())['message']
-
-        try:
-            order = await Order.objects.select_related('user').aget(id=order_id)
-        except Order.DoesNotExist:
-            return Response({'message': 'Order not found', 'status': 'error'}, status=status.HTTP_404_NOT_FOUND)
-
-        order_driver = await OrderDriver.objects.filter(
-            order=order,
-            status=OrderDriver.DriverRequestStatus.ACCEPTED
-        ).select_related('driver').afirst()
-
-        is_rider = order.user == user
-        is_driver = order_driver and order_driver.driver == user
-
-        if not is_rider and not is_driver:
-            return Response({'message': 'You do not have access to this chat', 'status': 'error'}, status=status.HTTP_403_FORBIDDEN)
-
-        try:
-            chat = await OrderChat.objects.aget(order=order)
-        except OrderChat.DoesNotExist:
-            return Response({'message': 'Chat not found', 'status': 'error'}, status=status.HTTP_404_NOT_FOUND)
-
-        from django.utils import timezone
-        sender_type = 'rider' if is_rider else 'driver'
-
-        message = await sync_to_async(OrderChatMessage.objects.create)(
-            chat=chat,
-            sender=user,
-            sender_type=sender_type,
-            message=message_text
-        )
-
-        chat.last_message_at = timezone.now()
-        if sender_type == 'rider':
-            chat.unread_count_driver += 1
-        else:
-            chat.unread_count_rider += 1
-        await sync_to_async(chat.save)()
-
-        try:
-            from channels.layers import get_channel_layer
-            from asgiref.sync import async_to_sync
-            channel_layer = get_channel_layer()
-            if channel_layer:
-                sender_name = user.get_full_name() or user.username
-                group_name = f'order_chat_{order_id}'
-                await channel_layer.group_send(group_name, {
-                    'type': 'chat_message',
-                    'message_id': message.id,
-                    'message': message_text,
-                    'sender_id': user.id,
-                    'sender_name': sender_name,
-                    'sender_type': sender_type,
-                    'created_at': message.created_at.isoformat(),
-                    'attachment_url': None,
-                    'file_type': None,
-                    'file_name': None,
-                })
-        except Exception:
-            pass
-
-        try:
-            from apps.notification.tasks import send_push_notification_async
-            receiver_id = chat.driver.id if is_rider else chat.rider.id
-            sender_name = user.get_full_name() or user.username
-            message_preview = message_text[:50] + '...' if len(message_text) > 50 else message_text
-            send_push_notification_async.delay(
-                user_id=receiver_id,
-                title=f"New message from {sender_name}",
-                body=message_preview,
-                data={"type": "order_chat_message", "order_id": order_id, "message_id": message.id}
-            )
-        except Exception:
-            pass
-
-        msg_serializer = OrderChatMessageSerializer(message, context={'request': request})
-        data = await sync_to_async(lambda: msg_serializer.data)()
-
-        return Response({'message': 'Message sent successfully', 'status': 'success', 'data': data}, status=status.HTTP_201_CREATED)

@@ -24,7 +24,6 @@ from .views import (
     RatingFeedbackTagsListView,
     OrderChatDetailView,
     OrderChatMessagesView,
-    OrderChatSendMessageView,
 )
 
 urlpatterns = [
@@ -62,5 +61,4 @@ urlpatterns = [
     # Order chat (Rider <-> Driver)
     path('<int:order_id>/chat/', OrderChatDetailView.as_view(), name='order-chat-detail'),
     path('<int:order_id>/chat/messages/', OrderChatMessagesView.as_view(), name='order-chat-messages'),
-    path('<int:order_id>/chat/send/', OrderChatSendMessageView.as_view(), name='order-chat-send'),
 ]

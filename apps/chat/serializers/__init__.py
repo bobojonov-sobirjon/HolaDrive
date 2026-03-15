@@ -1,12 +1,6 @@
-from .conversation import ConversationSerializer, ConversationListSerializer, ConversationCreateSerializer
-from .message import MessageSerializer, MessageCreateSerializer, MessageMarkAsReadSerializer
+from .room import ChatRoomSerializer, ChatMessageSerializer
 
 __all__ = [
-    'ConversationSerializer',
-    'ConversationListSerializer',
-    'ConversationCreateSerializer',
-    'MessageSerializer',
-    'MessageCreateSerializer',
-    'MessageMarkAsReadSerializer',
+    'ChatRoomSerializer',
+    'ChatMessageSerializer',
 ]
-

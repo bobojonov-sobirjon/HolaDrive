@@ -15,9 +15,9 @@ except ImportError:
 
 SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-dev-only-key-change-in-production')
 
-DEBUG = os.getenv('DEBUG', 'False').lower() == 'true'
+DEBUG = True
 
-ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
+ALLOWED_HOSTS = ['*']
 
 # WebSocket Configuration
 WEBSOCKET_HOST = os.getenv('WEBSOCKET_HOST', None)
@@ -65,6 +65,7 @@ LOCAL_MIDDLEWARE = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -144,7 +145,7 @@ USE_TZ = True
 
 
 
-STATIC_URL = 'static/'
+STATIC_URL = '/static/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 
 MEDIA_URL = "/media/"
@@ -252,11 +253,17 @@ ASGI_APPLICATION = 'config.asgi.application'
 # InMemoryChannelLayer - Redis o'rnatilmagan bo'lsa ishlatiladi
 # Real-time new_order/order_timeout (Celery dan) uchun Redis kerak: pip install channels-redis
 # Redis o'rnatilgan bo'lsa default=true. O'chirish uchun CHANNEL_LAYERS_REDIS=false
+# Redis 5.0 dan eski bo'lsa RedisChannelLayer "BZPOPMIN" xatosi beradi — RedisPubSubChannelLayer ishlatamiz
 _use_redis = os.getenv('CHANNEL_LAYERS_REDIS', 'true').lower() == 'true'
+_channel_backend = (
+    'channels_redis.pubsub.RedisPubSubChannelLayer'  # Redis 4.x ham ishlaydi (BZPOPMIN kerak emas)
+    if _use_redis
+    else None
+)
 CHANNEL_LAYERS = {
     'default': {
-        'BACKEND': 'channels_redis.core.RedisChannelLayer',
-        'CONFIG': {'hosts': [os.getenv('REDIS_URL', 'redis://localhost:6379/1')]},
+        'BACKEND': _channel_backend or 'channels.layers.InMemoryChannelLayer',
+        'CONFIG': {'hosts': [os.getenv('REDIS_URL', 'redis://localhost:6379/1')]} if _channel_backend else {},
     } if _use_redis else {
         'BACKEND': 'channels.layers.InMemoryChannelLayer',
     },
@@ -313,6 +320,11 @@ LOGGING = {
             'level': 'DEBUG' if DEBUG else 'INFO',
             'propagate': False,
         },
+        'config.middleware': {
+            'handlers': ['console'],
+            'level': 'DEBUG' if DEBUG else 'INFO',
+            'propagate': False,
+        },
     },
 }
 
@@ -326,6 +338,7 @@ if os.path.exists(LOGS_DIR):
     LOGGING['loggers']['apps.accounts']['handlers'].append('file')
     LOGGING['loggers']['apps.notification']['handlers'].append('file')
     LOGGING['loggers']['apps.order']['handlers'].append('file')
+    LOGGING['loggers']['config.middleware']['handlers'].append('file')
 
 CELERY_BROKER_URL = os.getenv('CELERY_BROKER_URL', 'redis://localhost:6379/0')
 CELERY_RESULT_BACKEND = os.getenv('CELERY_RESULT_BACKEND', 'redis://localhost:6379/0')

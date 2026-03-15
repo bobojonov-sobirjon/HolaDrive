@@ -1,21 +1,12 @@
 from django.urls import path
-from apps.chat.views import (
-    ConversationCreateView,
-    ConversationListView,
-    ConversationDetailView,
-    ConversationUpdateView,
-    MessageListView,
-    MessageCreateView,
-    MessageMarkAsReadView
+from apps.chat.views.room import (
+    ChatRoomListView,
+    ChatRoomMessagesView,
 )
 
 urlpatterns = [
-    path('conversations/', ConversationCreateView.as_view(), name='conversation-create'),
-    path('conversations/list/', ConversationListView.as_view(), name='conversation-list'),
-    path('conversations/<int:conversation_id>/', ConversationDetailView.as_view(), name='conversation-detail'),
-    path('conversations/<int:conversation_id>/update/', ConversationUpdateView.as_view(), name='conversation-update'),
-    
-    path('conversations/<int:conversation_id>/messages/', MessageListView.as_view(), name='message-list'),
-    path('conversations/<int:conversation_id>/messages/send/', MessageCreateView.as_view(), name='message-create'),
-    path('conversations/<int:conversation_id>/messages/mark-read/', MessageMarkAsReadView.as_view(), name='message-mark-read'),
+    path('rooms/', ChatRoomListView.as_view(), name='chat-rooms-list'),
+    path('rooms/rider/', ChatRoomListView.as_view(), {'list_type': 'rider'}, name='chat-rooms-rider'),
+    path('rooms/driver/', ChatRoomListView.as_view(), {'list_type': 'driver'}, name='chat-rooms-driver'),
+    path('rooms/<int:room_id>/messages/', ChatRoomMessagesView.as_view(), name='chat-room-messages'),
 ]

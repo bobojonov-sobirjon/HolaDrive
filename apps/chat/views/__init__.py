@@ -1,22 +1,9 @@
-from .conversation import (
-    ConversationCreateView,
-    ConversationListView,
-    ConversationDetailView,
-    ConversationUpdateView
-)
-from .message import (
-    MessageListView,
-    MessageCreateView,
-    MessageMarkAsReadView
+from .room import (
+    ChatRoomListView,
+    ChatRoomMessagesView,
 )
 
 __all__ = [
-    'ConversationCreateView',
-    'ConversationListView',
-    'ConversationDetailView',
-    'ConversationUpdateView',
-    'MessageListView',
-    'MessageCreateView',
-    'MessageMarkAsReadView',
+    'ChatRoomListView',
+    'ChatRoomMessagesView',
 ]
-

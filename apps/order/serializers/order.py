@@ -64,7 +64,17 @@ class OrderCreateSerializer(serializers.Serializer):
             stop_sequence=1,
             is_final_stop=True
         )
-        
+        try:
+            from apps.chat.models import ChatRoom
+            ChatRoom.objects.create(
+                order=order,
+                initiator=user,
+                receiver=None,
+                status=ChatRoom.RoomStatus.PENDING,
+            )
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).error(f"Failed to create ChatRoom for order {order.id}: {e}")
         try:
             from apps.order.tasks import assign_driver_to_order_async
             assign_driver_to_order_async.delay(order.id)

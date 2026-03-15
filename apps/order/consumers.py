@@ -1,7 +1,10 @@
 import json
+import logging
 from channels.generic.websocket import AsyncWebsocketConsumer
 from channels.db import database_sync_to_async
 from django.contrib.auth.models import Group
+
+logger = logging.getLogger(__name__)
 
 
 class DriverOrdersConsumer(AsyncWebsocketConsumer):
@@ -10,13 +13,25 @@ class DriverOrdersConsumer(AsyncWebsocketConsumer):
         self.user = self.scope['user']
 
         if self.user.is_anonymous:
-            await self.close()
+            logger.info(
+                "[WS driver/orders] Reject: anonymous (no valid token)",
+            )
+            await self.close(code=4401)
             return
 
         is_driver = await self._check_driver_role(self.user)
         if not is_driver:
-            await self.close()
+            logger.info(
+                "[WS driver/orders] Reject: user id=%s not in Driver group",
+                getattr(self.user, "id", None),
+            )
+            await self.close(code=4403)
             return
+
+        logger.info(
+            "[WS driver/orders] Accept: user_id=%s",
+            self.user.id,
+        )
 
         self.driver_id = self.user.id
         self.room_group_name = f'driver_orders_{self.driver_id}'
@@ -178,21 +193,21 @@ class OrderChatConsumer(AsyncWebsocketConsumer):
     
     @database_sync_to_async
     def get_chat(self):
-        from .models import OrderChat
+        from apps.chat.models import ChatRoom
         try:
-            return OrderChat.objects.select_related('rider', 'driver', 'order').get(order_id=self.order_id)
-        except OrderChat.DoesNotExist:
+            return ChatRoom.objects.select_related('initiator', 'receiver', 'order').get(order_id=self.order_id)
+        except Exception:
             return None
-    
+
     @database_sync_to_async
     def has_access(self, chat):
-        return self.user == chat.rider or self.user == chat.driver
-    
+        return self.user == chat.initiator or (chat.receiver and self.user == chat.receiver)
+
     @database_sync_to_async
     def get_user_type(self, chat):
-        if self.user == chat.rider:
+        if self.user == chat.initiator:
             return 'rider'
-        elif self.user == chat.driver:
+        if chat.receiver and self.user == chat.receiver:
             return 'driver'
         return None
     
@@ -223,41 +238,29 @@ class OrderChatConsumer(AsyncWebsocketConsumer):
     
     @database_sync_to_async
     def _save_message_to_db(self, message_text):
-        from .models import OrderChat, OrderChatMessage
-        from django.utils import timezone
+        from apps.chat.models import ChatRoom, ChatMessage
         try:
-            chat = OrderChat.objects.get(order_id=self.order_id)
-            
-            sender_type = 'rider' if self.user == chat.rider else 'driver'
-            
-            message = OrderChatMessage.objects.create(
-                chat=chat,
+            room = ChatRoom.objects.get(order_id=self.order_id)
+            sender_type = 'rider' if self.user == room.initiator else 'driver'
+            message = ChatMessage.objects.create(
+                room=room,
                 sender=self.user,
-                sender_type=sender_type,
                 message=message_text,
-                is_read=False
             )
-            
-            chat.last_message_at = timezone.now()
-            if sender_type == 'rider':
-                chat.unread_count_driver += 1
-            else:
-                chat.unread_count_rider += 1
-            chat.save()
-            
-            sender_name = self.user.get_full_name() or self.user.username
-            
+            room.save(update_fields=['updated_at'])
+            sender_name = self.user.get_full_name() or getattr(self.user, 'username', None) or self.user.email
+            receiver_id = room.receiver_id if sender_type == 'rider' else room.initiator_id
             return {
                 'message_id': message.id,
                 'message': message_text,
                 'sender_id': self.user.id,
-                'sender_name': sender_name,
+                'sender_name': sender_name or 'Unknown',
                 'sender_type': sender_type,
                 'created_at': message.created_at.isoformat(),
-                'attachment_url': message.attachment.url if message.attachment else None,
-                'file_type': message.file_type,
-                'file_name': message.file_name,
-                'receiver_id': chat.driver.id if sender_type == 'rider' else chat.rider.id
+                'attachment_url': None,
+                'file_type': None,
+                'file_name': None,
+                'receiver_id': receiver_id,
             }
         except Exception:
             return None
@@ -299,25 +302,4 @@ class OrderChatConsumer(AsyncWebsocketConsumer):
     
     @database_sync_to_async
     def mark_messages_as_read(self):
-        from .models import OrderChat, OrderChatMessage
-        try:
-            chat = OrderChat.objects.get(order_id=self.order_id)
-            
-            if self.user == chat.rider:
-                OrderChatMessage.objects.filter(
-                    chat=chat,
-                    sender_type='driver',
-                    is_read=False
-                ).update(is_read=True)
-                chat.unread_count_rider = 0
-            else:
-                OrderChatMessage.objects.filter(
-                    chat=chat,
-                    sender_type='rider',
-                    is_read=False
-                ).update(is_read=True)
-                chat.unread_count_driver = 0
-            
-            chat.save()
-        except Exception:
-            pass
+        pass
