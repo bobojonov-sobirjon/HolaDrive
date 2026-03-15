@@ -21,7 +21,7 @@ def get_driver_current_orders(driver):
     order_drivers = OrderDriver.objects.filter(
         driver=driver,
         status=OrderDriver.DriverRequestStatus.REQUESTED
-    ).select_related('order', 'order__user').prefetch_related('order__order_items')
+    ).select_related('order', 'order__user').prefetch_related('order__order_items__ride_type')
 
     orders_data = []
     for order_driver in order_drivers:
@@ -58,6 +58,16 @@ def _order_to_dict(order, driver=None, requested_at=None):
                 net_price += float(calculated)
             except (TypeError, ValueError, AttributeError):
                 pass
+        elif item.distance_km:
+            # No price/ride_type yet: use first active RideType for estimated price so driver sees non-zero
+            try:
+                from ..models import RideType
+                fallback_ride = RideType.objects.filter(is_active=True).order_by('id').first()
+                if fallback_ride and fallback_ride.base_price is not None and fallback_ride.price_per_km is not None:
+                    estimated = fallback_ride.calculate_price(float(item.distance_km))
+                    net_price += float(estimated)
+            except (TypeError, ValueError, AttributeError):
+                pass
     net_price = round(net_price, 2) if net_price else 0
 
     user = order.user
@@ -79,11 +89,21 @@ def _order_to_dict(order, driver=None, requested_at=None):
             'avatar': avatar_url,
         }
 
+    ride_type_info = None
+    if first_item.ride_type_id:
+        rt = first_item.ride_type
+        ride_type_info = {
+            'id': rt.id,
+            'name': rt.name or rt.name_large or '',
+            'name_large': rt.name_large or '',
+        }
+
     result = {
         'id': order.id,
         'order_code': order.order_code,
         'status': order.status,
         'order_type': order.order_type,
+        'ride_type': ride_type_info,
         'created_at': order.created_at.isoformat() if order.created_at else None,
         'requested_at': requested_at.isoformat() if requested_at else None,
         'estimated_time': first_item.estimated_time,

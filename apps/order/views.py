@@ -4,7 +4,7 @@ from apps.common.views import AsyncAPIView
 from apps.common.throttles import OrderCreateThrottle
 from rest_framework.permissions import IsAuthenticated
 from asgiref.sync import sync_to_async
-from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiTypes
+from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiTypes, OpenApiExample
 
 from .serializers import (
     OrderCreateSerializer,
@@ -40,7 +40,28 @@ class OrderCreateView(AsyncAPIView):
     permission_classes = [IsAuthenticated]
     throttle_classes = [OrderCreateThrottle]
 
-    @extend_schema(tags=['Order'], summary='Create order', description='Create order and order items.', request=OrderCreateSerializer)
+    @extend_schema(
+        tags=['Order'],
+        summary='Create order',
+        description='Create order and order items. Optional ride_type_id: tariff (RideType) ID; if omitted, first active is used.',
+        request=OrderCreateSerializer,
+        examples=[
+            OpenApiExample(
+                'Create order with ride type',
+                value={
+                    'address_from': 'string A',
+                    'address_to': 'string B',
+                    'latitude_from': 39.8046579,
+                    'longitude_from': 64.4263534,
+                    'latitude_to': 39.8009868,
+                    'longitude_to': 64.4272017,
+                    'order_type': 2,
+                    'ride_type_id': 1,
+                },
+                request_only=True,
+            ),
+        ],
+    )
     async def post(self, request):
         serializer = OrderCreateSerializer(data=request.data, context={'request': request})
         

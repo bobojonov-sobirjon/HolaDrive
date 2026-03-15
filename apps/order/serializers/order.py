@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from django.db import transaction
-from ..models import Order, OrderItem
+from ..models import Order, OrderItem, RideType
 
 
 class OrderCreateSerializer(serializers.Serializer):
@@ -31,28 +31,41 @@ class OrderCreateSerializer(serializers.Serializer):
         coerce_to_string=False
     )
     order_type = serializers.IntegerField(
-        required=True, 
+        required=True,
         help_text="Order type: 1 = PICKUP (Pickup), 2 = FOR_ME (For Me)"
     )
-    
+    ride_type_id = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text="Ride type (tariff) ID. If omitted, first active RideType is used. Fills distance_km, estimated_time, calculated_price, etc."
+    )
+
     def validate_order_type(self, value):
         if value not in [1, 2]:
             raise serializers.ValidationError("order_type must be 1 (PICKUP) or 2 (FOR_ME)")
         return value
-    
+
+    def validate_ride_type_id(self, value):
+        if value is None:
+            return value
+        if not RideType.objects.filter(id=value, is_active=True).exists():
+            raise serializers.ValidationError("Ride type not found or inactive.")
+        return value
+
     @transaction.atomic
     def create(self, validated_data):
         user = self.context['request'].user
-        
+
         order_type_value = validated_data.pop('order_type')
         order_type = Order.OrderType.PICKUP if order_type_value == 1 else Order.OrderType.FOR_ME
-        
+        ride_type_id = validated_data.pop('ride_type_id', None)
+
         order = Order.objects.create(
             user=user,
             order_type=order_type,
             status=Order.OrderStatus.PENDING
         )
-        
+
         order_item = OrderItem.objects.create(
             order=order,
             address_from=validated_data['address_from'],
@@ -64,6 +77,15 @@ class OrderCreateSerializer(serializers.Serializer):
             stop_sequence=1,
             is_final_stop=True
         )
+        # ride_type so distance_km, estimated_time, calculated_price, min_price, max_price etc. are filled in response
+        ride_type = None
+        if ride_type_id:
+            ride_type = RideType.objects.filter(id=ride_type_id, is_active=True).first()
+        if not ride_type:
+            ride_type = RideType.objects.filter(is_active=True).order_by('id').first()
+        if ride_type:
+            order_item.ride_type = ride_type
+            order_item.save()
         try:
             from apps.chat.models import ChatRoom
             ChatRoom.objects.create(
