@@ -5,6 +5,7 @@ from .views import (
     ResetPasswordConfirmView, UserDetailView, UserAvatarUpdateView,
     UserPreferencesView, UserPreferencesDeleteView,
     LegalPageListView,
+    LegalPageWithStatusListView,
     AcceptanceOfAgreementCreateView,
     AcceptanceOfAgreementListView,
     AcceptanceOfAgreementDetailView,
@@ -41,6 +42,7 @@ urlpatterns = [
     
     # Legal pages (Privacy Policy, Terms of Service)
     path('legal-pages/', LegalPageListView.as_view(), name='legal-pages-list'),
+    path('legal-pages/with-status/', LegalPageWithStatusListView.as_view(), name='legal-pages-with-status'),
     # Acceptance of Agreement endpoints
     path('acceptance-of-agreement/', AcceptanceOfAgreementCreateView.as_view(), name='acceptance-of-agreement-create'),
     path('acceptance-of-agreement/list/', AcceptanceOfAgreementListView.as_view(), name='acceptance-of-agreement-list'),

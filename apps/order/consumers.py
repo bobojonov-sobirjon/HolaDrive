@@ -64,9 +64,14 @@ class DriverOrdersConsumer(AsyncWebsocketConsumer):
             )
 
     async def receive(self, text_data):
+        """
+        Driver orders socket hozircha faqat health check uchun ishlatiladi.
+        Surge/heatmap alohida DriverSurgeZonesConsumer orqali ishlaydi.
+        """
         try:
             data = json.loads(text_data)
-            if data.get('type') == 'ping':
+            msg_type = data.get('type')
+            if msg_type == 'ping':
                 await self.send(text_data=json.dumps({'type': 'pong'}))
         except json.JSONDecodeError:
             pass
@@ -93,6 +98,109 @@ class DriverOrdersConsumer(AsyncWebsocketConsumer):
     def _get_current_orders(self):
         from apps.order.services.driver_orders_websocket import get_driver_current_orders
         return get_driver_current_orders(self.user)
+
+
+class DriverSurgeZonesConsumer(AsyncWebsocketConsumer):
+    """
+    WebSocket: driverlar uchun gavjum zonalar (surge zones).
+    Ulangan zahoti aktiv zonalar yuboriladi, keyin signal orqali yangilanishlar push qilinadi.
+    """
+
+    async def connect(self):
+        self.user = self.scope['user']
+
+        if self.user.is_anonymous:
+            logger.info("[WS driver/surge-zones] Reject: anonymous")
+            await self.close(code=4401)
+            return
+
+        is_driver = await self._check_driver_role(self.user)
+        if not is_driver:
+            logger.info(
+                "[WS driver/surge-zones] Reject: user id=%s not in Driver group",
+                getattr(self.user, "id", None),
+            )
+            await self.close(code=4403)
+            return
+
+        self.group_name = "driver_surge_zones"
+
+        await self.channel_layer.group_add(
+            self.group_name,
+            self.channel_name,
+        )
+
+        await self.accept()
+
+        # Ulangan zahoti joriy zonalarni yuborish
+        zones = await self._get_surge_zones()
+        await self.send(text_data=json.dumps({
+            "type": "surge_zones",
+            "zones": zones,
+        }))
+
+    async def disconnect(self, close_code):
+        if hasattr(self, "group_name"):
+            await self.channel_layer.group_discard(
+                self.group_name,
+                self.channel_name,
+            )
+
+    async def receive(self, text_data):
+        """
+        Hozircha faqat ping/pong va qo'lda refresh qo'llab-quvvatlanadi.
+        """
+        try:
+            data = json.loads(text_data)
+            msg_type = data.get("type")
+            if msg_type == "ping":
+                await self.send(text_data=json.dumps({"type": "pong"}))
+            elif msg_type == "refresh":
+                zones = await self._get_surge_zones()
+                await self.send(text_data=json.dumps({
+                    "type": "surge_zones",
+                    "zones": zones,
+                }))
+        except json.JSONDecodeError:
+            pass
+
+    async def surge_zones_update(self, event):
+        """
+        Signals orqali keladigan yangilanishlar.
+        """
+        zones = event.get("zones", [])
+        await self.send(text_data=json.dumps({
+            "type": "surge_zones",
+            "zones": zones,
+        }))
+
+    @database_sync_to_async
+    def _check_driver_role(self, user):
+        return user.groups.filter(name="Driver").exists()
+
+    @database_sync_to_async
+    def _get_surge_zones(self):
+        """
+        Barcha active SurgePricing zonalarni oddiy dict sifatida qaytaradi.
+        """
+        from apps.order.models import SurgePricing
+
+        zones = SurgePricing.objects.filter(is_active=True).order_by("-priority", "name")
+        result = []
+        for z in zones:
+            result.append({
+                "id": z.id,
+                "name": z.name,
+                "zone_name": z.zone_name,
+                "latitude": float(z.latitude) if z.latitude is not None else None,
+                "longitude": float(z.longitude) if z.longitude is not None else None,
+                "radius_km": float(z.radius_km) if z.radius_km is not None else None,
+                "multiplier": float(z.multiplier) if z.multiplier is not None else 1.0,
+                "start_time": str(z.start_time) if z.start_time else None,
+                "end_time": str(z.end_time) if z.end_time else None,
+                "days_of_week": z.days_of_week or [],
+            })
+        return result
 
 
 class OrderChatConsumer(AsyncWebsocketConsumer):

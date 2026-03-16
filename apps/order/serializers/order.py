@@ -1,6 +1,7 @@
 from rest_framework import serializers
 from django.db import transaction
-from ..models import Order, OrderItem, RideType
+from django.db.models import Avg, Count
+from ..models import Order, OrderItem, RideType, TripRating
 
 
 class OrderCreateSerializer(serializers.Serializer):
@@ -157,6 +158,8 @@ class OrderSerializer(serializers.ModelSerializer):
     Serializer for Order model
     """
     order_items = OrderItemSerializer(many=True, read_only=True)
+    client_rating = serializers.SerializerMethodField()
+    client_tip_count = serializers.SerializerMethodField()
     order_type = serializers.ChoiceField(
         choices=Order.OrderType.choices,
         help_text="Order type: pickup (Pickup), for_me (For Me)"
@@ -172,6 +175,8 @@ class OrderSerializer(serializers.ModelSerializer):
             'id',
             'order_code',
             'user',
+            'client_rating',
+            'client_tip_count',
             'status',
             'order_type',
             'order_items',
@@ -179,6 +184,32 @@ class OrderSerializer(serializers.ModelSerializer):
             'updated_at'
         ]
         read_only_fields = ['id', 'order_code', 'created_at', 'updated_at']
+
+    def get_client_rating(self, obj):
+        """
+        Average rating (1-5) that drivers have given to this order's rider (user).
+        Only approved ratings are counted.
+        """
+        if not obj.user_id:
+            return None
+        agg = TripRating.objects.filter(
+            rider_id=obj.user_id,
+            status='approved',
+        ).aggregate(avg=Avg('rating'))
+        avg = agg['avg']
+        return round(float(avg), 2) if avg is not None else None
+
+    def get_client_tip_count(self, obj):
+        """
+        Total number of times this rider has tipped any driver (approved ratings with tip_amount > 0).
+        """
+        if not obj.user_id:
+            return 0
+        return TripRating.objects.filter(
+            rider_id=obj.user_id,
+            status='approved',
+            tip_amount__gt=0,
+        ).count()
 
 
 class PriceEstimateSerializer(serializers.Serializer):

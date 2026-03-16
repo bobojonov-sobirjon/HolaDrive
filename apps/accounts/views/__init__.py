@@ -13,6 +13,7 @@ from .user import (
 )
 from .legal import (
     LegalPageListView,
+    LegalPageWithStatusListView,
     AcceptanceOfAgreementCreateView,
     AcceptanceOfAgreementListView,
     AcceptanceOfAgreementDetailView,
@@ -55,6 +56,7 @@ __all__ = [
     'UserDetailView',
     'UserAvatarUpdateView',
     'LegalPageListView',
+    'LegalPageWithStatusListView',
     'AcceptanceOfAgreementCreateView',
     'AcceptanceOfAgreementListView',
     'AcceptanceOfAgreementDetailView',

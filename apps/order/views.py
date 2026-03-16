@@ -1378,7 +1378,22 @@ class DriverEarningsView(AsyncAPIView):
                 if item.distance_km:
                     total_distance_km += Decimal(str(item.distance_km))
         total_rides_count = len(all_orders)
-        today_target = 6
+
+        # Dynamic today_target (variant C):
+        # Look at last 30 days completed rides for this driver,
+        # take average per day and multiply by 1.2 (20% higher goal).
+        # Fallback to 6 if there is not enough history.
+        past_days = 30
+        period_start = today_start - timedelta(days=past_days)
+
+        past_orders_count = await sync_to_async(
+            lambda: completed_orders.filter(updated_at__gte=period_start).count()
+        )()
+        if past_orders_count > 0:
+            avg_daily = past_orders_count / past_days
+            today_target = max(3, int(round(avg_daily * 1.2)))
+        else:
+            today_target = 6
         earnings_data = {
             'today_earnings': float(today_earnings),
             'today_rides_count': today_rides_count,

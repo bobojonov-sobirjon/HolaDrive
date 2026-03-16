@@ -9,6 +9,20 @@ class LegalPageSerializer(serializers.ModelSerializer):
         read_only_fields = ('id', 'created_at', 'updated_at')
 
 
+class LegalPageWithStatusSerializer(serializers.ModelSerializer):
+    """Legal page with acceptance status for current user. For Identification screen."""
+    status = serializers.SerializerMethodField()
+
+    class Meta:
+        model = LegalPage
+        fields = ('id', 'name', 'link', 'status')
+        read_only_fields = fields
+
+    def get_status(self, obj):
+        accepted_ids = self.context.get('accepted_agreement_ids') or set()
+        return 'accepted' if obj.id in accepted_ids else 'not_accepted'
+
+
 class AcceptanceOfAgreementCreateSerializer(serializers.Serializer):
     """Serializer for POST - accept agreements by LegalPage IDs"""
     legal_agreement_data = serializers.ListField(

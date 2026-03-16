@@ -6,6 +6,9 @@ Can be called from sync code (Celery, views, services).
 import logging
 from asgiref.sync import async_to_sync
 from django.utils import timezone
+from django.db.models import Avg, Count
+
+from ..models import TripRating
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +75,8 @@ def _order_to_dict(order, driver=None, requested_at=None):
 
     user = order.user
     client_info = None
+    client_rating = None
+    client_tip_count = 0
     if user:
         avatar_url = None
         if user.avatar:
@@ -88,6 +93,16 @@ def _order_to_dict(order, driver=None, requested_at=None):
             'email': user.email or '',
             'avatar': avatar_url,
         }
+        agg = TripRating.objects.filter(
+            rider_id=user.id,
+            status='approved',
+        ).aggregate(
+            avg=Avg('rating'),
+            tip_count=Count('id', filter=models.Q(tip_amount__gt=0)),
+        )
+        if agg['avg'] is not None:
+            client_rating = round(float(agg['avg']), 2)
+        client_tip_count = agg['tip_count'] or 0
 
     ride_type_info = None
     if first_item.ride_type_id:
@@ -116,6 +131,8 @@ def _order_to_dict(order, driver=None, requested_at=None):
         'distance_to_pickup_km': None,
         'net_price': net_price,
         'client': client_info,
+        'client_rating': client_rating,
+        'client_tip_count': client_tip_count,
     }
 
     if driver and driver.latitude and driver.longitude and first_item.latitude_from and first_item.longitude_from:

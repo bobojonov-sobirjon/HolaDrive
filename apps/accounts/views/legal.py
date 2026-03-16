@@ -8,6 +8,7 @@ from apps.common.views import AsyncAPIView
 from ..models import LegalPage, AcceptanceOfAgreement
 from ..serializers.legal import (
     LegalPageSerializer,
+    LegalPageWithStatusSerializer,
     AcceptanceOfAgreementSerializer,
     AcceptanceOfAgreementCreateSerializer,
 )
@@ -34,6 +35,45 @@ class LegalPageListView(AsyncAPIView):
                 'data': data,
             },
             status=status.HTTP_200_OK
+        )
+
+
+class LegalPageWithStatusListView(AsyncAPIView):
+    """
+    GET list of legal pages with acceptance status for the authenticated user.
+    For Identification screen: Terms and Conditions, Legal Agreements with status accepted/not_accepted.
+    """
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        tags=['Legal'],
+        summary='Legal pages with acceptance status',
+        description='Get all legal pages with status (accepted/not_accepted) for current user. Use for Identification screen.',
+    )
+    async def get(self, request):
+        def _get_data():
+            items = list(LegalPage.objects.filter(is_active=True).order_by('name'))
+            accepted_ids = set(
+                AcceptanceOfAgreement.objects.filter(
+                    user=request.user,
+                    is_accepted=True,
+                ).values_list('agreement_id', flat=True)
+            )
+            serializer = LegalPageWithStatusSerializer(
+                items,
+                many=True,
+                context={'accepted_agreement_ids': accepted_ids},
+            )
+            return serializer.data
+
+        data = await sync_to_async(_get_data)()
+        return Response(
+            {
+                'message': 'Legal pages with status retrieved successfully',
+                'status': 'success',
+                'data': data,
+            },
+            status=status.HTTP_200_OK,
         )
 
 
