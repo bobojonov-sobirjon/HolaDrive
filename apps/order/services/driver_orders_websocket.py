@@ -6,7 +6,7 @@ Can be called from sync code (Celery, views, services).
 import logging
 from asgiref.sync import async_to_sync
 from django.utils import timezone
-from django.db.models import Avg, Count
+from django.db.models import Avg, Count, Q
 
 from ..models import TripRating
 
@@ -98,7 +98,7 @@ def _order_to_dict(order, driver=None, requested_at=None):
             status='approved',
         ).aggregate(
             avg=Avg('rating'),
-            tip_count=Count('id', filter=models.Q(tip_amount__gt=0)),
+            tip_count=Count('id', filter=Q(tip_amount__gt=0)),
         )
         if agg['avg'] is not None:
             client_rating = round(float(agg['avg']), 2)

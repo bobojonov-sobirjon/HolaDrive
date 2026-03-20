@@ -24,7 +24,6 @@ from .serializers import (
     DriverLocationSerializer,
     DriverInfoSerializer,
     DriverEarningsSerializer,
-    DriverRideHistorySerializer,
     DriverOnlineStatusSerializer,
     TripRatingCreateSerializer,
     TripRatingSerializer,
@@ -298,6 +297,7 @@ class DriverNearbyOrdersView(AsyncAPIView):
             )
             .select_related('order', 'order__user')
             .prefetch_related('order__order_items')
+            .order_by('-requested_at')
         )
         order_drivers = await sync_to_async(list)(order_drivers_qs)
 
@@ -1432,8 +1432,9 @@ class DriverRideHistoryView(AsyncAPIView):
     @extend_schema(
         tags=['Driver'],
         summary='Ride history',
-        description='Get driver ride history (completed orders). Pagination: page_size. Role: Driver.',
+        description='Completed orders for this driver — same order shape as POST /order/create/ (OrderSerializer). Pagination: page_size.',
         parameters=[OpenApiParameter('page_size', OpenApiTypes.INT, OpenApiParameter.QUERY, required=False, description='Page size')],
+        responses={200: OrderSerializer(many=True)},
     )
     async def get(self, request):
         user = request.user
@@ -1454,7 +1455,7 @@ class DriverRideHistoryView(AsyncAPIView):
             order_drivers__driver=user,
             order_drivers__status=OrderDriver.DriverRequestStatus.ACCEPTED,
             status=Order.OrderStatus.COMPLETED
-        ).select_related('user').prefetch_related('order_items').order_by('-updated_at')
+        ).select_related('user').prefetch_related('order_items__ride_type').order_by('-updated_at')
 
         orders = await sync_to_async(list)(completed_orders)
 
@@ -1463,7 +1464,7 @@ class DriverRideHistoryView(AsyncAPIView):
         paginated_orders = await sync_to_async(paginator.paginate_queryset)(orders, request)
 
         if paginated_orders is not None:
-            serializer = DriverRideHistorySerializer(paginated_orders, many=True)
+            serializer = OrderSerializer(paginated_orders, many=True)
             serializer_data = await sync_to_async(lambda: serializer.data)()
             
             response = await sync_to_async(paginator.get_paginated_response)(serializer_data)
@@ -1472,7 +1473,7 @@ class DriverRideHistoryView(AsyncAPIView):
             response.data['data'] = response.data.pop('results')
             return response
 
-        serializer = DriverRideHistorySerializer(orders, many=True)
+        serializer = OrderSerializer(orders, many=True)
         serializer_data = await sync_to_async(lambda: serializer.data)()
         count = await sync_to_async(len)(orders)
 

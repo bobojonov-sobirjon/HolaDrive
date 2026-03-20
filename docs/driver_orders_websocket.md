@@ -19,6 +19,14 @@ ws://HOST/ws/driver/orders/JWT_TOKEN
 - JWT token kerak (query param `token` yoki path ichida)
 - User Driver guruhida bo'lishi kerak
 
+### Postman / client: `403` yoki ulanmayapti
+
+1. **URLda `?` bo‘lishi kerak:** to‘g‘ri: `.../ws/driver/orders/?token=eyJ...`  
+   Noto‘g‘ri (ba’zi clientlar shunday yuboradi): `.../ws/driver/orders/token=eyJ...` — middleware tokenni baribir pathdan olishga harakat qiladi, lekin standart query shakli afzal.
+2. **Access token yangi bo‘lsin.** Muddat tugagan token bilan SimpleJWT `token_not_valid` qaytaradi; server logida `Reject: anonymous (no valid token)` va JWT rad xabari ko‘rinadi. **Login** yoki **refresh** qilib yangi `access` yuboring.
+3. **Shu backendning `SECRET_KEY`** bilan chiqarilgan token ishlating (boshqa muhitdan ko‘chirilgan JWT imzosi mos kelmasligi mumkin).
+4. Token **Driver** roliga ega foydalanuvchiga tegishli bo‘lishi kerak — aks holda ulanishdan keyin `4403` / ruxsat rad.
+
 ## Xabarlar (Server → Client)
 
 ### 1. `connection_established`

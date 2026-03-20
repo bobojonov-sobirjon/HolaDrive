@@ -2,6 +2,7 @@ from rest_framework import serializers
 from django.db import transaction
 from django.db.models import Avg, Count
 from ..models import Order, OrderItem, RideType, TripRating
+from apps.accounts.serializers.user import UserDetailSerializer
 
 
 class OrderCreateSerializer(serializers.Serializer):
@@ -98,23 +99,30 @@ class OrderCreateSerializer(serializers.Serializer):
         except Exception as e:
             import logging
             logging.getLogger(__name__).error(f"Failed to create ChatRoom for order {order.id}: {e}")
-        try:
-            from apps.order.tasks import assign_driver_to_order_async
-            assign_driver_to_order_async.delay(order.id)
-        except ImportError:
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.warning("Celery task not available, using sync driver assignment")
-            from apps.order.services.driver_assignment_service import DriverAssignmentService
+        def _schedule_driver_assignment(oid):
+            """Celery/sync assign — faqat DB commitdan keyin (boshqa process orderni ko‘radi)."""
             try:
-                DriverAssignmentService.assign_to_next_driver(order)
+                from apps.order.tasks import assign_driver_to_order_async
+                assign_driver_to_order_async.delay(oid)
+            except ImportError:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.warning("Celery task not available, using sync driver assignment")
+                from apps.order.services.driver_assignment_service import DriverAssignmentService
+                try:
+                    o = Order.objects.get(pk=oid)
+                    DriverAssignmentService.assign_to_next_driver(o)
+                except Order.DoesNotExist:
+                    logger.error("Order %s not found for sync driver assignment", oid)
+                except Exception as e:
+                    logger.error("Failed to assign driver to order %s: %s", oid, e)
             except Exception as e:
-                logger.error(f"Failed to assign driver to order {order.id}: {e}")
-        except Exception as e:
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.error(f"Failed to schedule async driver assignment for order {order.id}: {e}")
-        
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error("Failed to schedule async driver assignment for order %s: %s", oid, e)
+
+        transaction.on_commit(lambda oid=order.id: _schedule_driver_assignment(oid))
+
         return order
 
 
@@ -158,6 +166,7 @@ class OrderSerializer(serializers.ModelSerializer):
     Serializer for Order model
     """
     order_items = OrderItemSerializer(many=True, read_only=True)
+    user = UserDetailSerializer(read_only=True)
     client_rating = serializers.SerializerMethodField()
     client_tip_count = serializers.SerializerMethodField()
     order_type = serializers.ChoiceField(

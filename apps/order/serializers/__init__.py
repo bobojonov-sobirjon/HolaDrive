@@ -18,7 +18,6 @@ from .driver import (
     DriverLocationSerializer,
     DriverInfoSerializer,
     DriverEarningsSerializer,
-    DriverRideHistorySerializer,
     DriverOnlineStatusSerializer,
 )
 from .rating import (
@@ -46,7 +45,6 @@ __all__ = [
     'DriverLocationSerializer',
     'DriverInfoSerializer',
     'DriverEarningsSerializer',
-    'DriverRideHistorySerializer',
     'DriverOnlineStatusSerializer',
     'TripRatingCreateSerializer',
     'TripRatingSerializer',

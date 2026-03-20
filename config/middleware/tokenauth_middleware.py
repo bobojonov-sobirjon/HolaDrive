@@ -1,6 +1,7 @@
 import logging
 from channels.middleware import BaseMiddleware
 from rest_framework_simplejwt.authentication import JWTAuthentication
+from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
 from channels.db import database_sync_to_async
 from channels.sessions import SessionMiddleware
 from django.contrib.auth.models import AnonymousUser
@@ -13,16 +14,28 @@ logger = logging.getLogger(__name__)
 
 @database_sync_to_async
 def get_user_from_jwt(token_key):
+    if not token_key:
+        return AnonymousUser()
+    token_key = str(token_key).strip()
+    if token_key.lower().startswith("bearer "):
+        token_key = token_key[7:].strip()
     try:
         jwt_auth = JWTAuthentication()
         validated_token = jwt_auth.get_validated_token(token_key)
         user = jwt_auth.get_user(validated_token)
         return user
     except jwt.ExpiredSignatureError as e:
-        logger.warning("[WS JWT] Token expired: %s", e)
+        logger.warning("[WS JWT] Token expired (PyJWT): %s", e)
         return AnonymousUser()
     except jwt.InvalidTokenError as e:
-        logger.warning("[WS JWT] Invalid token: %s", e)
+        logger.warning("[WS JWT] Invalid token (PyJWT): %s", e)
+        return AnonymousUser()
+    except (InvalidToken, TokenError) as e:
+        # SimpleJWT (masalan: muddat tugagan, noto'g'ri imzo, boshqa SECRET_KEY)
+        logger.warning(
+            "[WS JWT] Access token rad etildi (login/refresh qiling, yoki shu server SECRET_KEY bilan chiqarilgan token ishlating): %s",
+            e,
+        )
         return AnonymousUser()
 
 
@@ -101,19 +114,14 @@ class TokenAuthMiddleware(BaseMiddleware):
             )
 
         if token_key:
-            # Use JWT authentication
-            try:
-                scope["user"] = await get_user_from_jwt(token_key)
-                if path.startswith("/ws/driver/orders"):
-                    user = scope["user"]
-                    logger.info(
-                        "[WS driver/orders] token_ok user_id=%s is_anonymous=%s",
-                        getattr(user, "id", None),
-                        getattr(user, "is_anonymous", True),
-                    )
-            except Exception as e:
-                logger.warning("[WS JWT] Validation failed: %s", e)
-                scope["user"] = AnonymousUser()
+            scope["user"] = await get_user_from_jwt(token_key)
+            if path.startswith("/ws/driver/orders"):
+                user = scope["user"]
+                logger.info(
+                    "[WS driver/orders] after_jwt user_id=%s is_anonymous=%s",
+                    getattr(user, "id", None),
+                    getattr(user, "is_anonymous", True),
+                )
         else:
             # For admin panel, AuthMiddlewareStack has already set user from session
             if "user" not in scope:

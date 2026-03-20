@@ -1,5 +1,5 @@
 from django.contrib import admin
-from django.db import models
+from django.db import models, transaction
 from django import forms
 from .models import (
     Order, OrderItem, OrderPreferences, AdditionalPassenger, OrderDriver, 
@@ -21,9 +21,11 @@ class OrderAdmin(admin.ModelAdmin):
         super().save_model(request, obj, form, change)
         # Yangi order yaratilganda driver assign qilish
         if not change and obj.status == Order.OrderStatus.PENDING:
+            oid = obj.id
             try:
                 from apps.order.tasks import assign_driver_to_order_async
-                assign_driver_to_order_async.delay(obj.id)
+
+                transaction.on_commit(lambda: assign_driver_to_order_async.delay(oid))
             except Exception:
                 pass
 
