@@ -104,6 +104,64 @@ Access the Swagger API documentation at `/swagger/` when the server is running.
 
 The project uses Django REST Framework for building APIs and includes custom middleware for error handling and authentication.
 
+## Daphne va Celery (ishga tushirish)
+
+**Daphne** — Django **ASGI** serveri (WebSocket / Channels uchun). **Celery** — fon vazifalar (masalan, order timeout tekshirish). Broker sifatida **Redis** ishlatiladi (`CELERY_BROKER_URL` / `CELERY_RESULT_BACKEND` — `config/settings.py`).
+
+### Talablar
+
+- Virtual muhit faollashtirilgan bo‘lsin, bog‘liqliklar o‘rnatilgan bo‘lsin: `pip install -r requirements.txt`
+- **Redis** ishlayotgan bo‘lsi (masalan `redis://localhost:6379/0`). Windows uchun [Redis](https://redis.io/docs/latest/operate/oss_and_stack/install/install-redis/) yoki WSL/Docker orqali.
+
+`.env` da (ixtiyoriy, default localhost):
+
+```env
+CELERY_BROKER_URL=redis://localhost:6379/0
+CELERY_RESULT_BACKEND=redis://localhost:6379/0
+```
+
+### Daphne (lokal)
+
+Loyiha ildizidan:
+
+```bash
+daphne -b 0.0.0.0 -p 8000 config.asgi:application
+```
+
+Yoki qisqa shakl:
+
+```bash
+daphne config.asgi:application --bind 0.0.0.0 --port 8000
+```
+
+**Docker** da `web` servisi allaqachon shu buyruq bilan ishga tushadi (`docker-compose.yml`).
+
+### Celery Worker (lokal)
+
+Yangi terminal — vazifalarni bajaruvchi worker:
+
+```bash
+celery -A config worker --loglevel=info
+```
+
+**Windows:** `config/celery.py` ichida `worker_pool = 'solo'` avtomatik qo‘llanadi (prefork Windows’da muammoli).
+
+### Celery Beat (lokal, vaqtli vazifalar)
+
+Yana bitta terminal — masalan har 5 soniyada `check_order_timeouts`:
+
+```bash
+celery -A config beat --loglevel=info
+```
+
+> Ishlab chiqishda odatda **3 ta jarayon** kerak: **Daphne** (API + WebSocket), **Celery worker**, **Celery beat** (+ **Redis**).
+
+### Qisqa tekshiruv
+
+```bash
+celery -A config inspect active
+```
+
 ## License
 
 This project is proprietary software.
