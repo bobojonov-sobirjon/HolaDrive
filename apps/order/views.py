@@ -27,10 +27,12 @@ from .serializers import (
     DriverOnlineStatusSerializer,
     TripRatingCreateSerializer,
     TripRatingSerializer,
+    DriverRiderRatingCreateSerializer,
+    DriverRiderRatingSerializer,
     RatingFeedbackTagSerializer,
 )
 from .serializers.cancel_order import OrderCancelSerializer, DriverCancelSerializer
-from .models import Order, OrderItem, OrderDriver, OrderPreferences, TripRating, CancelOrder
+from .models import Order, OrderItem, OrderDriver, OrderPreferences, TripRating, DriverRiderRating, CancelOrder
 from apps.accounts.models import CustomUser, DriverPreferences
 from .services.surge_pricing_service import calculate_distance
 from .services.driver_assignment_service import DriverAssignmentService
@@ -1646,7 +1648,9 @@ class TripRatingCreateView(AsyncAPIView):
         if feedback_tag_ids:
             from apps.order.models import RatingFeedbackTag
             tags = await sync_to_async(list)(
-                RatingFeedbackTag.objects.filter(id__in=feedback_tag_ids, is_active=True)
+                RatingFeedbackTag.objects.filter(
+                    id__in=feedback_tag_ids, is_active=True, rating_target='rider_to_driver'
+                )
             )
             await sync_to_async(trip_rating.feedback_tags.set)(tags)
 
@@ -1666,24 +1670,130 @@ class TripRatingCreateView(AsyncAPIView):
             status=status.HTTP_201_CREATED,
         )
 
+
+class DriverRiderRatingCreateView(AsyncAPIView):
+    """
+    Driver rates rider after completed trip. Figma: "Rate your trip" screen.
+    """
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        tags=['Rating'],
+        summary='Driver rate rider',
+        description='Driver submits rating for rider after completed trip (1-5 stars, optional comment, feedback tags).',
+        request=DriverRiderRatingCreateSerializer,
+    )
+    async def post(self, request):
+        user = request.user
+
+        serializer = DriverRiderRatingCreateSerializer(data=request.data)
+        is_valid = await sync_to_async(lambda: serializer.is_valid())()
+
+        if not is_valid:
+            errors = await sync_to_async(lambda: serializer.errors)()
+            return Response(
+                {'message': 'Validation error', 'status': 'error', 'errors': errors},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        validated_data = await sync_to_async(lambda: serializer.validated_data)()
+        order_id = validated_data['order_id']
+        rating = validated_data['rating']
+        comment = validated_data.get('comment')
+        feedback_tag_ids = validated_data.get('feedback_tag_ids', [])
+
+        try:
+            order = await Order.objects.select_related('user').prefetch_related(
+                'order_drivers__driver'
+            ).aget(id=order_id)
+        except Order.DoesNotExist:
+            return Response(
+                {'message': 'Order not found', 'status': 'error'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        order_driver = await sync_to_async(
+            lambda: order.order_drivers.filter(status=OrderDriver.DriverRequestStatus.ACCEPTED).first()
+        )()
+        if not order_driver or order_driver.driver_id != user.id:
+            return Response(
+                {'message': 'Only the driver who completed this order can rate the rider', 'status': 'error'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        driver = order_driver.driver
+        rider = order.user
+
+        dr_rating = await sync_to_async(DriverRiderRating.objects.create)(
+            order=order,
+            driver=driver,
+            rider=rider,
+            rating=rating,
+            comment=comment or None,
+        )
+
+        if feedback_tag_ids:
+            from apps.order.models import RatingFeedbackTag
+            tags = await sync_to_async(list)(
+                RatingFeedbackTag.objects.filter(
+                    id__in=feedback_tag_ids, is_active=True, rating_target='driver_to_rider'
+                )
+            )
+            await sync_to_async(dr_rating.feedback_tags.set)(tags)
+
+        dr_rating = await DriverRiderRating.objects.select_related(
+            'order', 'driver', 'rider'
+        ).prefetch_related('feedback_tags').aget(pk=dr_rating.pk)
+
+        response_serializer = DriverRiderRatingSerializer(dr_rating, context={'request': request})
+        response_data = await sync_to_async(lambda: response_serializer.data)()
+
+        try:
+            from apps.notification.tasks import send_push_notification_async
+            rating_text = f"{rating} star{'s' if rating != 1 else ''}"
+            send_push_notification_async.delay(
+                user_id=rider.id,
+                title='New rating from driver',
+                body=f'Driver rated you {rating_text}',
+                data={'type': 'driver_rider_rating', 'order_id': order.id, 'rating': rating},
+            )
+        except Exception:
+            pass
+
+        return Response(
+            {
+                'message': 'Rating submitted successfully. Rider has been notified.',
+                'status': 'success',
+                'data': response_data,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
 class RatingFeedbackTagsListView(AsyncAPIView):
     permission_classes = [IsAuthenticated]
 
     @extend_schema(
         tags=['Rating'],
         summary='Feedback tags',
-        description='Get available feedback tags by rating (query: rating).',
-        parameters=[OpenApiParameter('rating', OpenApiTypes.INT, OpenApiParameter.QUERY, required=True, description='Rating value 1-5')],
+        description='Get feedback tags by rating and target. target: rider_to_driver (rider rates driver), driver_to_rider (driver rates rider).',
+        parameters=[
+            OpenApiParameter('rating', OpenApiTypes.INT, OpenApiParameter.QUERY, required=True, description='Rating value 1-5'),
+            OpenApiParameter('target', OpenApiTypes.STR, OpenApiParameter.QUERY, required=True, description='rider_to_driver or driver_to_rider'),
+        ],
     )
     async def get(self, request):
         rating = request.query_params.get('rating')
-        
+        target = request.query_params.get('target')
+
         if not rating:
             return Response(
-                {
-                    'message': 'Rating parameter is required',
-                    'status': 'error',
-                },
+                {'message': 'Rating parameter is required', 'status': 'error'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not target or target not in ('rider_to_driver', 'driver_to_rider'):
+            return Response(
+                {'message': 'Target must be rider_to_driver or driver_to_rider', 'status': 'error'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -1691,19 +1801,13 @@ class RatingFeedbackTagsListView(AsyncAPIView):
             rating = int(rating)
         except (ValueError, TypeError):
             return Response(
-                {
-                    'message': 'Rating must be a number between 1 and 5',
-                    'status': 'error',
-                },
+                {'message': 'Rating must be a number between 1 and 5', 'status': 'error'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
         if rating < 1 or rating > 5:
             return Response(
-                {
-                    'message': 'Rating must be between 1 and 5',
-                    'status': 'error',
-                },
+                {'message': 'Rating must be between 1 and 5', 'status': 'error'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -1711,7 +1815,9 @@ class RatingFeedbackTagsListView(AsyncAPIView):
 
         from apps.order.models import RatingFeedbackTag
         tags = await sync_to_async(list)(
-            RatingFeedbackTag.objects.filter(tag_type=tag_type, is_active=True).order_by('name')
+            RatingFeedbackTag.objects.filter(
+                tag_type=tag_type, rating_target=target, is_active=True
+            ).order_by('name')
         )
 
         tag_serializer = RatingFeedbackTagSerializer(tags, many=True)
@@ -1724,6 +1830,7 @@ class RatingFeedbackTagsListView(AsyncAPIView):
                 'data': {
                     'tags': tag_data,
                     'tag_type': tag_type,
+                    'rating_target': target,
                     'rating': rating,
                 },
             },

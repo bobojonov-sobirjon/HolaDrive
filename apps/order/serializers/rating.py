@@ -1,16 +1,12 @@
 from rest_framework import serializers
-from apps.order.models import TripRating, RatingFeedbackTag, Order
+from apps.order.models import TripRating, RatingFeedbackTag, Order, DriverRiderRating
 from apps.accounts.models import CustomUser
 
 
 class RatingFeedbackTagSerializer(serializers.ModelSerializer):
-    """
-    Serializer for rating feedback tags.
-    """
-    
     class Meta:
         model = RatingFeedbackTag
-        fields = ['id', 'name', 'tag_type', 'is_active']
+        fields = ['id', 'name', 'tag_type', 'rating_target', 'is_active']
 
 
 class TripRatingCreateSerializer(serializers.Serializer):
@@ -80,19 +76,19 @@ class TripRatingCreateSerializer(serializers.Serializer):
         # Determine expected tag type based on rating
         expected_tag_type = 'positive' if rating >= 4 else 'negative'
         
-        # Get tags
-        tags = RatingFeedbackTag.objects.filter(id__in=value, is_active=True)
+        tags = RatingFeedbackTag.objects.filter(
+            id__in=value, is_active=True, rating_target='rider_to_driver'
+        )
         if tags.count() != len(value):
-            raise serializers.ValidationError("Some feedback tags are invalid or inactive.")
-        
-        # Check tag types match rating
+            raise serializers.ValidationError(
+                "Some feedback tags are invalid, inactive, or not for rider→driver rating."
+            )
         for tag in tags:
             if tag.tag_type != expected_tag_type:
                 raise serializers.ValidationError(
                     f"Tag '{tag.name}' is {tag.get_tag_type_display()} but rating is {rating} stars. "
                     f"Use {'positive' if rating >= 4 else 'negative'} tags for {rating} star rating."
                 )
-        
         return value
 
 
@@ -125,6 +121,78 @@ class TripRatingSerializer(serializers.ModelSerializer):
             'updated_at',
         ]
         read_only_fields = ['id', 'rider', 'driver', 'status', 'created_at', 'updated_at']
+
+
+class DriverRiderRatingCreateSerializer(serializers.Serializer):
+    """
+    Serializer for driver rating rider after completed trip (Figma: Rate your trip).
+    """
+    order_id = serializers.IntegerField(required=True, help_text='ID of the completed order')
+    rating = serializers.IntegerField(
+        required=True,
+        min_value=1,
+        max_value=5,
+        help_text='Rating from 1 to 5 stars',
+    )
+    comment = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        help_text='Optional comment (Add comment screen)',
+    )
+    feedback_tag_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        required=False,
+        allow_empty=True,
+        help_text='Tags like Conversation, Calm, Kind, Punctual, Fun',
+    )
+
+    def validate_order_id(self, value):
+        try:
+            order = Order.objects.get(id=value)
+        except Order.DoesNotExist:
+            raise serializers.ValidationError('Order not found.')
+        if order.status != Order.OrderStatus.COMPLETED:
+            raise serializers.ValidationError('Can only rate completed orders.')
+        if hasattr(order, 'driver_rider_rating'):
+            raise serializers.ValidationError('You have already rated this rider.')
+        return value
+
+    def validate_feedback_tag_ids(self, value):
+        if not value:
+            return value
+        rating = self.initial_data.get('rating')
+        if not rating:
+            return value
+        expected_tag_type = 'positive' if rating >= 4 else 'negative'
+        tags = RatingFeedbackTag.objects.filter(
+            id__in=value, is_active=True, rating_target='driver_to_rider'
+        )
+        if tags.count() != len(value):
+            raise serializers.ValidationError(
+                'Some feedback tags are invalid, inactive, or not for driver→rider rating.'
+            )
+        for tag in tags:
+            if tag.tag_type != expected_tag_type:
+                raise serializers.ValidationError(
+                    f"Tag '{tag.name}' type does not match rating. Use {expected_tag_type} tags for {rating} star rating."
+                )
+        return value
+
+
+class DriverRiderRatingSerializer(serializers.ModelSerializer):
+    rider_name = serializers.CharField(source='rider.get_full_name', read_only=True)
+    driver_name = serializers.CharField(source='driver.get_full_name', read_only=True)
+    order_code = serializers.CharField(source='order.order_code', read_only=True)
+    feedback_tags = RatingFeedbackTagSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = DriverRiderRating
+        fields = [
+            'id', 'order', 'order_code', 'driver', 'driver_name',
+            'rider', 'rider_name', 'rating', 'comment', 'feedback_tags',
+            'status', 'created_at', 'updated_at',
+        ]
 
 
 class RatingFeedbackTagsListSerializer(serializers.Serializer):

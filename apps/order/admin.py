@@ -4,7 +4,7 @@ from django import forms
 from .models import (
     Order, OrderItem, OrderPreferences, AdditionalPassenger, OrderDriver, 
     CancelOrder, RideType, SurgePricing, OrderPaymentSplit, PromoCode, OrderPromoCode,
-    RatingFeedbackTag, TripRating
+    RatingFeedbackTag, TripRating, DriverRiderRating
 )
 
 
@@ -371,13 +371,11 @@ class OrderPromoCodeAdmin(admin.ModelAdmin):
 
 @admin.register(RatingFeedbackTag)
 class RatingFeedbackTagAdmin(admin.ModelAdmin):
-    list_display = ('name', 'tag_type', 'is_active', 'created_at', 'updated_at')
-    list_filter = ('tag_type', 'is_active', 'created_at')
+    list_display = ('name', 'tag_type', 'rating_target', 'is_active', 'created_at', 'updated_at')
+    list_filter = ('tag_type', 'rating_target', 'is_active', 'created_at')
     search_fields = ('name',)
     readonly_fields = ('created_at', 'updated_at')
-    ordering = ('tag_type', 'name')
-    
-    # CharField va TextField uchun kengaytirilgan ko'rinish
+    ordering = ('rating_target', 'tag_type', 'name')
     formfield_overrides = {
         models.CharField: {
             'widget': forms.TextInput(attrs={'style': 'width: 100%; min-width: 300px;'}),
@@ -388,7 +386,7 @@ class RatingFeedbackTagAdmin(admin.ModelAdmin):
     }
     fieldsets = (
         ('Tag Information', {
-            'fields': ('name', 'tag_type', 'is_active')
+            'fields': ('name', 'tag_type', 'rating_target', 'is_active')
         }),
         ('Timestamps', {
             'fields': ('created_at', 'updated_at'),
@@ -427,3 +425,21 @@ class TripRatingAdmin(admin.ModelAdmin):
             'classes': ('collapse',)
         }),
     )
+
+
+@admin.register(DriverRiderRating)
+class DriverRiderRatingAdmin(admin.ModelAdmin):
+    list_display = ('order', 'driver', 'rider', 'rating', 'status', 'created_at')
+    list_filter = ('rating', 'status', 'created_at')
+    search_fields = ('order__order_code', 'driver__email', 'rider__email', 'comment')
+    readonly_fields = ('created_at', 'updated_at')
+    ordering = ('-created_at',)
+    filter_horizontal = ('feedback_tags',)
+    formfield_overrides = {
+        models.CharField: {
+            'widget': forms.TextInput(attrs={'style': 'width: 100%; min-width: 300px;'}),
+        },
+        models.TextField: {
+            'widget': forms.Textarea(attrs={'rows': 4, 'cols': 80, 'style': 'width: 100%; min-width: 500px;'}),
+        },
+    }

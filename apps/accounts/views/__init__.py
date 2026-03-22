@@ -1,6 +1,7 @@
 from .authentication import (
     RegistrationView,
     LoginView,
+    TokenRefreshView,
     SendVerificationCodeView,
     VerifyCodeView,
     ResetPasswordRequestView,
@@ -48,6 +49,7 @@ from .pin_verification import PinVerificationForUserView
 __all__ = [
     'RegistrationView',
     'LoginView',
+    'TokenRefreshView',
     'SendVerificationCodeView',
     'VerifyCodeView',
     'ResetPasswordRequestView',

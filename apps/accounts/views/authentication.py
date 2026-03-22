@@ -4,7 +4,8 @@ from apps.common.views import AsyncAPIView
 from apps.common.throttles import LoginRateThrottle
 from rest_framework.permissions import AllowAny
 from rest_framework_simplejwt.tokens import RefreshToken
-from drf_spectacular.utils import extend_schema
+from rest_framework_simplejwt.exceptions import TokenError, InvalidToken
+from drf_spectacular.utils import extend_schema, OpenApiExample
 from django.conf import settings
 from asgiref.sync import sync_to_async
 
@@ -333,6 +334,67 @@ class VerifyCodeView(AsyncAPIView):
             },
             status=status.HTTP_400_BAD_REQUEST
         )
+
+
+class TokenRefreshView(AsyncAPIView):
+    """
+    Refresh access token using refresh token.
+    POST body: { "refresh_token": "..." } or { "refresh": "..." }
+    """
+    permission_classes = [AllowAny]
+
+    @extend_schema(
+        tags=['Authentication'],
+        summary='Refresh token',
+        description='Get new access token using refresh token. Send refresh_token or refresh in body.',
+        request={
+            'application/json': {
+                'type': 'object',
+                'properties': {
+                    'refresh_token': {'type': 'string', 'description': 'Refresh token from login/verify-code'},
+                    'refresh': {'type': 'string', 'description': 'Alias for refresh_token (SimpleJWT compatible)'},
+                },
+            }
+        },
+        examples=[
+            OpenApiExample('Refresh token', {'refresh_token': 'eyJ0eXAiOiJKV1QiLCJhbGc...'}, request_only=True),
+        ],
+    )
+    async def post(self, request):
+        refresh_str = request.data.get('refresh_token') or request.data.get('refresh')
+        if not refresh_str:
+            return Response(
+                {
+                    'message': 'refresh_token or refresh is required',
+                    'status': 'error',
+                    'errors': {'refresh_token': ['This field is required.']},
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            refresh = RefreshToken(refresh_str)
+            access_token = str(refresh.access_token)
+            return Response(
+                {
+                    'message': 'Token refreshed successfully',
+                    'status': 'success',
+                    'data': {
+                        'access_token': access_token,
+                        'refresh_token': refresh_str,
+                    },
+                },
+                status=status.HTTP_200_OK,
+            )
+        except (TokenError, InvalidToken) as e:
+            return Response(
+                {
+                    'message': 'Invalid or expired refresh token',
+                    'status': 'error',
+                    'errors': {'refresh_token': [str(e)]},
+                },
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
 
 
 class ResetPasswordRequestView(AsyncAPIView):

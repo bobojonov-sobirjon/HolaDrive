@@ -23,6 +23,8 @@ from .driver import (
 from .rating import (
     TripRatingCreateSerializer,
     TripRatingSerializer,
+    DriverRiderRatingCreateSerializer,
+    DriverRiderRatingSerializer,
     RatingFeedbackTagSerializer,
     RatingFeedbackTagsListSerializer,
 )
@@ -48,6 +50,8 @@ __all__ = [
     'DriverOnlineStatusSerializer',
     'TripRatingCreateSerializer',
     'TripRatingSerializer',
+    'DriverRiderRatingCreateSerializer',
+    'DriverRiderRatingSerializer',
     'RatingFeedbackTagSerializer',
     'RatingFeedbackTagsListSerializer',
 ]

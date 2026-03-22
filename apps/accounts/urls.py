@@ -1,6 +1,6 @@
 from django.urls import path
 from .views import (
-    RegistrationView, LoginView, SendVerificationCodeView,
+    RegistrationView, LoginView, TokenRefreshView, SendVerificationCodeView,
     VerifyCodeView, ResetPasswordRequestView, VerifyResetCodeView,
     ResetPasswordConfirmView, UserDetailView, UserAvatarUpdateView,
     UserPreferencesView, UserPreferencesDeleteView,
@@ -30,6 +30,7 @@ urlpatterns = [
     # Authentication endpoints
     path('register/', RegistrationView.as_view(), name='register'),
     path('login/', LoginView.as_view(), name='login'),
+    path('token/refresh/', TokenRefreshView.as_view(), name='token-refresh'),
     path('send-verification-code/', SendVerificationCodeView.as_view(), name='send-verification-code'),
     path('verify-code/', VerifyCodeView.as_view(), name='verify-code'),
     path('reset-password/', ResetPasswordRequestView.as_view(), name='reset-password'),

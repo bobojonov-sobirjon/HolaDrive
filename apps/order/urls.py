@@ -21,6 +21,7 @@ from .views import (
     DriverRideHistoryView,
     DriverOnlineStatusView,
     TripRatingCreateView,
+    DriverRiderRatingCreateView,
     RatingFeedbackTagsListView,
     OrderChatDetailView,
     OrderChatMessagesView,
@@ -56,6 +57,7 @@ urlpatterns = [
 
     # Trip rating
     path('rating/create/', TripRatingCreateView.as_view(), name='trip-rating-create'),
+    path('driver/rating/create/', DriverRiderRatingCreateView.as_view(), name='driver-rider-rating-create'),
     path('rating/feedback-tags/', RatingFeedbackTagsListView.as_view(), name='rating-feedback-tags'),
 
     # Order chat (Rider <-> Driver)
