@@ -41,6 +41,12 @@ class OrderCreateSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Ride type (tariff) ID. If omitted, first active RideType is used. Fills distance_km, estimated_time, calculated_price, etc."
     )
+    payment_type = serializers.ChoiceField(
+        choices=['card', 'cash', 'hola_wallet_cash'],
+        default='card',
+        required=False,
+        help_text="Payment type: card, cash, hola_wallet_cash (Card, Cash, Hola Wallet Cash)"
+    )
 
     def validate_order_type(self, value):
         if value not in [1, 2]:
@@ -61,10 +67,12 @@ class OrderCreateSerializer(serializers.Serializer):
         order_type_value = validated_data.pop('order_type')
         order_type = Order.OrderType.PICKUP if order_type_value == 1 else Order.OrderType.FOR_ME
         ride_type_id = validated_data.pop('ride_type_id', None)
+        payment_type = validated_data.pop('payment_type', 'card')
 
         order = Order.objects.create(
             user=user,
             order_type=order_type,
+            payment_type=payment_type,
             status=Order.OrderStatus.PENDING
         )
 
@@ -162,13 +170,12 @@ class OrderItemSerializer(serializers.ModelSerializer):
 
 
 class OrderSerializer(serializers.ModelSerializer):
-    """
-    Serializer for Order model
-    """
+    """Serializer for Order model."""
     order_items = OrderItemSerializer(many=True, read_only=True)
     user = UserDetailSerializer(read_only=True)
     client_rating = serializers.SerializerMethodField()
     client_tip_count = serializers.SerializerMethodField()
+    payment_type = serializers.ChoiceField(choices=Order.PaymentType.choices, read_only=True, allow_null=True)
     order_type = serializers.ChoiceField(
         choices=Order.OrderType.choices,
         help_text="Order type: pickup (Pickup), for_me (For Me)"
@@ -181,16 +188,9 @@ class OrderSerializer(serializers.ModelSerializer):
     class Meta:
         model = Order
         fields = [
-            'id',
-            'order_code',
-            'user',
-            'client_rating',
-            'client_tip_count',
-            'status',
-            'order_type',
-            'order_items',
-            'created_at',
-            'updated_at'
+            'id', 'order_code', 'user', 'client_rating', 'client_tip_count',
+            'status', 'order_type', 'payment_type', 'order_items',
+            'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'order_code', 'created_at', 'updated_at']
 

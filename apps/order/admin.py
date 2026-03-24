@@ -4,7 +4,7 @@ from django import forms
 from .models import (
     Order, OrderItem, OrderPreferences, AdditionalPassenger, OrderDriver, 
     CancelOrder, RideType, SurgePricing, OrderPaymentSplit, PromoCode, OrderPromoCode,
-    RatingFeedbackTag, TripRating, DriverRiderRating
+    RatingFeedbackTag, TripRating, DriverRiderRating, DriverCashout
 )
 
 
@@ -431,15 +431,13 @@ class TripRatingAdmin(admin.ModelAdmin):
 class DriverRiderRatingAdmin(admin.ModelAdmin):
     list_display = ('order', 'driver', 'rider', 'rating', 'status', 'created_at')
     list_filter = ('rating', 'status', 'created_at')
-    search_fields = ('order__order_code', 'driver__email', 'rider__email', 'comment')
+    filter_horizontal = ('feedback_tags',)
+
+
+@admin.register(DriverCashout)
+class DriverCashoutAdmin(admin.ModelAdmin):
+    list_display = ('id', 'driver', 'amount', 'status', 'created_at')
+    list_filter = ('status', 'created_at')
+    search_fields = ('driver__email',)
     readonly_fields = ('created_at', 'updated_at')
     ordering = ('-created_at',)
-    filter_horizontal = ('feedback_tags',)
-    formfield_overrides = {
-        models.CharField: {
-            'widget': forms.TextInput(attrs={'style': 'width: 100%; min-width: 300px;'}),
-        },
-        models.TextField: {
-            'widget': forms.Textarea(attrs={'rows': 4, 'cols': 80, 'style': 'width: 100%; min-width: 500px;'}),
-        },
-    }

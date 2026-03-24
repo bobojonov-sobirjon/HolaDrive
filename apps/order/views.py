@@ -23,7 +23,6 @@ from .serializers import (
     DriverLocationUpdateSerializer,
     DriverLocationSerializer,
     DriverInfoSerializer,
-    DriverEarningsSerializer,
     DriverOnlineStatusSerializer,
     TripRatingCreateSerializer,
     TripRatingSerializer,
@@ -32,10 +31,11 @@ from .serializers import (
     RatingFeedbackTagSerializer,
 )
 from .serializers.cancel_order import OrderCancelSerializer, DriverCancelSerializer
-from .models import Order, OrderItem, OrderDriver, OrderPreferences, TripRating, DriverRiderRating, CancelOrder
+from .models import Order, OrderItem, OrderDriver, OrderPreferences, TripRating, DriverRiderRating, DriverCashout, CancelOrder
 from apps.accounts.models import CustomUser, DriverPreferences
 from .services.surge_pricing_service import calculate_distance
 from .services.driver_assignment_service import DriverAssignmentService
+from .services.driver_dashboard import get_driver_dashboard, get_cash_history, get_ride_history
 
 class OrderCreateView(AsyncAPIView):
     permission_classes = [IsAuthenticated]
@@ -1316,112 +1316,136 @@ class MyOrderListView(AsyncAPIView):
             status=status.HTTP_200_OK
         )
 
-class DriverEarningsView(AsyncAPIView):
+class DriverDashboardView(AsyncAPIView):
+    """Figma Earnings screen: overview, cash_history, ride_history."""
     permission_classes = [IsAuthenticated]
 
-    @extend_schema(tags=['Driver'], summary='Earnings', description='Get driver earnings summary (today, weekly, monthly, total). Role: Driver.')
+    @extend_schema(
+        tags=['Driver'],
+        summary='Driver dashboard',
+        description='Overview, cashout history, ride history. Filters: filter=day|week|last_30|range, start_date, end_date (for range).',
+        parameters=[
+            OpenApiParameter('ride_limit', OpenApiTypes.INT, OpenApiParameter.QUERY, required=False, description='Ride history limit (default 10)'),
+            OpenApiParameter('filter', OpenApiTypes.STR, OpenApiParameter.QUERY, description='day, week, last_30, range'),
+            OpenApiParameter('start_date', OpenApiTypes.DATE, OpenApiParameter.QUERY, description='YYYY-MM-DD (for range)'),
+            OpenApiParameter('end_date', OpenApiTypes.DATE, OpenApiParameter.QUERY, description='YYYY-MM-DD (for range)'),
+        ],
+    )
     async def get(self, request):
         user = request.user
         is_driver = await self._check_driver_role(user)
         if not is_driver:
-            return Response(
-                {'message': 'Only drivers can access this endpoint', 'status': 'error'},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-        from django.utils import timezone
-        from datetime import timedelta
-        from decimal import Decimal
-        now = timezone.now()
-        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-        week_start = today_start - timedelta(days=now.weekday())
-        month_start = today_start.replace(day=1)
-        completed_orders = Order.objects.filter(
-            order_drivers__driver=user,
-            order_drivers__status=OrderDriver.DriverRequestStatus.ACCEPTED,
-            status=Order.OrderStatus.COMPLETED
-        ).prefetch_related('order_items')
-        today_orders = await sync_to_async(list)(completed_orders.filter(updated_at__gte=today_start))
-        today_earnings = Decimal('0.00')
-        today_distance_km = Decimal('0.00')
-        for order in today_orders:
-            for item in order.order_items.all():
-                if item.calculated_price:
-                    today_earnings += Decimal(str(item.calculated_price))
-                if item.distance_km:
-                    today_distance_km += Decimal(str(item.distance_km))
-        today_rides_count = len(today_orders)
-        week_orders = await sync_to_async(list)(completed_orders.filter(updated_at__gte=week_start))
-        weekly_earnings = Decimal('0.00')
-        weekly_distance_km = Decimal('0.00')
-        for order in week_orders:
-            for item in order.order_items.all():
-                if item.calculated_price:
-                    weekly_earnings += Decimal(str(item.calculated_price))
-                if item.distance_km:
-                    weekly_distance_km += Decimal(str(item.distance_km))
-        weekly_rides_count = len(week_orders)
-        month_orders = await sync_to_async(list)(completed_orders.filter(updated_at__gte=month_start))
-        monthly_earnings = Decimal('0.00')
-        monthly_distance_km = Decimal('0.00')
-        for order in month_orders:
-            for item in order.order_items.all():
-                if item.calculated_price:
-                    monthly_earnings += Decimal(str(item.calculated_price))
-                if item.distance_km:
-                    monthly_distance_km += Decimal(str(item.distance_km))
-        monthly_rides_count = len(month_orders)
-        all_orders = await sync_to_async(list)(completed_orders)
-        total_earnings = Decimal('0.00')
-        total_distance_km = Decimal('0.00')
-        for order in all_orders:
-            for item in order.order_items.all():
-                if item.calculated_price:
-                    total_earnings += Decimal(str(item.calculated_price))
-                if item.distance_km:
-                    total_distance_km += Decimal(str(item.distance_km))
-        total_rides_count = len(all_orders)
+            return Response({'message': 'Only drivers can access this endpoint', 'status': 'error'}, status=status.HTTP_403_FORBIDDEN)
 
-        # Dynamic today_target (variant C):
-        # Look at last 30 days completed rides for this driver,
-        # take average per day and multiply by 1.2 (20% higher goal).
-        # Fallback to 6 if there is not enough history.
-        past_days = 30
-        period_start = today_start - timedelta(days=past_days)
-
-        past_orders_count = await sync_to_async(
-            lambda: completed_orders.filter(updated_at__gte=period_start).count()
-        )()
-        if past_orders_count > 0:
-            avg_daily = past_orders_count / past_days
-            today_target = max(3, int(round(avg_daily * 1.2)))
-        else:
-            today_target = 6
-        earnings_data = {
-            'today_earnings': float(today_earnings),
-            'today_rides_count': today_rides_count,
-            'today_distance_km': float(today_distance_km),
-            'today_target': today_target,
-            'weekly_earnings': float(weekly_earnings),
-            'weekly_rides_count': weekly_rides_count,
-            'weekly_distance_km': float(weekly_distance_km),
-            'monthly_earnings': float(monthly_earnings),
-            'monthly_rides_count': monthly_rides_count,
-            'monthly_distance_km': float(monthly_distance_km),
-            'total_earnings': float(total_earnings),
-            'total_rides_count': total_rides_count,
-            'total_distance_km': float(total_distance_km),
-        }
-        serializer = DriverEarningsSerializer(earnings_data)
-        data = await sync_to_async(lambda: serializer.data)()
-        return Response(
-            {'message': 'Earnings retrieved successfully', 'status': 'success', 'data': data},
-            status=status.HTTP_200_OK,
+        ride_limit = int(request.query_params.get('ride_limit', 10))
+        filter_type = request.query_params.get('filter', 'last_30')
+        start_date = request.query_params.get('start_date')
+        end_date = request.query_params.get('end_date')
+        overview, cash_history, ride_history = await sync_to_async(get_driver_dashboard)(
+            user.id, ride_limit, filter_type, start_date, end_date
         )
+
+        return Response({
+            'message': 'Dashboard retrieved successfully',
+            'status': 'success',
+            'data': {
+                'overview': overview,
+                'cash_history': cash_history,
+                'ride_history': ride_history,
+            },
+        }, status=status.HTTP_200_OK)
 
     async def _check_driver_role(self, user):
         groups = await sync_to_async(list)(user.groups.all())
         names = [g.name for g in groups]
         return 'Driver' in names
+
+
+class DriverCashoutHistoryView(AsyncAPIView):
+    """See all cash history. Paginated, same filters as dashboard."""
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        tags=['Driver'],
+        summary='Cash history (See all)',
+        description='Paginated cashout history. Filters: filter=day|week|last_30|range, start_date, end_date. Pagination: page, page_size.',
+        parameters=[
+            OpenApiParameter('filter', OpenApiTypes.STR, OpenApiParameter.QUERY, description='day, week, last_30, range'),
+            OpenApiParameter('start_date', OpenApiTypes.DATE, OpenApiParameter.QUERY, description='YYYY-MM-DD (for range)'),
+            OpenApiParameter('end_date', OpenApiTypes.DATE, OpenApiParameter.QUERY, description='YYYY-MM-DD (for range)'),
+            OpenApiParameter('page', OpenApiTypes.INT, OpenApiParameter.QUERY, description='Page number (default 1)'),
+            OpenApiParameter('page_size', OpenApiTypes.INT, OpenApiParameter.QUERY, description='Page size (default 20)'),
+        ],
+    )
+    async def get(self, request):
+        user = request.user
+        is_driver = await self._check_driver_role(user)
+        if not is_driver:
+            return Response({'message': 'Only drivers can access this endpoint', 'status': 'error'}, status=status.HTTP_403_FORBIDDEN)
+
+        filter_type = request.query_params.get('filter', 'last_30')
+        start_date = request.query_params.get('start_date')
+        end_date = request.query_params.get('end_date')
+        page = int(request.query_params.get('page', 1))
+        page_size = int(request.query_params.get('page_size', 20))
+
+        data, total = await sync_to_async(get_cash_history)(
+            user.id, filter_type, start_date, end_date, page, page_size
+        )
+        return Response({
+            'message': 'Cash history retrieved successfully',
+            'status': 'success',
+            'data': data,
+            'count': total,
+            'page': page,
+            'page_size': page_size,
+        }, status=status.HTTP_200_OK)
+
+    async def _check_driver_role(self, user):
+        groups = await sync_to_async(list)(user.groups.all())
+        names = [g.name for g in groups]
+        return 'Driver' in names
+
+
+class DriverCashoutCreateView(AsyncAPIView):
+    """Create cashout request. Figma: Cash out button."""
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        tags=['Driver'],
+        summary='Cash out',
+        description='Create withdrawal request. Body: amount, payment_type (card|cash|hola_wallet_cash).',
+    )
+    async def post(self, request):
+        user = request.user
+        is_driver = await self._check_driver_role(user)
+        if not is_driver:
+            return Response({'message': 'Only drivers can access this endpoint', 'status': 'error'}, status=status.HTTP_403_FORBIDDEN)
+        amount = request.data.get('amount')
+        if amount is None:
+            return Response({'message': 'amount is required', 'status': 'error', 'errors': {'amount': ['This field is required.']}}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            from decimal import Decimal
+            amount = Decimal(str(amount))
+            if amount <= 0:
+                raise ValueError('Amount must be positive')
+        except (ValueError, TypeError):
+            return Response({'message': 'Invalid amount', 'status': 'error', 'errors': {'amount': ['Must be a positive number.']}}, status=status.HTTP_400_BAD_REQUEST)
+        payment_type = request.data.get('payment_type', 'card')
+        if payment_type not in ('card', 'cash', 'hola_wallet_cash'):
+            payment_type = 'card'
+        cashout = await sync_to_async(DriverCashout.objects.create)(
+            driver=user, amount=amount, payment_type=payment_type, status=DriverCashout.Status.PENDING
+        )
+        from .serializers.driver import DriverCashoutSerializer
+        data = await sync_to_async(lambda: DriverCashoutSerializer(cashout).data)()
+        return Response({'message': 'Cashout request submitted successfully', 'status': 'success', 'data': data}, status=status.HTTP_201_CREATED)
+
+    async def _check_driver_role(self, user):
+        groups = await sync_to_async(list)(user.groups.all())
+        names = [g.name for g in groups]
+        return 'Driver' in names
+
 
 class DriverRideHistoryView(AsyncAPIView):
     permission_classes = [IsAuthenticated]
@@ -1433,61 +1457,38 @@ class DriverRideHistoryView(AsyncAPIView):
 
     @extend_schema(
         tags=['Driver'],
-        summary='Ride history',
-        description='Completed orders for this driver — same order shape as POST /order/create/ (OrderSerializer). Pagination: page_size.',
-        parameters=[OpenApiParameter('page_size', OpenApiTypes.INT, OpenApiParameter.QUERY, required=False, description='Page size')],
+        summary='Ride history (See all)',
+        description='Paginated completed orders. Filters: filter=day|week|last_30|range, start_date, end_date. Pagination: page, page_size.',
+        parameters=[
+            OpenApiParameter('filter', OpenApiTypes.STR, OpenApiParameter.QUERY, description='day, week, last_30, range'),
+            OpenApiParameter('start_date', OpenApiTypes.DATE, OpenApiParameter.QUERY, description='YYYY-MM-DD (for range)'),
+            OpenApiParameter('end_date', OpenApiTypes.DATE, OpenApiParameter.QUERY, description='YYYY-MM-DD (for range)'),
+            OpenApiParameter('page', OpenApiTypes.INT, OpenApiParameter.QUERY, description='Page number (default 1)'),
+            OpenApiParameter('page_size', OpenApiTypes.INT, OpenApiParameter.QUERY, description='Page size (default 10)'),
+        ],
         responses={200: OrderSerializer(many=True)},
     )
     async def get(self, request):
         user = request.user
-
         is_driver = await self._check_driver_role(user)
         if not is_driver:
-            return Response(
-                {
-                    'message': 'Only drivers can access this endpoint',
-                    'status': 'error',
-                },
-                status=status.HTTP_403_FORBIDDEN,
-            )
+            return Response({'message': 'Only drivers can access this endpoint', 'status': 'error'}, status=status.HTTP_403_FORBIDDEN)
 
-        from rest_framework.pagination import PageNumberPagination
+        filter_type = request.query_params.get('filter', 'last_30')
+        start_date = request.query_params.get('start_date')
+        end_date = request.query_params.get('end_date')
+        page = int(request.query_params.get('page', 1))
+        page_size = int(request.query_params.get('page_size', 10))
 
-        completed_orders = Order.objects.filter(
-            order_drivers__driver=user,
-            order_drivers__status=OrderDriver.DriverRequestStatus.ACCEPTED,
-            status=Order.OrderStatus.COMPLETED
-        ).select_related('user').prefetch_related('order_items__ride_type').order_by('-updated_at')
-
-        orders = await sync_to_async(list)(completed_orders)
-
-        paginator = PageNumberPagination()
-        paginator.page_size = int(request.query_params.get('page_size', 10))
-        paginated_orders = await sync_to_async(paginator.paginate_queryset)(orders, request)
-
-        if paginated_orders is not None:
-            serializer = OrderSerializer(paginated_orders, many=True)
-            serializer_data = await sync_to_async(lambda: serializer.data)()
-            
-            response = await sync_to_async(paginator.get_paginated_response)(serializer_data)
-            response.data['message'] = 'Ride history retrieved successfully'
-            response.data['status'] = 'success'
-            response.data['data'] = response.data.pop('results')
-            return response
-
-        serializer = OrderSerializer(orders, many=True)
-        serializer_data = await sync_to_async(lambda: serializer.data)()
-        count = await sync_to_async(len)(orders)
-
-        return Response(
-            {
-                'message': 'Ride history retrieved successfully',
-                'status': 'success',
-                'count': count,
-                'data': serializer_data,
-            },
-            status=status.HTTP_200_OK,
-        )
+        data, total = await sync_to_async(get_ride_history)(user.id, filter_type, start_date, end_date, page, page_size)
+        return Response({
+            'message': 'Ride history retrieved successfully',
+            'status': 'success',
+            'data': data,
+            'count': total,
+            'page': page,
+            'page_size': page_size,
+        }, status=status.HTTP_200_OK)
 
 class DriverOnlineStatusView(AsyncAPIView):
     permission_classes = [IsAuthenticated]
@@ -1671,6 +1672,34 @@ class TripRatingCreateView(AsyncAPIView):
         )
 
 
+def _create_driver_rider_rating(user_id, order_id, rating, comment, feedback_tag_ids):
+    """Sync helper: create rating and return serialized data."""
+    order = Order.objects.select_related('user').prefetch_related('order_drivers__driver').get(id=order_id)
+    order_driver = order.order_drivers.filter(status=OrderDriver.DriverRequestStatus.ACCEPTED).first()
+    if not order_driver or order_driver.driver_id != user_id:
+        return None, 'Only the driver who completed this order can rate the rider'
+    driver = order_driver.driver
+    rider = order.user
+
+    dr_rating = DriverRiderRating.objects.create(
+        order=order,
+        driver=driver,
+        rider=rider,
+        rating=rating,
+        comment=comment or None,
+    )
+    if feedback_tag_ids:
+        from apps.order.models import RatingFeedbackTag
+        tags = list(RatingFeedbackTag.objects.filter(
+            id__in=feedback_tag_ids, is_active=True, rating_target='driver_to_rider'
+        ))
+        dr_rating.feedback_tags.set(tags)
+
+    dr_rating = DriverRiderRating.objects.select_related('order', 'driver', 'rider').prefetch_related('feedback_tags').get(pk=dr_rating.pk)
+    response_serializer = DriverRiderRatingSerializer(dr_rating)
+    return response_serializer.data, (rider.id, order.id, rating)
+
+
 class DriverRiderRatingCreateView(AsyncAPIView):
     """
     Driver rates rider after completed trip. Figma: "Rate your trip" screen.
@@ -1703,59 +1732,30 @@ class DriverRiderRatingCreateView(AsyncAPIView):
         feedback_tag_ids = validated_data.get('feedback_tag_ids', [])
 
         try:
-            order = await Order.objects.select_related('user').prefetch_related(
-                'order_drivers__driver'
-            ).aget(id=order_id)
+            response_data, notify_data = await sync_to_async(_create_driver_rider_rating)(
+                user.id, order_id, rating, comment, feedback_tag_ids
+            )
         except Order.DoesNotExist:
             return Response(
                 {'message': 'Order not found', 'status': 'error'},
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        order_driver = await sync_to_async(
-            lambda: order.order_drivers.filter(status=OrderDriver.DriverRequestStatus.ACCEPTED).first()
-        )()
-        if not order_driver or order_driver.driver_id != user.id:
+        if response_data is None:
             return Response(
-                {'message': 'Only the driver who completed this order can rate the rider', 'status': 'error'},
+                {'message': notify_data, 'status': 'error'},
                 status=status.HTTP_403_FORBIDDEN,
             )
 
-        driver = order_driver.driver
-        rider = order.user
-
-        dr_rating = await sync_to_async(DriverRiderRating.objects.create)(
-            order=order,
-            driver=driver,
-            rider=rider,
-            rating=rating,
-            comment=comment or None,
-        )
-
-        if feedback_tag_ids:
-            from apps.order.models import RatingFeedbackTag
-            tags = await sync_to_async(list)(
-                RatingFeedbackTag.objects.filter(
-                    id__in=feedback_tag_ids, is_active=True, rating_target='driver_to_rider'
-                )
-            )
-            await sync_to_async(dr_rating.feedback_tags.set)(tags)
-
-        dr_rating = await DriverRiderRating.objects.select_related(
-            'order', 'driver', 'rider'
-        ).prefetch_related('feedback_tags').aget(pk=dr_rating.pk)
-
-        response_serializer = DriverRiderRatingSerializer(dr_rating, context={'request': request})
-        response_data = await sync_to_async(lambda: response_serializer.data)()
-
         try:
             from apps.notification.tasks import send_push_notification_async
-            rating_text = f"{rating} star{'s' if rating != 1 else ''}"
+            rider_id, order_pk, rating_val = notify_data
+            rating_text = f"{rating_val} star{'s' if rating_val != 1 else ''}"
             send_push_notification_async.delay(
-                user_id=rider.id,
+                user_id=rider_id,
                 title='New rating from driver',
                 body=f'Driver rated you {rating_text}',
-                data={'type': 'driver_rider_rating', 'order_id': order.id, 'rating': rating},
+                data={'type': 'driver_rider_rating', 'order_id': order_pk, 'rating': rating_val},
             )
         except Exception:
             pass

@@ -17,7 +17,9 @@ from .views import (
     DriverCancelOrderView,
     DriverLocationUpdateView,
     DriverLocationForOrderView,
-    DriverEarningsView,
+    DriverDashboardView,
+    DriverCashoutHistoryView,
+    DriverCashoutCreateView,
     DriverRideHistoryView,
     DriverOnlineStatusView,
     TripRatingCreateView,
@@ -50,8 +52,10 @@ urlpatterns = [
     path('driver/location/update/', DriverLocationUpdateView.as_view(), name='driver-location-update'),
     path('<int:order_id>/driver/location/', DriverLocationForOrderView.as_view(), name='driver-location-for-order'),
 
-    # Driver earnings and ride history
-    path('driver/earnings/', DriverEarningsView.as_view(), name='driver-earnings'),
+    # Driver dashboard (Figma Earnings: overview, cash_history, ride_history)
+    path('driver/dashboard/', DriverDashboardView.as_view(), name='driver-dashboard'),
+    path('driver/cash-history/', DriverCashoutHistoryView.as_view(), name='driver-cash-history'),
+    path('driver/cashout/', DriverCashoutCreateView.as_view(), name='driver-cashout-create'),
     path('driver/ride-history/', DriverRideHistoryView.as_view(), name='driver-ride-history'),
     path('driver/online-status/', DriverOnlineStatusView.as_view(), name='driver-online-status'),
 

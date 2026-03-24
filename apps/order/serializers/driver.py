@@ -1,7 +1,7 @@
 from rest_framework import serializers
 
 from apps.accounts.models import CustomUser, DriverPreferences
-from ..models import Order, OrderItem, OrderDriver
+from ..models import Order, OrderItem, OrderDriver, DriverCashout, TripRating
 from ..services.surge_pricing_service import calculate_distance
 
 
@@ -160,9 +160,25 @@ class DriverEarningsSerializer(serializers.Serializer):
 
 
 class DriverOnlineStatusSerializer(serializers.Serializer):
-    """
-    Serializer for driver online/offline status.
-    """
+    """Serializer for driver online/offline status."""
     is_online = serializers.BooleanField()
+
+
+class DriverOverviewSerializer(serializers.Serializer):
+    """Overview stats (Last 30 days). Figma: Rides, Made in Today, Made in Week, Tip, Promotion."""
+    rides = serializers.IntegerField()
+    made_in_today = serializers.DecimalField(max_digits=12, decimal_places=2)
+    made_in_week = serializers.DecimalField(max_digits=12, decimal_places=2)
+    tip = serializers.DecimalField(max_digits=12, decimal_places=2)
+    promotion = serializers.DecimalField(max_digits=12, decimal_places=2)
+
+
+class DriverCashoutSerializer(serializers.ModelSerializer):
+    """Cashout history item. Figma: 4 Apr 2025 Pending / $148.00 + payment_type."""
+    payment_type = serializers.ChoiceField(choices=DriverCashout.PaymentType.choices, read_only=True)
+
+    class Meta:
+        model = DriverCashout
+        fields = ['id', 'amount', 'payment_type', 'status', 'created_at']
 
 

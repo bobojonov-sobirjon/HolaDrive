@@ -17,11 +17,20 @@ class Order(models.Model):
     class OrderType(models.TextChoices):
         PICKUP = 'pickup', 'Pickup'
         FOR_ME = 'for_me', 'For Me'
-    
+
+    class PaymentType(models.TextChoices):
+        CARD = 'card', 'Card'
+        CASH = 'cash', 'Cash'
+        HOLA_WALLET_CASH = 'hola_wallet_cash', 'Hola Wallet Cash'
+
     order_code = models.CharField(max_length=255, verbose_name='Order Code', null=True, blank=True)
     user = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='orders')
     status = models.CharField(max_length=20, choices=OrderStatus.choices, default=OrderStatus.PENDING)
     order_type = models.CharField(max_length=20, choices=OrderType.choices, default=OrderType.PICKUP)
+    payment_type = models.CharField(
+        max_length=30, choices=PaymentType.choices, default=PaymentType.CARD, null=True, blank=True,
+        verbose_name='Payment Type'
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -1338,6 +1347,37 @@ class DriverRiderRating(models.Model):
             models.Index(fields=['order'], name='dr_rider_rating_order_idx'),
             models.Index(fields=['driver'], name='dr_rider_rating_driver_idx'),
             models.Index(fields=['rider'], name='dr_rider_rating_rider_idx'),
+        ]
+
+
+class DriverCashout(models.Model):
+    """Driver withdrawal/cash-out request. Figma: Cashout history."""
+    class Status(models.TextChoices):
+        PENDING = 'pending', 'Pending'
+        COMPLETED = 'completed', 'Completed'
+        FAILED = 'failed', 'Failed'
+
+    class PaymentType(models.TextChoices):
+        CARD = 'card', 'Card'
+        CASH = 'cash', 'Cash'
+        HOLA_WALLET_CASH = 'hola_wallet_cash', 'Hola Wallet Cash'
+
+    driver = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='cashouts', verbose_name='Driver')
+    amount = models.DecimalField(max_digits=12, decimal_places=2, verbose_name='Amount')
+    payment_type = models.CharField(max_length=30, choices=PaymentType.choices, default=PaymentType.CARD, verbose_name='Payment Type')
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    objects = models.Manager()
+
+    class Meta:
+        verbose_name = 'Driver Cashout'
+        verbose_name_plural = '15 Driver Cashouts'
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['driver'], name='dr_cashout_driver_idx'),
+            models.Index(fields=['status'], name='dr_cashout_status_idx'),
         ]
 
 
