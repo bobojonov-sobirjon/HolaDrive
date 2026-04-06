@@ -1,20 +1,31 @@
+import nested_admin
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
+from django.contrib.contenttypes.admin import GenericStackedInline
 from django.contrib.sites.models import Site
 from django.contrib.auth.models import Group
 from django.utils.html import format_html, format_html_join
-import mimetypes
 from django.db import models
+from django.db.models import Q
 from django import forms
 from .models import (
     CustomUser, RiderUser, DriverUser,
     VerificationCode, PasswordResetToken, UserPreferences,
     DriverPreferences, VehicleDetails, VehicleImages,
-    DriverIdentification, DriverIdentificationItems, DriverIdentificationFAQ,
-    DriverIdentificationUploadDocument,
     DriverVerification, UserDeviceToken,
     InvitationGenerate, InvitationUsers, PinVerificationForUser,
-    LegalPage, DriverAgreement, AcceptanceOfAgreement, TermsAndConditionsAcceptance
+    DriverIdentification,
+    DriverIdentificationUploadType,
+    DriverIdentificationUploadTypeItem,
+    DriverIdentificationUploadTypeQuestionAnswer,
+    DriverIdentificationLegalType,
+    DriverIdentificationRegistrationType,
+    DriverIdentificationTermsType,
+    DriverIdentificationAgreementsItems,
+    DriverIdentificationUploadTypeUserAccepted,
+    DriverIdentificationLegalAgreementsUserAccepted,
+    DriverIdentificationRegistrationAgreementsUserAccepted,
+    DriverIdentificationTermsUserAccepted,
 )
 try:
     from apps.order.models import RideType
@@ -107,6 +118,100 @@ class UserDeviceTokenInline(admin.TabularInline):
     ordering = ('-updated_at',)
 
 
+class RiderRegistrationAgreementAcceptedInline(admin.TabularInline):
+    """Rider: registration agreement acceptances (same model as drivers)."""
+    model = DriverIdentificationRegistrationAgreementsUserAccepted
+    fk_name = 'user'
+    extra = 0
+    verbose_name_plural = 'Registration agreements accepted'
+    fields = (
+        'driver_identification_registration_agreements',
+        'is_accepted',
+        'created_at',
+        'updated_at',
+    )
+    readonly_fields = ('created_at', 'updated_at')
+    autocomplete_fields = ('driver_identification_registration_agreements',)
+
+
+class DriverUploadTypeAcceptedInline(admin.TabularInline):
+    model = DriverIdentificationUploadTypeUserAccepted
+    fk_name = 'user'
+    extra = 0
+    verbose_name_plural = 'Upload identifications accepted'
+    fields = (
+        'driver_identification_upload_type',
+        'file',
+        'is_accepted',
+        'created_at',
+    )
+    readonly_fields = ('created_at',)
+    autocomplete_fields = ('driver_identification_upload_type',)
+
+
+class DriverLegalAgreementAcceptedInline(admin.TabularInline):
+    model = DriverIdentificationLegalAgreementsUserAccepted
+    fk_name = 'user'
+    extra = 0
+    verbose_name_plural = 'Legal agreements accepted'
+    fields = (
+        'driver_identification_legal_agreements',
+        'is_accepted',
+        'created_at',
+        'updated_at',
+    )
+    readonly_fields = ('created_at', 'updated_at')
+    autocomplete_fields = ('driver_identification_legal_agreements',)
+
+
+class DriverRegistrationAgreementAcceptedInline(admin.TabularInline):
+    model = DriverIdentificationRegistrationAgreementsUserAccepted
+    fk_name = 'user'
+    extra = 0
+    verbose_name_plural = 'Registration agreements accepted'
+    fields = (
+        'driver_identification_registration_agreements',
+        'is_accepted',
+        'created_at',
+        'updated_at',
+    )
+    readonly_fields = ('created_at', 'updated_at')
+    autocomplete_fields = ('driver_identification_registration_agreements',)
+
+
+class DriverTermsAcceptedInline(admin.TabularInline):
+    model = DriverIdentificationTermsUserAccepted
+    fk_name = 'user'
+    extra = 0
+    verbose_name_plural = 'Terms accepted'
+    fields = (
+        'driver_identification_terms',
+        'is_accepted',
+        'created_at',
+        'updated_at',
+    )
+    readonly_fields = ('created_at', 'updated_at')
+    autocomplete_fields = ('driver_identification_terms',)
+
+
+class DriverVerificationStatusListFilter(admin.SimpleListFilter):
+    title = 'Driver verification'
+    parameter_name = 'driver_verification_status'
+
+    def lookups(self, request, model_admin):
+        return DriverVerification.Status.choices
+
+    def queryset(self, request, queryset):
+        v = self.value()
+        if v is None:
+            return queryset
+        if v == DriverVerification.Status.NOT_SUBMITTED:
+            return queryset.filter(
+                Q(driver_verification__status=v) | Q(driver_verification__isnull=True)
+            )
+        return queryset.filter(driver_verification__status=v)
+
+
 class VehicleImagesInline(admin.TabularInline):
     """
     Inline admin for VehicleImages
@@ -190,104 +295,6 @@ class VehicleDetailsInline(admin.StackedInline):
     vehicle_images_display.short_description = "Vehicle Images"
 
 
-class DriverIdentificationUploadDocumentInline(admin.TabularInline):
-    """
-    Inline admin for DriverIdentificationUploadDocument
-    Shows all uploaded documents for this DriverIdentification
-    """
-    model = DriverIdentificationUploadDocument
-    fk_name = 'driver_identification'
-    extra = 0
-    fields = ('user', 'document_file', 'document_preview', 'created_at', 'updated_at')
-    readonly_fields = ('document_preview', 'created_at', 'updated_at')
-    ordering = ('-updated_at',)
-    can_delete = True
-    show_change_link = True
-
-    def document_preview(self, obj):
-        """
-        Fayl preview:
-        - Agar rasm bo'lsa, Vehicle Images dagidek kartochka ko'rinishida <img>
-        - Aks holda oddiy "Open file" link
-        """
-        if not obj or not obj.document_file:
-            return format_html('<span style="color:#999;">No file</span>')
-
-        url = obj.document_file.url
-        mime_type, _ = mimetypes.guess_type(url)
-
-        # Rasm bo'lsa: VehicleImages bilan bir xil karta
-        if mime_type and mime_type.startswith('image/'):
-            return format_html(
-                '''
-                <div style="text-align: center; border: 1px solid #ddd; padding: 5px; border-radius: 5px; display: inline-block; margin: 5px;">
-                    <img src="{}" style="max-width: 200px; max-height: 200px; border-radius: 3px;" />
-                    <br/>
-                    <small style="color: #666;">{}</small>
-                </div>
-                ''',
-                url,
-                obj.created_at.strftime("%Y-%m-%d %H:%M") if obj.created_at else '',
-            )
-
-        # Boshqa fayllar uchun oddiy link
-        return format_html('<a href="{}" target="_blank">Open file</a>', url)
-
-    document_preview.short_description = "Preview"
-
-
-@admin.register(DriverIdentificationUploadDocument)
-class DriverIdentificationUploadDocumentAdmin(admin.ModelAdmin):
-    """
-    Admin for DriverIdentificationUploadDocument - alohida sahifada ko'rsatiladi
-    """
-    list_display = ('user', 'driver_identification', 'document_preview', 'created_at', 'updated_at')
-    list_filter = ('driver_identification', 'created_at', 'updated_at')
-    search_fields = ('user__email', 'user__username', 'driver_identification__name')
-    readonly_fields = ('document_preview', 'created_at', 'updated_at')
-    ordering = ('-updated_at',)
-    
-    fieldsets = (
-        ('Document Information', {
-            'fields': ('user', 'driver_identification', 'document_file', 'document_preview')
-        }),
-        ('Timestamps', {
-            'fields': ('created_at', 'updated_at')
-        }),
-    )
-
-    def document_preview(self, obj):
-        """
-        Fayl preview:
-        - Agar rasm bo'lsa, Vehicle Images dagidek kartochka ko'rinishida <img>
-        - Aks holda oddiy "Open file" link
-        """
-        if not obj or not obj.document_file:
-            return format_html('<span style="color:#999;">No file</span>')
-
-        url = obj.document_file.url
-        mime_type, _ = mimetypes.guess_type(url)
-
-        # Rasm bo'lsa: VehicleImages bilan bir xil karta
-        if mime_type and mime_type.startswith('image/'):
-            return format_html(
-                '''
-                <div style="text-align: center; border: 1px solid #ddd; padding: 5px; border-radius: 5px; display: inline-block; margin: 5px;">
-                    <img src="{}" style="max-width: 200px; max-height: 200px; border-radius: 3px;" />
-                    <br/>
-                    <small style="color: #666;">{}</small>
-                </div>
-                ''',
-                url,
-                obj.created_at.strftime("%Y-%m-%d %H:%M") if obj.created_at else '',
-            )
-
-        # Boshqa fayllar uchun oddiy link
-        return format_html('<a href="{}" target="_blank">Open file</a>', url)
-
-    document_preview.short_description = "Preview"
-
-
 @admin.register(DriverVerification)
 class DriverVerificationAdmin(admin.ModelAdmin):
     list_display = ('user', 'status', 'reviewer', 'estimated_review_hours', 'reviewed_at', 'updated_at')
@@ -356,6 +363,7 @@ class RiderUserAdmin(UserAdmin):
         UserPreferencesInline,
         InvitationUsersInline,
         PinVerificationForRiderInline,
+        RiderRegistrationAgreementAcceptedInline,
         UserDeviceTokenInline,
     ]
     
@@ -408,9 +416,34 @@ class DriverUserAdmin(UserAdmin):
     Admin panel for Drivers only
     Faqat Driver guruhiga tegishli userlarni ko'rsatadi
     """
-    list_display = ('email', 'username', 'first_name', 'last_name', 'id_identification', 'is_verified', 'is_active', 'created_at')
-    list_filter = ('is_verified', 'is_active', 'created_at')
-    search_fields = ('email', 'username', 'first_name', 'last_name', 'phone_number', 'tax_number', 'id_identification')
+    list_display = (
+        'email',
+        'username',
+        'first_name',
+        'last_name',
+        'id_identification',
+        'is_verified',
+        'verification_activation',
+        'is_active',
+        'created_at',
+    )
+    list_filter = (
+        DriverVerificationStatusListFilter,
+        'is_verified',
+        'is_active',
+        'created_at',
+    )
+    search_fields = (
+        'email',
+        'username',
+        'first_name',
+        'last_name',
+        'phone_number',
+        'tax_number',
+        'id_identification',
+        'driver_verification__status',
+        'driver_verification__comment',
+    )
     ordering = ('-created_at',)
 
     formfield_overrides = {
@@ -429,6 +462,10 @@ class DriverUserAdmin(UserAdmin):
         PinVerificationForDriverInline,
         DriverPreferencesInline,
         VehicleDetailsInline,
+        DriverUploadTypeAcceptedInline,
+        DriverLegalAgreementAcceptedInline,
+        DriverRegistrationAgreementAcceptedInline,
+        DriverTermsAcceptedInline,
         UserDeviceTokenInline,
     ]
     
@@ -458,10 +495,33 @@ class DriverUserAdmin(UserAdmin):
         qs = super().get_queryset(request)
         try:
             driver_group = Group.objects.get(name='Driver')
-            return qs.filter(groups=driver_group)
+            qs = qs.filter(groups=driver_group)
         except Group.DoesNotExist:
             return qs.none()
-    
+        return qs.select_related('driver_verification')
+
+    @staticmethod
+    def _verification_status_style(status):
+        return {
+            DriverVerification.Status.APPROVED: ('Approved', '#198754'),
+            DriverVerification.Status.IN_REVIEW: ('In review', '#fd7e14'),
+            DriverVerification.Status.REJECTED: ('Rejected', '#dc3545'),
+            DriverVerification.Status.NOT_SUBMITTED: ('Not submitted', '#6c757d'),
+        }.get(status, ('—', '#adb5bd'))
+
+    @admin.display(description='Activation')
+    def verification_activation(self, obj):
+        dv = getattr(obj, 'driver_verification', None)
+        if dv is None:
+            label, color = ('Not submitted', '#6c757d')
+        else:
+            label, color = self._verification_status_style(dv.status)
+        return format_html(
+            '<span style="color:{};font-weight:600;">{}</span>',
+            color,
+            label,
+        )
+
     def save_model(self, request, obj, form, change):
         """
         Auto-assign Driver group for new users
@@ -476,117 +536,245 @@ class DriverUserAdmin(UserAdmin):
                 pass
 
 
-class DriverIdentificationItemsInline(admin.TabularInline):
-    """
-    Inline admin for DriverIdentificationItems
-    """
-    model = DriverIdentificationItems
-    extra = 1
-    fields = ('item',)
-    
-    formfield_overrides = {
-        models.CharField: {
-            'widget': forms.TextInput(attrs={'style': 'width: 100%; min-width: 250px;'}),
-        },
-    }
+_DRIVER_IDENTIFICATION_WIDE_TEXT = {
+    models.CharField: {
+        'widget': forms.TextInput(
+            attrs={
+                'style': 'width: 100%; max-width: 56rem; box-sizing: border-box;',
+                'class': 'vTextField',
+            }
+        ),
+    },
+    models.TextField: {
+        'widget': forms.Textarea(
+            attrs={
+                'rows': 6,
+                'cols': 100,
+                'style': 'width: 100%; max-width: 56rem; box-sizing: border-box;',
+                'class': 'vLargeTextField',
+            }
+        ),
+    },
+}
 
 
-class DriverIdentificationFAQInline(admin.TabularInline):
-    model = DriverIdentificationFAQ
+class DriverIdentificationUploadTypeQuestionAnswerInline(nested_admin.NestedTabularInline):
+    model = DriverIdentificationUploadTypeQuestionAnswer
     extra = 0
-    fields = ('question', 'link', 'file', 'order')
-    ordering = ('order',)
-
-
-@admin.register(DriverIdentification)
-class DriverIdentificationAdmin(admin.ModelAdmin):
-    list_display = ('name', 'title', 'is_active', 'created_at', 'updated_at')
-    list_filter = ('is_active', 'created_at', 'updated_at')
-    search_fields = ('name', 'title', 'description')
-    readonly_fields = ('created_at', 'updated_at')
-    ordering = ('-created_at',)
-    inlines = [DriverIdentificationItemsInline, DriverIdentificationFAQInline]
-    
-    # CharField va TextField uchun kengaytirilgan ko'rinish
+    verbose_name = 'Question / file'
+    verbose_name_plural = 'Questions & attachments (this step)'
+    classes = ('driver-id-qa-block',)
+    fields = ('question', 'file', 'created_at')
+    readonly_fields = ('created_at',)
     formfield_overrides = {
         models.CharField: {
-            'widget': forms.TextInput(attrs={'style': 'width: 100%; min-width: 300px;'}),
-        },
-        models.TextField: {
-            'widget': forms.Textarea(attrs={'rows': 4, 'cols': 80, 'style': 'width: 100%; min-width: 500px;'}),
+            'widget': forms.Textarea(
+                attrs={
+                    'rows': 2,
+                    'cols': 60,
+                    'style': 'width: 100%; min-width: 100%; box-sizing: border-box; resize: vertical;',
+                    'class': 'vLargeTextField',
+                    'placeholder': 'Question shown to the driver',
+                }
+            ),
         },
     }
-    
+
+    def formfield_for_dbfield(self, db_field, request, **kwargs):
+        formfield = super().formfield_for_dbfield(db_field, request, **kwargs)
+        if db_field.name in ('question', 'file') and formfield is not None:
+            formfield.help_text = ''
+        return formfield
+
+
+class DriverIdentificationUploadTypeItemInline(nested_admin.NestedStackedInline):
+    model = DriverIdentificationUploadTypeItem
+    extra = 0
+    verbose_name = 'Checklist step'
+    verbose_name_plural = 'Driver checklist (steps)'
+    classes = ('driver-id-step-block',)
+    fields = ('item', 'created_at')
+    readonly_fields = ('created_at',)
+    inlines = (DriverIdentificationUploadTypeQuestionAnswerInline,)
+    formfield_overrides = {
+        models.CharField: {
+            'widget': forms.Textarea(
+                attrs={
+                    'rows': 3,
+                    'cols': 80,
+                    'style': 'width: 100%; max-width: 56rem; box-sizing: border-box;',
+                    'class': 'vLargeTextField',
+                    'placeholder': 'Short label or instruction for this checklist step',
+                }
+            ),
+        },
+    }
+
+    def formfield_for_dbfield(self, db_field, request, **kwargs):
+        formfield = super().formfield_for_dbfield(db_field, request, **kwargs)
+        if db_field.name == 'item' and formfield is not None:
+            formfield.help_text = ''
+        return formfield
+
+
+@admin.register(DriverIdentificationUploadType)
+class DriverIdentificationUploadTypeAdmin(nested_admin.NestedModelAdmin):
+    list_display = ('title', 'is_active', 'display_type', 'created_at')
+    list_filter = ('is_active', 'created_at')
+    search_fields = ('title', 'description')
+    readonly_fields = ('display_type_label', 'created_at', 'updated_at')
+    formfield_overrides = {**_DRIVER_IDENTIFICATION_WIDE_TEXT}
     fieldsets = (
-        ('Basic Information', {
-            'fields': ('display_type', 'name', 'title', 'description', 'is_active')
+        (None, {
+            'classes': ('wide', 'driver-id-general'),
+            'fields': ('title', 'description', 'display_type_label', 'is_active', 'icon'),
         }),
-        ('Image', {
-            'fields': ('image',)
+        ('Timestamps', {
+            'classes': ('collapse', 'wide'),
+            'fields': ('created_at', 'updated_at'),
         }),
-        ('Timestamps', {'fields': ('created_at', 'updated_at')}),
     )
+    inlines = (DriverIdentificationUploadTypeItemInline,)
+
+    @admin.display(description='Display type')
+    def display_type_label(self, obj):
+        if obj is None or obj.pk is None:
+            code = 'upload'
+        else:
+            code = obj.display_type
+        return dict(DriverIdentification.IDENTIFICATION_TYPES).get(code, code)
+
+    def save_model(self, request, obj, form, change):
+        obj.display_type = 'upload'
+        super().save_model(request, obj, form, change)
 
 
-@admin.register(DriverIdentificationFAQ)
-class DriverIdentificationFAQAdmin(admin.ModelAdmin):
-    list_display = ('question_short', 'driver_identification', 'order', 'created_at')
-    list_filter = ('driver_identification',)
-    search_fields = ('question',)
-    ordering = ('driver_identification', 'order', 'id')
+def driver_identification_agreements_stacked_inline(item_type: str):
+    """
+    Inline agreement rows for a single item_type; parent link via GenericForeignKey.
+    item_type is forced on save by AgreementIdentificationAdminMixin.
+    """
 
-    def question_short(self, obj):
-        return (obj.question[:50] + '...') if len(obj.question) > 50 else obj.question
-    question_short.short_description = 'Question'
+    class Inline(GenericStackedInline):
+        model = DriverIdentificationAgreementsItems
+        extra = 0
+        ct_field = 'content_type'
+        ct_fk_field = 'object_id'
+        fields = ('title', 'content', 'file', 'created_at')
+        readonly_fields = ('created_at',)
+        formfield_overrides = {
+            models.CharField: {
+                'widget': forms.TextInput(
+                    attrs={
+                        'style': 'width: 100%; max-width: 56rem; box-sizing: border-box;',
+                        'class': 'vTextField',
+                    }
+                ),
+            },
+        }
 
+        def get_queryset(self, request):
+            return super().get_queryset(request).filter(item_type=item_type)
 
-@admin.register(LegalPage)
-class LegalPageAdmin(admin.ModelAdmin):
-    list_display = ('name', 'link', 'is_active', 'created_at', 'updated_at')
-    list_filter = ('is_active',)
-    search_fields = ('name',)
-    ordering = ('name',)
-
-
-@admin.register(AcceptanceOfAgreement)
-class AcceptanceOfAgreementAdmin(admin.ModelAdmin):
-    list_display = ('id', 'user', 'agreement', 'is_accepted', 'accepted_at', 'created_at', 'updated_at')
-    list_filter = ('is_accepted', 'agreement', 'created_at')
-    search_fields = ('user__email', 'agreement__name')
-    ordering = ('-created_at',)
-    raw_id_fields = ('user', 'agreement')
-    readonly_fields = ('accepted_at', 'created_at', 'updated_at')
-    list_select_related = ('user', 'agreement')
-
-
-@admin.register(TermsAndConditionsAcceptance)
-class TermsAndConditionsAcceptanceAdmin(admin.ModelAdmin):
-    list_display = ('id', 'user', 'driver_identification', 'is_accepted', 'created_at', 'updated_at')
-    list_filter = ('is_accepted', 'driver_identification', 'created_at')
-    search_fields = ('user__email', 'driver_identification__name')
-    ordering = ('-created_at',)
-    raw_id_fields = ('user', 'driver_identification')
-    readonly_fields = ('created_at', 'updated_at')
-    list_select_related = ('user', 'driver_identification')
+    Inline.__name__ = f'DriverIdentificationAgreements{item_type.title()}Inline'
+    return Inline
 
 
-@admin.register(DriverAgreement)
-class DriverAgreementAdmin(admin.ModelAdmin):
-    list_display = ('name', 'file', 'created_at', 'updated_at')
-    list_filter = ('created_at', 'updated_at')
-    search_fields = ('name',)
-    ordering = ('name',)
+class AgreementItemTypeAdminMixin:
+    agreement_item_type: str
 
-    readonly_fields = ('created_at', 'updated_at')
+    @admin.display(description='Display type')
+    def display_type_label(self, obj):
+        if obj is None or obj.pk is None:
+            code = self.agreement_item_type
+        else:
+            code = obj.display_type
+        return dict(DriverIdentification.IDENTIFICATION_TYPES).get(code, code)
 
+    def save_formset(self, request, form, formset, change):
+        if formset.model is DriverIdentificationAgreementsItems:
+            instances = formset.save(commit=False)
+            for obj in instances:
+                obj.item_type = self.agreement_item_type
+            for obj in formset.deleted_objects:
+                obj.delete()
+            for obj in instances:
+                obj.save()
+            formset.save_m2m()
+            return
+        super().save_formset(request, form, formset, change)
+
+
+@admin.register(DriverIdentificationLegalType)
+class DriverIdentificationLegalTypeAdmin(AgreementItemTypeAdminMixin, admin.ModelAdmin):
+    agreement_item_type = 'legal'
+
+    list_display = ('title', 'is_active', 'created_at')
+    list_filter = ('is_active', 'created_at')
+    search_fields = ('title', 'description')
+    readonly_fields = ('display_type_label', 'created_at', 'updated_at')
+    formfield_overrides = {**_DRIVER_IDENTIFICATION_WIDE_TEXT}
     fieldsets = (
-        ('Agreement Information', {
-            'fields': ('name', 'file')
+        (None, {
+            'fields': ('title', 'description', 'display_type_label', 'is_active'),
         }),
         ('Timestamps', {
             'fields': ('created_at', 'updated_at'),
         }),
     )
+    inlines = (driver_identification_agreements_stacked_inline('legal'),)
+
+    def save_model(self, request, obj, form, change):
+        obj.display_type = 'legal'
+        super().save_model(request, obj, form, change)
+
+
+@admin.register(DriverIdentificationRegistrationType)
+class DriverIdentificationRegistrationTypeAdmin(AgreementItemTypeAdminMixin, admin.ModelAdmin):
+    agreement_item_type = 'registration'
+
+    list_display = ('title', 'is_active', 'created_at')
+    list_filter = ('is_active', 'created_at')
+    search_fields = ('title', 'description')
+    readonly_fields = ('display_type_label', 'created_at', 'updated_at')
+    formfield_overrides = {**_DRIVER_IDENTIFICATION_WIDE_TEXT}
+    fieldsets = (
+        (None, {
+            'fields': ('title', 'description', 'display_type_label', 'is_active'),
+        }),
+        ('Timestamps', {
+            'fields': ('created_at', 'updated_at'),
+        }),
+    )
+    inlines = (driver_identification_agreements_stacked_inline('registration'),)
+
+    def save_model(self, request, obj, form, change):
+        obj.display_type = 'registration'
+        super().save_model(request, obj, form, change)
+
+
+@admin.register(DriverIdentificationTermsType)
+class DriverIdentificationTermsTypeAdmin(AgreementItemTypeAdminMixin, admin.ModelAdmin):
+    agreement_item_type = 'terms'
+
+    list_display = ('title', 'is_active', 'created_at')
+    list_filter = ('is_active', 'created_at')
+    search_fields = ('title', 'description')
+    readonly_fields = ('display_type_label', 'created_at', 'updated_at')
+    formfield_overrides = {**_DRIVER_IDENTIFICATION_WIDE_TEXT}
+    fieldsets = (
+        (None, {
+            'fields': ('title', 'description', 'display_type_label', 'is_active'),
+        }),
+        ('Timestamps', {
+            'fields': ('created_at', 'updated_at'),
+        }),
+    )
+    inlines = (driver_identification_agreements_stacked_inline('terms'),)
+
+    def save_model(self, request, obj, form, change):
+        obj.display_type = 'terms'
+        super().save_model(request, obj, form, change)
 
 
 admin.site.unregister(Site)

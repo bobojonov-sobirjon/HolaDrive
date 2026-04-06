@@ -46,6 +46,8 @@ THIRD_PARTY_APPS = [
 ]
 
 INSTALLED_APPS = [
+    'nested_admin',
+    'jazzmin',
     "daphne",
     'django.contrib.sites',
     'django.contrib.admin',
@@ -54,6 +56,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'ckeditor',
     'channels',
     *THIRD_PARTY_APPS,
 ]
@@ -151,7 +154,6 @@ STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 MEDIA_URL = "/media/"
 MEDIA_ROOT = os.getenv('MEDIA_ROOT', '/var/www/media')
 
-
 LOCALE_PATHS = [
     os.path.join(BASE_DIR, 'locale'),
 ]
@@ -159,6 +161,13 @@ LOCALE_PATHS = [
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
+CKEDITOR_CONFIGS = {
+    'default': {
+        'toolbar': 'Full',
+        'height': 320,
+        'width': '100%',
+    },
+}
 
 REST_FRAMEWORK = {
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
@@ -229,6 +238,155 @@ AUTHENTICATION_BACKENDS = (
 AUTH_USER_MODEL = 'accounts.CustomUser'
 
 SITE_ID = 1
+
+# -----------------------------------------------------------------------------
+# Django Jazzmin — admin UI (https://github.com/farridav/django-jazzmin)
+# Branding aligns with Hola Drive / Hola Driver (dark + warm accent).
+# -----------------------------------------------------------------------------
+JAZZMIN_SETTINGS = {
+    'site_title': 'Hola Drive Admin',
+    'site_header': 'Hola Drive',
+    'site_brand': 'Hola Drive',
+    'welcome_sign': 'Sign in to manage riders, drivers, orders, and content.',
+    'copyright': 'Hola Drive',
+    'search_model': [
+        'accounts.RiderUser',
+        'accounts.DriverUser',
+        'order.Order',
+    ],
+    'user_avatar': None,
+    'topmenu_links': [
+        {'name': 'Dashboard', 'url': 'admin:index', 'permissions': ['auth.view_user']},
+        {
+            'name': 'Swagger',
+            'url': '/swagger/',
+            'new_window': True,
+            'icon': 'fas fa-book',
+            'permissions': ['auth.view_user'],
+        },
+        {
+            'name': 'API schema',
+            'url': '/api/schema/',
+            'new_window': True,
+            'icon': 'fas fa-code',
+            'permissions': ['auth.view_user'],
+        },
+    ],
+    'usermenu_links': [
+        {'model': 'accounts.rideruser'},
+        {'model': 'accounts.driveruser'},
+    ],
+    'show_sidebar': True,
+    'navigation_expanded': False,
+    'hide_apps': [],
+    'hide_models': [
+        'sites.site',
+    ],
+    'order_with_respect_to': [
+        'accounts',
+        'order',
+        'chat',
+        'notification',
+        'auth',
+        'sites',
+    ],
+    'custom_links': {
+        'order': [
+            {
+                'name': 'Order preferences API',
+                'url': '/api/v1/order/preferences/',
+                'icon': 'fas fa-sliders-h',
+                'new_window': True,
+            }
+        ],
+    },
+    'icons': {
+        'auth': 'fas fa-key',
+        'auth.group': 'fas fa-users-cog',
+        'accounts.rideruser': 'fas fa-user',
+        'accounts.driveruser': 'fas fa-id-badge',
+        'accounts.verificationcode': 'fas fa-shield-alt',
+        'accounts.userpreferences': 'fas fa-cog',
+        'accounts.driverpreferences': 'fas fa-taxi',
+        'accounts.vehicledetails': 'fas fa-car-side',
+        'accounts.vehicleimages': 'fas fa-images',
+        'accounts.driververification': 'fas fa-clipboard-check',
+        'accounts.driveridentificationuploadtype': 'fas fa-cloud-upload-alt',
+        'accounts.driveridentificationlegaltype': 'fas fa-balance-scale',
+        'accounts.driveridentificationregistrationtype': 'fas fa-clipboard-list',
+        'accounts.driveridentificationtermstype': 'fas fa-file-contract',
+        'accounts.userdevicetoken': 'fas fa-mobile-alt',
+        'accounts.invitationgenerate': 'fas fa-paper-plane',
+        'accounts.invitationusers': 'fas fa-user-plus',
+        'accounts.pinverificationforuser': 'fas fa-lock',
+        'order.order': 'fas fa-route',
+        'order.orderitem': 'fas fa-list-ul',
+        'order.orderpreferences': 'fas fa-sliders-h',
+        'order.additionalpassenger': 'fas fa-user-friends',
+        'order.orderdriver': 'fas fa-car',
+        'order.cancelorder': 'fas fa-ban',
+        'order.ridetype': 'fas fa-tag',
+        'order.surgepricing': 'fas fa-chart-line',
+        'order.orderpaymentsplit': 'fas fa-money-bill-wave',
+        'order.promocode': 'fas fa-percent',
+        'order.orderpromocode': 'fas fa-ticket-alt',
+        'order.ratingfeedbacktag': 'fas fa-comment-dots',
+        'order.triprating': 'fas fa-star',
+        'order.driverriderrating': 'fas fa-star-half-alt',
+        'order.drivercashout': 'fas fa-wallet',
+        'chat.chatroom': 'fas fa-comments',
+        'chat.chatmessage': 'fas fa-comment',
+        'notification.notification': 'fas fa-bell',
+    },
+    'default_icon_parents': 'fas fa-folder',
+    'default_icon_children': 'fas fa-circle',
+    'related_modal_active': True,
+    'custom_css': 'admin/css/jazzmin_sidebar_multiline.css',
+    'custom_js': None,
+    'use_google_fonts_cdn': True,
+    'show_ui_builder': False,
+    'show_theme_chooser': True,
+    'changeform_format': 'horizontal_tabs',
+    'changeform_format_overrides': {
+        'accounts.driveruser': 'collapsible',
+        'accounts.rideruser': 'collapsible',
+        'order.order': 'horizontal_tabs',
+    },
+    'language_chooser': False,
+}
+
+JAZZMIN_UI_TWEAKS = {
+    'navbar_small_text': False,
+    'footer_small_text': False,
+    'body_small_text': False,
+    'brand_small_text': False,
+    'brand_colour': 'navbar-orange',
+    'accent': 'accent-warning',
+    'navbar': 'navbar-dark',
+    'no_navbar_border': False,
+    'navbar_fixed': True,
+    'layout_boxed': False,
+    'footer_fixed': False,
+    'sidebar_fixed': True,
+    'sidebar': 'sidebar-dark-primary',
+    'sidebar_nav_small_text': False,
+    'sidebar_disable_expand': False,
+    'sidebar_nav_child_indent': True,
+    'sidebar_nav_compact_style': False,
+    'sidebar_nav_legacy_style': False,
+    'sidebar_nav_flat_style': False,
+    'theme': 'darkly',
+    'default_theme_mode': 'dark',
+    'button_classes': {
+        'primary': 'btn-warning',
+        'secondary': 'btn-secondary',
+        'info': 'btn-info',
+        'warning': 'btn-warning',
+        'danger': 'btn-danger',
+        'success': 'btn-success',
+    },
+    'actions_sticky_top': True,
+}
 
 EMAIL_BACKEND = os.getenv('EMAIL_BACKEND', 'django.core.mail.backends.smtp.EmailBackend')
 EMAIL_HOST = os.getenv('EMAIL_HOST', 'smtp.gmail.com')

@@ -1,4 +1,7 @@
+from ckeditor.fields import RichTextField
 from django.contrib.auth.models import AbstractUser
+from django.contrib.contenttypes.fields import GenericForeignKey, GenericRelation
+from django.contrib.contenttypes.models import ContentType
 from django.db import models
 from decimal import Decimal
 import random
@@ -871,32 +874,14 @@ class DriverIdentification(models.Model):
     
     IDENTIFICATION_TYPES = (
         ('upload', 'Photo Upload'),
-        ('terms', 'Terms and Conditions'),
+        ('terms', 'Terms and Conditions Acceptance'),
+        ('legal', 'Legal Agreements Acceptance'),
+        ('registration', 'Registration Terms Acceptance'),
     )
     """
     Model for storing driver identification types (dynamic identification items)
     Admin can create different identification types like Driver's License, Profile Photo, etc.
     """
-    name = models.CharField(
-        max_length=255,
-        unique=True,
-        verbose_name="Name",
-        help_text="Unique name for the identification type (e.g., 'Driver License', 'Profile Photo')"
-    )
-    display_type = models.CharField(
-        max_length=20, 
-        choices=IDENTIFICATION_TYPES, 
-        default='upload',
-        verbose_name="Display Type",
-        help_text="Whether to display a photo upload or only terms and conditions"
-    )
-    image = models.ImageField(
-        upload_to='driver_identification_icons/',
-        blank=True,
-        null=True,
-        verbose_name="Icon Image",
-        help_text="Icon image for the identification type"
-    )
     title = models.CharField(
         max_length=255,
         verbose_name="Title",
@@ -907,6 +892,13 @@ class DriverIdentification(models.Model):
         null=True,
         verbose_name="Description",
         help_text="Detailed description/instructions for the user"
+    )
+    display_type = models.CharField(
+        max_length=20,
+        choices=IDENTIFICATION_TYPES,
+        default='upload',
+        verbose_name="Display Type",
+        help_text="Whether to display a photo upload or only terms and conditions"
     )
     is_active = models.BooleanField(
         default=True,
@@ -927,122 +919,145 @@ class DriverIdentification(models.Model):
         verbose_name_plural = "03. Driver Identifications"
         ordering = ['-created_at']
         indexes = [
-            models.Index(fields=['name'], name='driver_id_name_idx'),
+            models.Index(fields=['title'], name='driver_id_title_idx'),
             models.Index(fields=['is_active'], name='driver_id_active_idx'),
             models.Index(fields=['created_at'], name='driver_id_created_idx'),
             models.Index(fields=['is_active', 'created_at'], name='driver_id_active_created_idx'),
         ]
 
     def __str__(self):
-        return self.name
+        return self.title
 
 
-class TermsAndConditionsAcceptance(models.Model):
-    """
-    Model for storing terms and conditions acceptance by drivers
-    """
-    user = models.ForeignKey(
-        CustomUser,
-        on_delete=models.CASCADE,
-        related_name='terms_and_conditions_acceptance',
+class DriverIdentificationUploadType(DriverIdentification):
+    
+    icon = models.ImageField(
+        upload_to='driver_identification_upload_type_icons/',
+        verbose_name="Icon",
+        help_text="Icon image for the identification type"
     )
-    driver_identification = models.ForeignKey(
-        DriverIdentification,
-        on_delete=models.CASCADE,
-        related_name='terms_and_conditions_acceptance',
-    )
-    is_accepted = models.BooleanField(
-        default=True,
-        verbose_name="Is Accepted",
-    )
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        verbose_name = 'Driver identification — upload'
+        verbose_name_plural = (
+            '05. Upload — driver identification (photos & documents)'
+        )
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return self.title
+
+
+class DriverIdentificationLegalType(DriverIdentification):
+    agreement_items = GenericRelation('accounts.DriverIdentificationAgreementsItems')
 
     class Meta:
-        verbose_name = "Terms and Conditions Acceptance"
-        verbose_name_plural = "Terms and Conditions Acceptances"
+        verbose_name = 'Driver identification — legal agreements'
+        verbose_name_plural = (
+            '06. Legal — driver identification (agreements)'
+        )
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return self.title
+
+
+class DriverIdentificationRegistrationType(DriverIdentification):
+    agreement_items = GenericRelation('accounts.DriverIdentificationAgreementsItems')
+
+    class Meta:
+        verbose_name = 'Driver identification — registration'
+        verbose_name_plural = (
+            '07. Registration — driver identification (terms)'
+        )
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return self.title
+
+
+class DriverIdentificationTermsType(DriverIdentification):
+    agreement_items = GenericRelation('accounts.DriverIdentificationAgreementsItems')
+
+    class Meta:
+        verbose_name = 'Driver identification — terms'
+        verbose_name_plural = (
+            '08. Terms — driver identification (T&C)'
+        )
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return self.title
+
+
+class DriverIdentificationAgreementsItems(models.Model):
+    """
+    Agreement content items (terms, legal, registration) with rich text and optional file.
+    """
+
+    ITEM_TYPE_CHOICES = (
+        ('terms', 'Terms and Conditions Acceptance'),
+        ('legal', 'Legal Agreements Acceptance'),
+        ('registration', 'Registration Terms Acceptance'),
+    )
+
+    title = models.CharField(
+        max_length=255,
+        verbose_name='Title',
+    )
+    content = RichTextField(
+        verbose_name='Content',
+        help_text='Rich text (HTML) for this agreement item',
+    )
+    file = models.FileField(
+        upload_to='driver_identification_agreements/',
+        blank=True,
+        null=True,
+        verbose_name='File',
+    )
+    item_type = models.CharField(
+        max_length=20,
+        choices=ITEM_TYPE_CHOICES,
+        verbose_name='Item type',
+    )
+    content_type = models.ForeignKey(
+        ContentType,
+        on_delete=models.CASCADE,
+        related_name='+',
+        null=True,
+        blank=True,
+    )
+    object_id = models.PositiveIntegerField(null=True, blank=True)
+    parent = GenericForeignKey('content_type', 'object_id')
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name='Created at',
+    )
+
+    class Meta:
+        verbose_name = 'Driver Identification Agreements Item'
+        verbose_name_plural = 'Driver Identification Agreements Items'
         ordering = ['-created_at']
         indexes = [
-            models.Index(fields=['user'], name='terms_accept_user_idx'),
-            models.Index(fields=['driver_identification'], name='terms_accept_id_idx'),
-        ]
-        constraints = [
-            models.UniqueConstraint(
-                fields=['user', 'driver_identification'],
-                name='terms_accept_user_di_uniq',
+            models.Index(fields=['item_type'], name='drv_id_agg_item_type_idx'),
+            models.Index(fields=['created_at'], name='drv_id_agg_created_idx'),
+            models.Index(
+                fields=['content_type', 'object_id'],
+                name='drv_id_agg_parent_idx',
             ),
         ]
 
     def __str__(self):
-        return f"{self.user.email} - {self.driver_identification.name}"
-
-    @classmethod
-    def accept_driver_identification(cls, user, driver_identification):
-        """Create or update acceptance for user + driver_identification."""
-        if not user or not driver_identification:
-            return None
-        obj, _ = cls.objects.update_or_create(
-            user=user,
-            driver_identification=driver_identification,
-            defaults={'is_accepted': True},
-        )
-        return obj
-
-class DriverIdentificationFAQ(models.Model):
-    """
-    FAQ entries for a driver identification (question, link, file).
-    """
-    driver_identification = models.ForeignKey(
-        DriverIdentification,
-        on_delete=models.CASCADE,
-        related_name='identification_faq',
-        verbose_name="Driver Identification",
-    )
-    question = models.CharField(
-        max_length=500,
-        verbose_name="Question",
-        help_text="FAQ question text",
-    )
-    link = models.URLField(
-        max_length=500,
-        blank=True,
-        null=True,
-        verbose_name="Link",
-    )
-    file = models.FileField(
-        upload_to='driver_identification_faq_files/',
-        blank=True,
-        null=True,
-        verbose_name="File",
-    )
-    order = models.PositiveIntegerField(
-        default=0,
-        verbose_name="Order",
-        help_text="Display order (lower first)",
-    )
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        verbose_name = "Driver Identification FAQ"
-        verbose_name_plural = "Driver Identification FAQs"
-        ordering = ['order', 'id']
-
-    def __str__(self):
-        return self.question[:50] + ('...' if len(self.question) > 50 else '')
+        return self.title
 
 
-class DriverIdentificationItems(models.Model):
-    """
-    Model for storing items related to driver identifications (many-to-many relationship)
-    This allows linking multiple items to a single identification type
-    """
-    driver_identification = models.ForeignKey(
-        DriverIdentification,
+class DriverIdentificationUploadTypeItem(models.Model):
+    driver_identification_upload_type = models.ForeignKey(
+        DriverIdentificationUploadType,
         on_delete=models.CASCADE,
         related_name='items',
-        verbose_name="Driver Identification",
-        help_text="The identification type this item belongs to"
+        verbose_name="Driver Identification Upload Type",
+        help_text="Driver Identification Upload Type this item belongs to"
     )
     item = models.CharField(
         max_length=255,
@@ -1053,91 +1068,143 @@ class DriverIdentificationItems(models.Model):
         auto_now_add=True,
         verbose_name="Created At"
     )
-
+    
     class Meta:
-        verbose_name = "Driver Identification Item"
-        verbose_name_plural = "Driver Identification Items (Type: Upload)"
+        verbose_name = "Driver Identification Upload Type Item"
+        verbose_name_plural = "Driver Identification Upload Type Items"
         ordering = ['-created_at']
         indexes = [
-            models.Index(fields=['driver_identification'], name='driver_id_item_id_idx'),
-            models.Index(fields=['created_at'], name='driver_id_item_created_idx'),
+            models.Index(fields=['driver_identification_upload_type'], name='driver_id_upload_type_idx'),
         ]
-
+        
     def __str__(self):
-        return f"{self.driver_identification.name} - {self.item}"
+        return self.item
 
 
-class DriverIdentificationUploadDocument(models.Model):
-    """
-    Model for storing user-uploaded documents for driver identifications
-    """
+class DriverIdentificationUploadTypeQuestionAnswer(models.Model):
+    driver_identification_upload_type_item = models.ForeignKey(
+        DriverIdentificationUploadTypeItem,
+        on_delete=models.CASCADE,
+        related_name='question_answers',
+        verbose_name="Driver Identification Upload Type Item",
+        help_text="Driver Identification Upload Type Item this question answer belongs to"
+    )
+    question = models.CharField(
+        max_length=255,
+        verbose_name="Question",
+        help_text="Question text"
+    )
+    file = models.FileField(
+        upload_to='driver_identification_upload_type_question_answers/',
+        verbose_name="File",
+        help_text="File"
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name="Created At"
+    )
+    
+    class Meta:
+        verbose_name = "Driver Identification Upload Type Question Answer"
+        verbose_name_plural = "Driver Identification Upload Type Question Answers"
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['driver_identification_upload_type_item'], name='driver_id_upload_type_item_idx'),
+        ]
+        
+    def __str__(self):
+        return self.question
+
+
+class DriverIdentificationUploadTypeUserAccepted(models.Model):
+    driver_identification_upload_type = models.ForeignKey(
+        DriverIdentificationUploadType,
+        on_delete=models.CASCADE,
+        related_name='user_accepted',
+        verbose_name="Driver Identification Upload Type",
+        help_text="Driver Identification Upload Type this user accepted belongs to"
+    )
     user = models.ForeignKey(
         CustomUser,
         on_delete=models.CASCADE,
-        related_name='driver_identification_uploads',
+        related_name='driver_upload_type_acceptances',
         verbose_name="User",
-        help_text="User who uploaded the document"
+        help_text="User who accepted this driver identification upload type"
     )
-    driver_identification = models.ForeignKey(
-        DriverIdentification,
+    question_answer = models.ForeignKey(
+        DriverIdentificationUploadTypeQuestionAnswer,
         on_delete=models.CASCADE,
-        related_name='uploaded_documents',
-        verbose_name="Driver Identification",
-        help_text="The identification type this document is for"
+        related_name='user_acceptances',
+        null=True,
+        blank=True,
+        verbose_name='Question / attachment slot',
+        help_text=(
+            'When set, this row stores the user upload for that checklist slot. '
+            'When null, a single file covers the whole upload step (no per-slot questions).'
+        ),
     )
-    document_file = models.FileField(
-        upload_to='driver_documents/',
-        verbose_name="Document File",
-        help_text="Uploaded document file (any file type)"
+    file = models.FileField(
+        upload_to='driver_identification_upload_type_user_accepted/',
+        verbose_name="File",
+        help_text="File"
+    )
+    is_accepted = models.BooleanField(
+        default=False,
+        verbose_name="Is Accepted",
+        help_text="Whether this driver identification upload type is accepted by the user"
     )
     created_at = models.DateTimeField(
         auto_now_add=True,
         verbose_name="Created At"
     )
-    updated_at = models.DateTimeField(
-        auto_now=True,
-        verbose_name="Updated At"
-    )
-
+    
     class Meta:
-        verbose_name = "Driver Identification Upload Document"
-        verbose_name_plural = "Driver Identification Upload Documents"
-        ordering = ['-updated_at']
+        verbose_name = "Driver Identification Upload Type User Accepted"
+        verbose_name_plural = "Driver Identification Upload Type User Accepted"
+        ordering = ['-created_at']
         indexes = [
-            models.Index(fields=['user'], name='driver_upload_user_idx'),
-            models.Index(fields=['driver_identification'], name='driver_upload_id_idx'),
-            models.Index(fields=['user', 'driver_identification'], name='driver_upload_user_id_idx'),
-            models.Index(fields=['updated_at'], name='driver_upload_updated_idx'),
+            models.Index(fields=['driver_identification_upload_type'], name='di_utua_type_idx'),
+            models.Index(fields=['user'], name='di_utua_user_idx'),
+            models.Index(fields=['created_at'], name='di_utua_created_idx'),
+            models.Index(fields=['driver_identification_upload_type', 'user'], name='di_utua_type_usr_idx'),
+            models.Index(fields=['question_answer'], name='di_utua_qa_idx'),
         ]
         constraints = [
             models.UniqueConstraint(
-                fields=['user', 'driver_identification'],
-                name='unique_user_driver_identification'
-            )
+                fields=['user', 'question_answer'],
+                condition=models.Q(question_answer__isnull=False),
+                name='di_utua_usr_qa_uniq',
+            ),
+            models.UniqueConstraint(
+                fields=['user', 'driver_identification_upload_type'],
+                condition=models.Q(question_answer__isnull=True),
+                name='di_utua_usr_type_nullqa_uniq',
+            ),
         ]
 
     def __str__(self):
-        return f"{self.user.email} - {self.driver_identification.name}"
+        return f"{self.user.email} - {self.driver_identification_upload_type.title}"
+    
 
-
-class DriverAgreement(models.Model):
-    """
-    Model for storing driver agreements
-    """
-    name = models.CharField(
-        max_length=255,
-        verbose_name="Name",
-        help_text="Name of the agreement"
+class DriverIdentificationLegalAgreementsUserAccepted(models.Model):
+    driver_identification_legal_agreements = models.ForeignKey(
+        DriverIdentificationLegalType,
+        on_delete=models.CASCADE,
+        related_name='user_accepted',
+        verbose_name="Driver Identification Legal Agreements",
+        help_text="Driver Identification Legal Agreements this user accepted belongs to"
     )
-    is_active = models.BooleanField(
-        default=True,
-        verbose_name="Is Active",
-        help_text="Whether this agreement is visible to drivers"
+    user = models.ForeignKey(
+        CustomUser,
+        on_delete=models.CASCADE,
+        related_name='driver_legal_agreement_acceptances',
+        verbose_name="User",
+        help_text="User who accepted this driver identification legal agreements"
     )
-    file = models.FileField(
-        upload_to='driver_agreements/',
-        verbose_name="File",
-        help_text="File of the agreement"
+    is_accepted = models.BooleanField(
+        default=False,
+        verbose_name="Is Accepted",
+        help_text="Whether this driver identification legal agreements is accepted by the user"
     )
     created_at = models.DateTimeField(
         auto_now_add=True,
@@ -1147,11 +1214,151 @@ class DriverAgreement(models.Model):
         auto_now=True,
         verbose_name="Updated At"
     )
+    class Meta:
+        verbose_name = "Driver Identification Legal Agreements User Accepted"
+        verbose_name_plural = "Driver Identification Legal Agreements User Accepted"
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['driver_identification_legal_agreements'], name='di_lgua_agr_idx'),
+            models.Index(fields=['user'], name='di_lgua_user_idx'),
+            models.Index(fields=['created_at'], name='di_lgua_created_idx'),
+            models.Index(fields=['driver_identification_legal_agreements', 'user'], name='di_lgua_agr_usr_idx'),
+        ]
+        
+    def __str__(self):
+        return f"{self.user.email} - {self.driver_identification_legal_agreements.title}"
+    
+
+class DriverIdentificationRegistrationAgreementsUserAccepted(models.Model):
+    driver_identification_registration_agreements = models.ForeignKey(
+        DriverIdentificationRegistrationType,
+        on_delete=models.CASCADE,
+        related_name='user_accepted',
+        verbose_name="Driver Identification Registration Agreements",
+        help_text="Driver Identification Registration Agreements this user accepted belongs to"
+    )
+    
+    user = models.ForeignKey(
+        CustomUser,
+        on_delete=models.CASCADE,
+        related_name='driver_registration_agreement_acceptances',
+        verbose_name="User",
+        help_text="User who accepted this driver identification registration agreements"
+    )
+    is_accepted = models.BooleanField(
+        default=False,
+        verbose_name="Is Accepted",
+        help_text="Whether this driver identification registration agreements is accepted by the user"
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name="Created At"
+    )
+    updated_at = models.DateTimeField(
+        auto_now=True,
+        verbose_name="Updated At"
+    )
+    class Meta:
+        verbose_name = "Driver Identification Registration Agreements User Accepted"
+        verbose_name_plural = "Driver Identification Registration Agreements User Accepted"
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['driver_identification_registration_agreements'], name='di_rgua_agr_idx'),
+            models.Index(fields=['user'], name='di_rgua_user_idx'),
+            models.Index(fields=['created_at'], name='di_rgua_created_idx'),
+            models.Index(fields=['driver_identification_registration_agreements', 'user'], name='di_rgua_agr_usr_idx'),
+        ]
+        
+    def __str__(self):
+        return f"{self.user.email} - {self.driver_identification_registration_agreements.title}"
+    
+    
+class DriverIdentificationTermsUserAccepted(models.Model):
+    driver_identification_terms = models.ForeignKey(
+        DriverIdentificationTermsType,
+        on_delete=models.CASCADE,
+        related_name='user_accepted',
+        verbose_name="Driver Identification Terms",
+        help_text="Driver Identification Terms this user accepted belongs to"
+    )
+    user = models.ForeignKey(
+        CustomUser,
+        on_delete=models.CASCADE,
+        related_name='driver_terms_acceptances',
+        verbose_name="User",
+        help_text="User who accepted this driver identification terms"
+    )
+    is_accepted = models.BooleanField(
+        default=False,
+        verbose_name="Is Accepted",
+        help_text="Whether this driver identification terms is accepted by the user"
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name="Created At"
+    )
+    updated_at = models.DateTimeField(
+        auto_now=True,
+        verbose_name="Updated At"
+    )
+    class Meta:
+        verbose_name = "Driver Identification Terms User Accepted"
+        verbose_name_plural = "Driver Identification Terms User Accepted"
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['driver_identification_terms'], name='di_tmua_term_idx'),
+            models.Index(fields=['user'], name='di_tmua_user_idx'),
+            models.Index(fields=['created_at'], name='di_tmua_created_idx'),
+            models.Index(fields=['driver_identification_terms', 'user'], name='di_tmua_term_usr_idx'),
+        ]
+        
+    def __str__(self):
+        return f"{self.user.email} - {self.driver_identification_terms.title}"
+
+
+class DriverIdentificationTermsItemUserAccepted(models.Model):
+    """
+    Per agreement-item acceptance for Terms identification types.
+    The checklist shows is_accepted only when every item for that terms type is accepted.
+    """
+
+    user = models.ForeignKey(
+        CustomUser,
+        on_delete=models.CASCADE,
+        related_name='driver_terms_item_acceptances',
+        verbose_name='User',
+    )
+    agreement_item = models.ForeignKey(
+        'DriverIdentificationAgreementsItems',
+        on_delete=models.CASCADE,
+        related_name='terms_item_user_acceptances',
+        verbose_name='Agreement item',
+    )
+    is_accepted = models.BooleanField(
+        default=False,
+        verbose_name='Is accepted',
+    )
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name='Created at')
+    updated_at = models.DateTimeField(auto_now=True, verbose_name='Updated at')
 
     class Meta:
-        verbose_name = "Driver Agreement"
-        verbose_name_plural = "05. Driver Agreements"
+        verbose_name = 'Driver Identification Terms Item User Accepted'
+        verbose_name_plural = 'Driver Identification Terms Item User Accepted'
         ordering = ['-updated_at']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['user', 'agreement_item'],
+                name='di_tiua_usr_agr_uniq',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['user'], name='di_tiua_user_idx'),
+            models.Index(fields=['agreement_item'], name='di_tiua_agr_idx'),
+            models.Index(fields=['created_at'], name='di_tiua_created_idx'),
+        ]
+
+    def __str__(self):
+        return f'{self.user.email} — {self.agreement_item_id}'
 
 
 class DriverVerification(models.Model):
@@ -1218,7 +1425,7 @@ class DriverVerification(models.Model):
 
     class Meta:
         verbose_name = "Driver Verification"
-        verbose_name_plural = "04. Driver Verifications"
+        verbose_name_plural = "04. Verification — drivers (status / KYC)"
         ordering = ['-updated_at']
         indexes = [
             models.Index(fields=['user'], name='driver_ver_user_idx'),
@@ -1368,105 +1575,6 @@ class UserDeviceToken(models.Model):
             defaults={'token': token},
         )
         return obj
-
-
-class LegalPage(models.Model):
-    """
-    Single model for Privacy Policy, Terms of Service, etc.
-    name: e.g. "Privacy Policy", "Terms of Service"
-    link: URL to the page
-    """
-    name = models.CharField(
-        max_length=255,
-        unique=True,
-        verbose_name="Name",
-        help_text="e.g. Privacy Policy, Terms of Service"
-    )
-    link = models.URLField(
-        max_length=500,
-        verbose_name="Link",
-        help_text="URL to the page"
-    )
-    is_active = models.BooleanField(
-        default=True,
-        verbose_name="Is Active"
-    )
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        verbose_name = "Legal Agreement"
-        verbose_name_plural = "Legal Agreements"
-        ordering = ['name']
-
-    def __str__(self):
-        return self.name
-    
-
-class AcceptanceOfAgreement(models.Model):
-    """
-    Model for storing user acceptance of agreements
-    """
-    user = models.ForeignKey(
-        CustomUser,
-        on_delete=models.CASCADE,
-        related_name='acceptance_of_agreements',
-    )
-    agreement = models.ForeignKey(
-        LegalPage,
-        on_delete=models.CASCADE,
-        related_name='acceptance_of_agreements',
-    )
-    is_accepted = models.BooleanField(
-        default=True,
-        verbose_name="Is Accepted",
-        help_text="Whether this agreement is accepted by the user",
-    )
-    accepted_at = models.DateTimeField(auto_now_add=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-    
-    class Meta:
-        verbose_name = "Acceptance of Agreement"
-        verbose_name_plural = "Acceptance of Agreements"
-        ordering = ['-created_at']
-        indexes = [
-            models.Index(fields=['user'], name='acc_agree_user_idx'),
-            models.Index(fields=['agreement'], name='acc_agree_agmt_idx'),
-        ]
-        constraints = [
-            models.UniqueConstraint(
-                fields=['user', 'agreement'],
-                name='unique_user_agreement_acceptance',
-            ),
-        ]
-    
-    def __str__(self):
-        return f"{self.user.email} - {self.agreement.name}"
-    
-    @classmethod
-    def accept_agreement(cls, user, agreement):
-        """
-        Accept an agreement for a user
-        """
-        if not user or not agreement:
-            return None
-
-        obj, _ = cls.objects.update_or_create(
-            user=user,
-            agreement=agreement,
-            defaults={'accepted_at': timezone.now()},
-        )
-        return obj
-
-    @classmethod
-    def is_agreement_accepted(cls, user, agreement):
-        """
-        Check if a user has accepted an agreement
-        """
-        if not user or not agreement:
-            return False
-        return cls.objects.filter(user=user, agreement=agreement).exists()
 
 
 class RiderUser(CustomUser):

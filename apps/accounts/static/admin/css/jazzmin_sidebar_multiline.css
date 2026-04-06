@@ -1,0 +1,325 @@
+/*
+ * Jazzmin / AdminLTE: full model names in the sidebar — wrap to multiple lines
+ * instead of single-line ellipsis. Overrides flex/width rules that force "…".
+ */
+
+.main-sidebar .nav-sidebar .nav-link {
+  align-items: flex-start !important;
+  height: auto !important;
+  min-height: 2.5rem;
+  padding-top: 0.5rem;
+  padding-bottom: 0.5rem;
+  overflow: visible !important;
+}
+
+/* Icon stays top-left when label wraps */
+.main-sidebar .nav-sidebar .nav-link .nav-icon {
+  margin-top: 0.12rem;
+  align-self: flex-start;
+}
+
+/* Primary fix: label paragraph must not be flex-shrunk with ellipsis */
+.main-sidebar .nav-sidebar .nav-link > p {
+  white-space: normal !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
+  line-height: 1.35;
+  margin: 0;
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+  width: auto !important;
+  word-break: break-word;
+  hyphens: auto;
+}
+
+.main-sidebar .nav-sidebar .nav-treeview .nav-link {
+  align-items: flex-start !important;
+  height: auto !important;
+  min-height: 2rem;
+  overflow: visible !important;
+}
+
+.main-sidebar .nav-sidebar .nav-treeview .nav-link > p {
+  white-space: normal !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
+  line-height: 1.35;
+  margin: 0;
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+  width: auto !important;
+  word-break: break-word;
+  hyphens: auto;
+}
+
+/* Sidebar width: a bit wider so long labels break less aggressively */
+@media (min-width: 768px) {
+  body:not(.sidebar-mini):not(.sidebar-collapse) .main-sidebar {
+    min-width: 17.5rem !important;
+    width: 17.5rem !important;
+  }
+}
+
+/*
+ * Change form: let text fields use the content column (Jazzmin / AdminLTE often caps width).
+ */
+body.change-form .content-wrapper .content .container-fluid .row > [class*="col-"] {
+  max-width: 100%;
+}
+
+body.change-form input.vTextField,
+body.change-form input[type="text"].form-control:not([size]),
+body.change-form input[type="email"].form-control,
+body.change-form input[type="url"].form-control,
+body.change-form select.form-control {
+  width: 100%;
+  max-width: min(100%, 56rem);
+  box-sizing: border-box;
+}
+
+body.change-form textarea.vLargeTextField,
+body.change-form textarea.form-control,
+body.change-form .vLargeTextField,
+body.change-form .form-row textarea {
+  width: 100%;
+  max-width: min(100%, 56rem);
+  min-height: 9rem;
+  box-sizing: border-box;
+}
+
+body.change-form .django-ckeditor-widget {
+  width: 100% !important;
+  max-width: min(100%, 56rem);
+  box-sizing: border-box;
+}
+
+body.change-form .django-ckeditor-widget .cke {
+  width: 100% !important;
+  box-sizing: border-box;
+}
+
+body.change-form .aligned .form-row .readonly,
+body.change-form .form-group .readonly {
+  display: block;
+  width: 100%;
+  max-width: min(100%, 56rem);
+  word-break: break-word;
+  white-space: normal;
+}
+
+body.change-form .inline-group input.vTextField,
+body.change-form .inline-group input[type="text"],
+body.change-form .inline-group textarea {
+  width: 100%;
+  max-width: min(100%, 48rem);
+  box-sizing: border-box;
+}
+
+/* -------------------------------------------------------------------------
+ * Driver ID upload type — nested inlines (django-nested-admin + Jazzmin)
+ * ------------------------------------------------------------------------- */
+:root {
+  --hola-admin-card-border: rgba(255, 255, 255, 0.1);
+  --hola-admin-card-bg: rgba(0, 0, 0, 0.22);
+  --hola-admin-accent: rgba(243, 156, 18, 0.55);
+  --hola-admin-muted: rgba(255, 255, 255, 0.55);
+}
+
+body.app-accounts.model-driveridentificationuploadtype.change-form .content-header h1 {
+  font-size: 1.35rem;
+  font-weight: 600;
+  line-height: 1.35;
+  max-width: 100%;
+}
+
+body.app-accounts.model-driveridentificationuploadtype.change-form fieldset.driver-id-general {
+  border-radius: 8px;
+  border: 1px solid var(--hola-admin-card-border);
+  padding: 1rem 1.25rem 0.5rem;
+  margin-bottom: 1.25rem;
+  background: var(--hola-admin-card-bg);
+}
+
+body.app-accounts.model-driveridentificationuploadtype.change-form fieldset.driver-id-general > h2 {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--hola-admin-muted);
+  border-bottom: 1px solid var(--hola-admin-card-border);
+  padding-bottom: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+/* Root stacked inline: checklist (classes live on <fieldset>) */
+body.app-accounts.model-driveridentificationuploadtype.change-form fieldset.driver-id-step-block {
+  border-radius: 10px;
+  border: 1px solid var(--hola-admin-card-border);
+  background: var(--hola-admin-card-bg);
+  margin: 1.25rem 0;
+  overflow: hidden;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.25);
+}
+
+body.app-accounts.model-driveridentificationuploadtype.change-form fieldset.driver-id-step-block > h2 {
+  font-size: 0.95rem;
+  font-weight: 600;
+  margin: 0;
+  padding: 0.85rem 1.15rem;
+  background: rgba(255, 255, 255, 0.04);
+  border-bottom: 1px solid var(--hola-admin-card-border);
+  color: rgba(255, 255, 255, 0.92);
+}
+
+body.app-accounts.model-driveridentificationuploadtype.change-form fieldset.driver-id-step-block .djn-items {
+  padding: 0.75rem 1rem 1rem;
+}
+
+/* Each checklist step card */
+body.app-accounts.model-driveridentificationuploadtype.change-form fieldset.driver-id-step-block .djn-inline-form.inline-related {
+  border-radius: 8px;
+  border: 1px solid var(--hola-admin-card-border);
+  margin-bottom: 1rem;
+  background: rgba(0, 0, 0, 0.18);
+  overflow: hidden;
+}
+
+body.app-accounts.model-driveridentificationuploadtype.change-form fieldset.driver-id-step-block .djn-inline-form h3 {
+  font-size: 0.82rem !important;
+  font-weight: 600;
+  padding: 0.65rem 1rem !important;
+  margin: 0 !important;
+  background: rgba(255, 255, 255, 0.05);
+  border-bottom: 1px solid var(--hola-admin-card-border);
+}
+
+body.app-accounts.model-driveridentificationuploadtype.change-form fieldset.driver-id-step-block .djn-inline-form h3 b {
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+body.app-accounts.model-driveridentificationuploadtype.change-form fieldset.driver-id-step-block .djn-inline-form .aligned {
+  padding: 0.75rem 1rem 1rem;
+}
+
+/* Step description: compact textarea */
+body.app-accounts.model-driveridentificationuploadtype.change-form fieldset.driver-id-step-block .djn-inline-form textarea.vLargeTextField {
+  min-height: 4.5rem !important;
+  line-height: 1.45;
+}
+
+/* Nested Q&A table */
+body.app-accounts.model-driveridentificationuploadtype.change-form fieldset.driver-id-qa-block {
+  margin: 0.75rem 0 0.5rem 0;
+  padding: 0.5rem 0.5rem 0.75rem 0.75rem;
+  border-left: 3px solid var(--hola-admin-accent);
+  border-radius: 0 8px 8px 0;
+  background: rgba(0, 0, 0, 0.12);
+}
+
+body.app-accounts.model-driveridentificationuploadtype.change-form fieldset.driver-id-qa-block > h2 {
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--hola-admin-muted);
+  margin: 0 0 0.65rem 0.25rem;
+  padding: 0;
+  border: none;
+}
+
+body.app-accounts.model-driveridentificationuploadtype.change-form fieldset.driver-id-qa-block table.djn-table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: separate;
+  border-spacing: 0;
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid var(--hola-admin-card-border);
+}
+
+/* Wide “Question” column; keep file / date / delete narrow */
+body.app-accounts.model-driveridentificationuploadtype.change-form fieldset.driver-id-qa-block .djn-th.question,
+body.app-accounts.model-driveridentificationuploadtype.change-form fieldset.driver-id-qa-block .djn-td.field-question {
+  width: 52%;
+  min-width: 16rem;
+  vertical-align: top;
+}
+
+body.app-accounts.model-driveridentificationuploadtype.change-form fieldset.driver-id-qa-block .djn-td.field-file {
+  width: 32%;
+}
+
+body.app-accounts.model-driveridentificationuploadtype.change-form fieldset.driver-id-qa-block .djn-td.field-created_at {
+  width: 10%;
+  white-space: nowrap;
+}
+
+body.app-accounts.model-driveridentificationuploadtype.change-form fieldset.driver-id-qa-block .djn-td.field-question textarea,
+body.app-accounts.model-driveridentificationuploadtype.change-form fieldset.driver-id-qa-block .djn-td.field-question input {
+  width: 100% !important;
+  max-width: none !important;
+  min-height: 2.85rem;
+  box-sizing: border-box;
+}
+
+body.app-accounts.model-driveridentificationuploadtype.change-form fieldset.driver-id-qa-block .djn-td.field-file input[type='file'] {
+  width: 100%;
+  max-width: 100%;
+  font-size: 0.8rem;
+}
+
+body.app-accounts.model-driveridentificationuploadtype.change-form .djn-group-nested .djn-thead th {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+  color: var(--hola-admin-muted);
+  background: rgba(255, 255, 255, 0.06);
+  border-bottom: 1px solid var(--hola-admin-card-border);
+  padding: 0.55rem 0.65rem !important;
+}
+
+body.app-accounts.model-driveridentificationuploadtype.change-form .djn-group-nested .djn-tbody .djn-tr {
+  background: rgba(0, 0, 0, 0.08);
+}
+
+body.app-accounts.model-driveridentificationuploadtype.change-form .djn-group-nested .djn-tbody .djn-tr:nth-child(even) {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+body.app-accounts.model-driveridentificationuploadtype.change-form .djn-group-nested .djn-td {
+  padding: 0.5rem 0.6rem !important;
+  vertical-align: middle;
+}
+
+body.app-accounts.model-driveridentificationuploadtype.change-form .djn-add-item .djn-add-handler,
+body.app-accounts.model-driveridentificationuploadtype.change-form .add-handler.djn-add-handler {
+  display: inline-block;
+  margin-top: 0.35rem;
+  padding: 0.4rem 0.9rem;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  background: rgba(243, 156, 18, 0.22);
+  border: 1px solid rgba(243, 156, 18, 0.45);
+  color: rgba(255, 255, 255, 0.95);
+  text-decoration: none !important;
+}
+
+body.app-accounts.model-driveridentificationuploadtype.change-form .djn-add-item .djn-add-handler:hover,
+body.app-accounts.model-driveridentificationuploadtype.change-form .add-handler.djn-add-handler:hover {
+  background: rgba(243, 156, 18, 0.35);
+}
+
+body.app-accounts.model-driveridentificationuploadtype.change-form .inline-deletelink,
+body.app-accounts.model-driveridentificationuploadtype.change-form .djn-remove-handler {
+  font-size: 0.8rem;
+  opacity: 0.85;
+}
+
+/* Jazzmin horizontal tabs: tab panel padding */
+body.app-accounts.model-driveridentificationuploadtype.change-form .card-body.p-0 .tab-content {
+  padding: 1rem 1.15rem 1.25rem !important;
+}

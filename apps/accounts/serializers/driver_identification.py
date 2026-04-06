@@ -1,229 +1,57 @@
 from rest_framework import serializers
-from ..models import (
-    DriverIdentification,
-    DriverIdentificationItems,
-    DriverIdentificationFAQ,
-    DriverIdentificationUploadDocument,
-    DriverVerification,
-    DriverAgreement,
-    TermsAndConditionsAcceptance,
-)
+
+from apps.accounts.models import DriverIdentificationLegalType, DriverIdentificationTermsType
 
 
-
-class DriverIdentificationItemsSerializer(serializers.ModelSerializer):
+class IdentificationUploadSubmitSerializer(serializers.Serializer):
     """
-    Serializer for driver identification items
+    multipart/form-data for driver identification file upload (Swagger UI form).
     """
-    class Meta:
-        model = DriverIdentificationItems
-        fields = ('id', 'item', 'created_at')
-        read_only_fields = ('id', 'created_at')
 
-
-class DriverIdentificationFAQSerializer(serializers.ModelSerializer):
-    """
-    Serializer for driver identification FAQ (question, link, file).
-    """
-    class Meta:
-        model = DriverIdentificationFAQ
-        fields = ('id', 'question', 'link', 'file', 'order', 'created_at', 'updated_at')
-        read_only_fields = ('id', 'created_at', 'updated_at')
-
-    def to_representation(self, instance):
-        representation = super().to_representation(instance)
-        request = self.context.get('request')
-        if request:
-            if instance.file:
-                representation['file'] = request.build_absolute_uri(instance.file.url)
-            else:
-                representation['file'] = None
-        return representation
-
-
-class DriverIdentificationSerializer(serializers.ModelSerializer):
-    """
-    Serializer for driver identification types.
-    identification_faq: alohida data, har bir identification uchun FAQ ro'yxati.
-    """
-    items = DriverIdentificationItemsSerializer(many=True, read_only=True)
-    identification_faq = serializers.SerializerMethodField()
-    display_type_display = serializers.CharField(source='get_display_type_display', read_only=True)
-
-    class Meta:
-        model = DriverIdentification
-        fields = (
-            'id', 'name', 'display_type', 'display_type_display', 'image', 'title', 'description',
-            'is_active', 'items', 'identification_faq', 'created_at', 'updated_at'
-        )
-        read_only_fields = ('id', 'created_at', 'updated_at')
-
-    def get_identification_faq(self, instance):
-        faqs = instance.identification_faq.all()
-        serializer = DriverIdentificationFAQSerializer(
-            faqs,
-            many=True,
-            context=self.context
-        )
-        return serializer.data
-
-    def to_representation(self, instance):
-        """
-        Override to include full URL for image field
-        """
-        representation = super().to_representation(instance)
-        request = self.context.get('request')
-        if request and instance.image:
-            representation['image'] = request.build_absolute_uri(instance.image.url)
-        return representation
-
-
-class DriverIdentificationUploadRequestSerializer(serializers.Serializer):
-    """Request body for upload document (multipart/form-data). Shown in Swagger."""
-    document_file = serializers.FileField(required=True, help_text='Document file to upload')
-    driver_identification_id = serializers.IntegerField(required=True, help_text='Driver identification type ID')
-
-
-class DriverIdentificationUploadDocumentSerializer(serializers.ModelSerializer):
-    """
-    Serializer for driver identification upload documents
-    """
-    driver_identification_name = serializers.CharField(
-        source='driver_identification.name',
-        read_only=True
+    upload_type_id = serializers.IntegerField(
+        min_value=1,
+        help_text='ID of the upload identification step (DriverIdentificationUploadType).',
     )
-    driver_identification_title = serializers.CharField(
-        source='driver_identification.title',
-        read_only=True
+    file = serializers.FileField(
+        help_text='File to upload (image or document).',
     )
-    driver_identification_display_type = serializers.CharField(
-        source='driver_identification.display_type',
-        read_only=True
+
+
+class IdentificationLegalTypeActionSerializer(serializers.Serializer):
+    """Body for legal agreements accept/decline (same shape as registration terms)."""
+
+    legal_type_id = serializers.IntegerField(
+        min_value=1,
+        help_text='Primary key of an active **legal** driver identification configuration.',
     )
-    driver_identification_display_type_display = serializers.CharField(
-        source='driver_identification.get_display_type_display',
-        read_only=True
-    )
-    document_file = serializers.FileField(required=True)
-    
-    class Meta:
-        model = DriverIdentificationUploadDocument
-        fields = (
-            'id', 'user', 'driver_identification', 'driver_identification_name',
-            'driver_identification_title', 'driver_identification_display_type',
-            'driver_identification_display_type_display', 'document_file', 'created_at', 'updated_at'
-        )
-        read_only_fields = ('id', 'user', 'created_at', 'updated_at')
-    
-    def to_representation(self, instance):
-        """
-        Override to include full URL for document_file
-        """
-        representation = super().to_representation(instance)
-        if instance.document_file:
-            request = self.context.get('request')
-            if request:
-                representation['document_file'] = request.build_absolute_uri(instance.document_file.url)
-        return representation
-    
-    def create(self, validated_data):
-        """
-        Create upload document for the authenticated user
-        """
-        user = self.context['request'].user
-        validated_data['user'] = user
-        
-        # Check if upload already exists, if yes, update it
-        driver_identification = validated_data['driver_identification']
-        document_file = validated_data['document_file']
-        
+
+    def validate_legal_type_id(self, value):
         try:
-            upload = DriverIdentificationUploadDocument.objects.get(
-                user=user,
-                driver_identification=driver_identification
-            )
-            upload.document_file = document_file
-            upload.save()
-            return upload
-        except DriverIdentificationUploadDocument.DoesNotExist:
-            return DriverIdentificationUploadDocument.objects.create(
-                user=user,
-                driver_identification=driver_identification,
-                document_file=document_file
-            )
+            obj = DriverIdentificationLegalType.objects.get(pk=value)
+        except DriverIdentificationLegalType.DoesNotExist:
+            raise serializers.ValidationError('Legal identification type not found.') from None
+        if not obj.is_active:
+            raise serializers.ValidationError('Legal identification type is not active.')
+        if obj.display_type != 'legal':
+            raise serializers.ValidationError('Invalid legal identification configuration.')
+        return value
 
 
-class DriverIdentificationUserStatusSerializer(serializers.Serializer):
-    """
-    Serializer for user's identification status
-    """
-    driver_identification_id = serializers.IntegerField()
-    driver_identification_name = serializers.CharField()
-    driver_identification_title = serializers.CharField()
-    driver_identification_display_type = serializers.CharField()
-    driver_identification_display_type_display = serializers.CharField()
-    driver_identification_upload_id = serializers.IntegerField(allow_null=True)
-    is_upload_user = serializers.BooleanField()
-    document_file = serializers.CharField(allow_null=True, allow_blank=True)
+class IdentificationTermsTypeActionSerializer(serializers.Serializer):
+    """Body for terms accept/decline (per agreement item under the hood)."""
 
-
-class DriverVerificationSerializer(serializers.ModelSerializer):
-    """
-    Serializer for driver verification status
-    """
-
-    status_display = serializers.CharField(source='get_status_display', read_only=True)
-
-    class Meta:
-        model = DriverVerification
-        fields = (
-            'id',
-            'status',
-            'status_display',
-            'estimated_review_hours',
-            'comment',
-            'reviewer',
-            'reviewed_at',
-            'created_at',
-            'updated_at',
-        )
-        read_only_fields = fields
-
-
-class DriverAgreementSerializer(serializers.ModelSerializer):
-    """
-    Serializer for driver agreements
-    """
-    class Meta:
-        model = DriverAgreement
-        fields = ('id', 'name', 'file', 'created_at', 'updated_at')
-        read_only_fields = ('id', 'created_at', 'updated_at')
-
-
-class TermsAndConditionsAcceptanceCreateSerializer(serializers.Serializer):
-    """Serializer for POST - accept by DriverIdentification IDs"""
-    driver_identification_data = serializers.ListField(
-        child=serializers.IntegerField(min_value=1),
-        min_length=1,
-        help_text='List of DriverIdentification IDs to accept'
+    terms_type_id = serializers.IntegerField(
+        min_value=1,
+        help_text='Primary key of an active **terms** driver identification configuration.',
     )
 
-    def validate_driver_identification_data(self, value):
-        objs = DriverIdentification.objects.filter(id__in=value, is_active=True)
-        found_ids = set(objs.values_list('id', flat=True))
-        invalid_ids = set(value) - found_ids
-        if invalid_ids:
-            raise serializers.ValidationError(
-                f'Invalid or inactive DriverIdentification IDs: {sorted(invalid_ids)}'
-            )
-        return list(found_ids)
-
-
-class TermsAndConditionsAcceptanceSerializer(serializers.ModelSerializer):
-    """Serializer for response - full object with nested driver_identification"""
-    driver_identification = DriverIdentificationSerializer(read_only=True)
-
-    class Meta:
-        model = TermsAndConditionsAcceptance
-        fields = ('id', 'user', 'driver_identification', 'is_accepted', 'created_at', 'updated_at')
-        read_only_fields = fields
+    def validate_terms_type_id(self, value):
+        try:
+            obj = DriverIdentificationTermsType.objects.get(pk=value)
+        except DriverIdentificationTermsType.DoesNotExist:
+            raise serializers.ValidationError('Terms identification type not found.') from None
+        if not obj.is_active:
+            raise serializers.ValidationError('Terms identification type is not active.')
+        if obj.display_type != 'terms':
+            raise serializers.ValidationError('Invalid terms identification configuration.')
+        return value

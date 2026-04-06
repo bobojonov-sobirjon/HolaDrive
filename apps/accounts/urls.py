@@ -4,30 +4,28 @@ from .views import (
     VerifyCodeView, ResetPasswordRequestView, VerifyResetCodeView,
     ResetPasswordConfirmView, UserDetailView, UserAvatarUpdateView,
     UserPreferencesView, UserPreferencesDeleteView,
-    LegalPageListView,
-    LegalPageWithStatusListView,
-    AcceptanceOfAgreementCreateView,
-    AcceptanceOfAgreementListView,
-    AcceptanceOfAgreementDetailView,
     DriverPreferencesView, VehicleDetailsView, VehicleDetailView, VehicleImageView,
-    DriverIdentificationUploadView,
-    DriverIdentificationUserStatusView,
-    DriverIdentificationListView,
-    DriverAgreementListView,
-    TermsAndConditionsAcceptanceCreateView,
-    TermsAndConditionsAcceptanceListView,
-    TermsAndConditionsAcceptanceDetailView,
-    DriverVerificationDetailView,
-    DriverVerificationMeView,
-    DriverVerificationSubmitView,
+    DriverVerificationCompletedIdentificationDetailView,
+    DriverVerificationCompletedIdentificationView,
     InvitationGenerateView, InvitationGetView, InvitedUsersView,
-    PinVerificationForUserView
+    PinVerificationForUserView,
+    RegistrationTermsListView,
+    RegistrationTermsAcceptView,
+    RegistrationTermsDeclineView,
+    DriverIdentificationChecklistView,
+    DriverIdentificationUploadTypeDetailView,
+    DriverIdentificationLegalTypeDetailView,
+    DriverIdentificationTermsTypeDetailView,
+    DriverIdentificationUploadSubmitView,
+    DriverIdentificationLegalAcceptView,
+    DriverIdentificationLegalDeclineView,
+    DriverIdentificationTermsAcceptView,
+    DriverIdentificationTermsDeclineView,
 )
 
 app_name = 'accounts'
 
 urlpatterns = [
-    # Authentication endpoints
     path('register/', RegistrationView.as_view(), name='register'),
     path('login/', LoginView.as_view(), name='login'),
     path('token/refresh/', TokenRefreshView.as_view(), name='token-refresh'),
@@ -36,56 +34,80 @@ urlpatterns = [
     path('reset-password/', ResetPasswordRequestView.as_view(), name='reset-password'),
     path('verify-reset-code/', VerifyResetCodeView.as_view(), name='verify-reset-code'),
     path('reset-password-confirm/', ResetPasswordConfirmView.as_view(), name='reset-password-confirm'),
-    
-    # User endpoints
+
     path('me/', UserDetailView.as_view(), name='user-detail'),
     path('me/avatar/', UserAvatarUpdateView.as_view(), name='user-avatar-update'),
-    
-    # Legal pages (Privacy Policy, Terms of Service)
-    path('legal-pages/', LegalPageListView.as_view(), name='legal-pages-list'),
-    path('legal-pages/with-status/', LegalPageWithStatusListView.as_view(), name='legal-pages-with-status'),
-    # Acceptance of Agreement endpoints
-    path('acceptance-of-agreement/', AcceptanceOfAgreementCreateView.as_view(), name='acceptance-of-agreement-create'),
-    path('acceptance-of-agreement/list/', AcceptanceOfAgreementListView.as_view(), name='acceptance-of-agreement-list'),
-    path('acceptance-of-agreement/<int:pk>/', AcceptanceOfAgreementDetailView.as_view(), name='acceptance-of-agreement-detail'),
-    
-    # User Preferences endpoints
+
     path('preferences/', UserPreferencesView.as_view(), name='user-preferences'),
     path('preferences/delete/', UserPreferencesDeleteView.as_view(), name='user-preferences-delete'),
-    
-    # Driver Preferences endpoints
+
     path('driver/preferences/', DriverPreferencesView.as_view(), name='driver-preferences'),
-    
-    # Vehicle Details endpoints (Driver only)
+
     path('vehicle/', VehicleDetailsView.as_view(), name='vehicle-details'),
     path('vehicle/<int:pk>/', VehicleDetailView.as_view(), name='vehicle-detail'),
-    
-    # Vehicle Image endpoints (Driver only)
-    path('vehicle/image/<int:pk>/', VehicleImageView.as_view(), name='vehicle-image-detail'),
-    
-    # Terms and Conditions Acceptance endpoints
-    path('terms-and-conditions-acceptance/', TermsAndConditionsAcceptanceCreateView.as_view(), name='terms-conditions-acceptance-create'),
-    path('terms-and-conditions-acceptance/list/', TermsAndConditionsAcceptanceListView.as_view(), name='terms-conditions-acceptance-list'),
-    path('terms-and-conditions-acceptance/<int:pk>/', TermsAndConditionsAcceptanceDetailView.as_view(), name='terms-conditions-acceptance-detail'),
 
-    # Driver Identification endpoints
-    path('driver/identification/upload/', DriverIdentificationUploadView.as_view(), name='driver-identification-upload'),
-    path('driver/identification/status/', DriverIdentificationUserStatusView.as_view(), name='driver-identification-status'),
-    path('driver/identification/list/', DriverIdentificationListView.as_view(), name='driver-identification-list'),
-    
-    # Driver Verification endpoints
-    path('driver/verification/', DriverVerificationMeView.as_view(), name='driver-verification-me'),
-    path('driver/verification/<int:pk>/', DriverVerificationDetailView.as_view(), name='driver-verification-detail'),
-    path('driver/verification/submit/', DriverVerificationSubmitView.as_view(), name='driver-verification-submit'),
-    
-    # Invitation endpoints
+    path('vehicle/image/<int:pk>/', VehicleImageView.as_view(), name='vehicle-image-detail'),
+
+    path(
+        'driver/identification/completed/<int:pk>/',
+        DriverVerificationCompletedIdentificationDetailView.as_view(),
+        name='driver-identification-completed-detail',
+    ),
+    path(
+        'driver/identification/completed/',
+        DriverVerificationCompletedIdentificationView.as_view(),
+        name='driver-identification-completed',
+    ),
+
+    path('driver/registration-terms/', RegistrationTermsListView.as_view(), name='registration-terms-list'),
+    path('driver/registration-terms/accept/', RegistrationTermsAcceptView.as_view(), name='registration-terms-accept'),
+    path('driver/registration-terms/decline/', RegistrationTermsDeclineView.as_view(), name='registration-terms-decline'),
+
+    path('driver/identification/checklist/', DriverIdentificationChecklistView.as_view(), name='driver-identification-checklist'),
+    path(
+        'driver/identification/upload-types/<int:pk>/',
+        DriverIdentificationUploadTypeDetailView.as_view(),
+        name='driver-identification-upload-type-detail',
+    ),
+    path(
+        'driver/identification/legal-types/<int:pk>/',
+        DriverIdentificationLegalTypeDetailView.as_view(),
+        name='driver-identification-legal-type-detail',
+    ),
+    path(
+        'driver/identification/terms-types/<int:pk>/',
+        DriverIdentificationTermsTypeDetailView.as_view(),
+        name='driver-identification-terms-type-detail',
+    ),
+    path(
+        'driver/identification/upload-types/submit/',
+        DriverIdentificationUploadSubmitView.as_view(),
+        name='driver-identification-upload-submit',
+    ),
+    path(
+        'driver/identification/legal-types/accept/',
+        DriverIdentificationLegalAcceptView.as_view(),
+        name='driver-identification-legal-accept',
+    ),
+    path(
+        'driver/identification/legal-types/decline/',
+        DriverIdentificationLegalDeclineView.as_view(),
+        name='driver-identification-legal-decline',
+    ),
+    path(
+        'driver/identification/terms-types/accept/',
+        DriverIdentificationTermsAcceptView.as_view(),
+        name='driver-identification-terms-accept',
+    ),
+    path(
+        'driver/identification/terms-types/decline/',
+        DriverIdentificationTermsDeclineView.as_view(),
+        name='driver-identification-terms-decline',
+    ),
+
     path('invitations/generate/', InvitationGenerateView.as_view(), name='invitation-generate'),
     path('invitations/', InvitationGetView.as_view(), name='invitation-get'),
     path('invitations/users/', InvitedUsersView.as_view(), name='invited-users'),
-    
-    # PIN Verification endpoints
+
     path('pin-verification/', PinVerificationForUserView.as_view(), name='pin-verification'),
-    
-    # Driver Agreement endpoints
-    path('driver/agreement/list/', DriverAgreementListView.as_view(), name='driver-agreement-list'),
 ]

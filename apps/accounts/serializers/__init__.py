@@ -11,20 +11,9 @@ from .user import UserDetailSerializer, AvatarUpdateRequestSerializer
 from .user_preferences import UserPreferencesSerializer
 from .driver_preferences import DriverPreferencesSerializer
 from .vehicle import VehicleDetailsSerializer, VehicleImageSerializer
-from .driver_identification import (
-    DriverIdentificationSerializer,
-    DriverIdentificationItemsSerializer,
-    DriverIdentificationUploadDocumentSerializer,
-    DriverIdentificationUploadRequestSerializer,
-    DriverIdentificationUserStatusSerializer,
-    DriverVerificationSerializer,
-    DriverAgreementSerializer,
-    TermsAndConditionsAcceptanceSerializer,
-    TermsAndConditionsAcceptanceCreateSerializer,
-)
+from .driver_verification import DriverVerificationSerializer
 from .invitations import InvitationGenerateSerializer, InvitationUsersSerializer
 from .pin_verification import PinVerificationForUserSerializer
-from .legal import LegalPageSerializer
 
 __all__ = [
     'RegistrationSerializer',
@@ -40,18 +29,8 @@ __all__ = [
     'DriverPreferencesSerializer',
     'VehicleDetailsSerializer',
     'VehicleImageSerializer',
-    'DriverIdentificationSerializer',
-    'DriverIdentificationItemsSerializer',
-    'DriverIdentificationUploadDocumentSerializer',
-    'DriverIdentificationUploadRequestSerializer',
-    'DriverIdentificationUserStatusSerializer',
     'DriverVerificationSerializer',
     'InvitationGenerateSerializer',
     'InvitationUsersSerializer',
     'PinVerificationForUserSerializer',
-    'LegalPageSerializer',
-    'DriverAgreementSerializer',
-    'TermsAndConditionsAcceptanceSerializer',
-    'TermsAndConditionsAcceptanceCreateSerializer',
 ]
-

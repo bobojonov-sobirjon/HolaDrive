@@ -12,32 +12,15 @@ from .user import (
     UserDetailView,
     UserAvatarUpdateView,
 )
-from .legal import (
-    LegalPageListView,
-    LegalPageWithStatusListView,
-    AcceptanceOfAgreementCreateView,
-    AcceptanceOfAgreementListView,
-    AcceptanceOfAgreementDetailView,
-)
 from .user_preferences import (
     UserPreferencesView,
     UserPreferencesDeleteView
 )
 from .driver_preferences import DriverPreferencesView
 from .vehicle import VehicleDetailsView, VehicleDetailView, VehicleImageView
-from .driver_identification import (
-    DriverIdentificationUploadView,
-    DriverIdentificationUserStatusView,
-    DriverIdentificationListView,
-    DriverAgreementListView,
-    TermsAndConditionsAcceptanceCreateView,
-    TermsAndConditionsAcceptanceListView,
-    TermsAndConditionsAcceptanceDetailView,
-)
 from .driver_verification import (
-    DriverVerificationDetailView,
-    DriverVerificationMeView,
-    DriverVerificationSubmitView,
+    DriverVerificationCompletedIdentificationDetailView,
+    DriverVerificationCompletedIdentificationView,
 )
 from .invitations import (
     InvitationGenerateView,
@@ -45,6 +28,22 @@ from .invitations import (
     InvitedUsersView
 )
 from .pin_verification import PinVerificationForUserView
+from .registration_terms import (
+    RegistrationTermsListView,
+    RegistrationTermsAcceptView,
+    RegistrationTermsDeclineView,
+)
+from .driver_identification import (
+    DriverIdentificationChecklistView,
+    DriverIdentificationLegalAcceptView,
+    DriverIdentificationLegalDeclineView,
+    DriverIdentificationLegalTypeDetailView,
+    DriverIdentificationTermsAcceptView,
+    DriverIdentificationTermsDeclineView,
+    DriverIdentificationTermsTypeDetailView,
+    DriverIdentificationUploadSubmitView,
+    DriverIdentificationUploadTypeDetailView,
+)
 
 __all__ = [
     'RegistrationView',
@@ -57,30 +56,28 @@ __all__ = [
     'ResetPasswordConfirmView',
     'UserDetailView',
     'UserAvatarUpdateView',
-    'LegalPageListView',
-    'LegalPageWithStatusListView',
-    'AcceptanceOfAgreementCreateView',
-    'AcceptanceOfAgreementListView',
-    'AcceptanceOfAgreementDetailView',
     'UserPreferencesView',
     'UserPreferencesDeleteView',
     'DriverPreferencesView',
     'VehicleDetailsView',
     'VehicleDetailView',
     'VehicleImageView',
-    'DriverIdentificationUploadView',
-    'DriverIdentificationUserStatusView',
-    'DriverIdentificationListView',
-    'DriverAgreementListView',
-    'TermsAndConditionsAcceptanceCreateView',
-    'TermsAndConditionsAcceptanceListView',
-    'TermsAndConditionsAcceptanceDetailView',
-    'DriverVerificationDetailView',
-    'DriverVerificationMeView',
-    'DriverVerificationSubmitView',
+    'DriverVerificationCompletedIdentificationView',
+    'DriverVerificationCompletedIdentificationDetailView',
     'InvitationGenerateView',
     'InvitationGetView',
     'InvitedUsersView',
     'PinVerificationForUserView',
+    'RegistrationTermsListView',
+    'RegistrationTermsAcceptView',
+    'RegistrationTermsDeclineView',
+    'DriverIdentificationChecklistView',
+    'DriverIdentificationUploadTypeDetailView',
+    'DriverIdentificationLegalTypeDetailView',
+    'DriverIdentificationTermsTypeDetailView',
+    'DriverIdentificationUploadSubmitView',
+    'DriverIdentificationLegalAcceptView',
+    'DriverIdentificationLegalDeclineView',
+    'DriverIdentificationTermsAcceptView',
+    'DriverIdentificationTermsDeclineView',
 ]
-

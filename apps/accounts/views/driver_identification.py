@@ -1,384 +1,667 @@
-from rest_framework import status
-from apps.common.views import AsyncAPIView
-from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated, AllowAny
-from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
+"""
+Driver identification checklist: combined upload / terms / legal steps, detail, and submissions.
+"""
+
 from asgiref.sync import sync_to_async
-from django.db.models import Q
-from drf_spectacular.utils import extend_schema
-from ..models import DriverAgreement, TermsAndConditionsAcceptance
+from django.db.models import Prefetch
+from drf_spectacular.utils import OpenApiResponse, extend_schema
+from rest_framework import status
+from rest_framework.parsers import FormParser, MultiPartParser
+from rest_framework.response import Response
 
-from ..serializers import (
-    DriverIdentificationSerializer,
-    DriverIdentificationUploadDocumentSerializer,
-    DriverIdentificationUploadRequestSerializer,
-    DriverIdentificationUserStatusSerializer,
+from ..models import (
+    DriverIdentificationLegalAgreementsUserAccepted,
+    DriverIdentificationLegalType,
+    DriverIdentificationTermsType,
+    DriverIdentificationUploadType,
+    DriverIdentificationUploadTypeItem,
+    DriverIdentificationUploadTypeQuestionAnswer,
+    DriverIdentificationUploadTypeUserAccepted,
 )
-from ..models import DriverIdentification, DriverIdentificationUploadDocument
-from ..serializers import (
-    DriverAgreementSerializer,
-    TermsAndConditionsAcceptanceSerializer,
-    TermsAndConditionsAcceptanceCreateSerializer,
+from ..serializers.driver_identification import (
+    IdentificationLegalTypeActionSerializer,
+    IdentificationTermsTypeActionSerializer,
+    IdentificationUploadSubmitSerializer,
 )
+from ..driver_identification_services import (
+    apply_terms_acceptance,
+    build_checklist_payload,
+    legal_agreement_items,
+    pick_question_answer_id_for_submit,
+    question_answer_ids_by_upload_type,
+    terms_agreement_items,
+)
+from .driver_verification import DriverVerificationBaseView
 
-class DriverIdentificationUploadView(AsyncAPIView):
+
+def _absolute_file_url(request, f):
+    if not f or not getattr(f, 'url', None):
+        return None
+    return request.build_absolute_uri(f.url)
+
+
+class DriverIdentificationChecklistView(DriverVerificationBaseView):
     """
-    Upload driver identification document endpoint - POST
-    
-    Allows authenticated users to upload documents for driver identifications.
+    GET /api/v1/accounts/driver/identification/checklist/
     """
-    permission_classes = [IsAuthenticated]
-    parser_classes = [MultiPartParser, FormParser]
-
-    @extend_schema(tags=['Driver Identification'], summary='Upload document', description='Upload a document for a driver identification type. If already uploaded for this type, it will be updated.', request=DriverIdentificationUploadRequestSerializer)
-    async def post(self, request):
-        """
-        Upload document for driver identification - ASYNC VERSION
-        """
-        document_file = request.FILES.get('document_file')
-        driver_identification_id = request.data.get('driver_identification_id')
-        
-        if not document_file:
-            return Response(
-                {
-                    'message': 'document_file is required',
-                    'status': 'error'
-                },
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        if not driver_identification_id:
-            return Response(
-                {
-                    'message': 'driver_identification_id is required',
-                    'status': 'error'
-                },
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        try:
-            driver_identification_id = int(driver_identification_id)
-        except (ValueError, TypeError):
-            return Response(
-                {
-                    'message': 'driver_identification_id must be a valid integer',
-                    'status': 'error'
-                },
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        # Check if driver identification exists and is active
-        try:
-            driver_identification = await DriverIdentification.objects.aget(
-                id=driver_identification_id,
-                is_active=True
-            )
-        except DriverIdentification.DoesNotExist:
-            return Response(
-                {
-                    'message': 'Driver identification not found or is not active',
-                    'status': 'error'
-                },
-                status=status.HTTP_404_NOT_FOUND
-            )
-        
-        # Create or update upload document
-        serializer = DriverIdentificationUploadDocumentSerializer(
-            data={
-                'driver_identification': driver_identification.id,
-                'document_file': document_file
-            },
-            context={'request': request}
-        )
-        
-        is_valid = await sync_to_async(lambda: serializer.is_valid())()
-        
-        if is_valid:
-            upload = await sync_to_async(serializer.save)()
-            # Refresh serializer with the saved instance to get proper representation
-            serializer = DriverIdentificationUploadDocumentSerializer(
-                upload,
-                context={'request': request}
-            )
-            serializer_data = await sync_to_async(lambda: serializer.data)()
-            
-            return Response(
-                {
-                    'message': 'Document uploaded successfully',
-                    'status': 'success',
-                    'data': serializer_data
-                },
-                status=status.HTTP_201_CREATED
-            )
-        
-        errors = await sync_to_async(lambda: serializer.errors)()
-        return Response(
-            {
-                'message': 'Validation error',
-                'status': 'error',
-                'errors': errors
-            },
-            status=status.HTTP_400_BAD_REQUEST
-        )
-
-
-class DriverIdentificationUserStatusView(AsyncAPIView):
-    """
-    Get user's driver identification status endpoint - GET
-    
-    Returns all active driver identifications with user's upload status.
-    """
-    permission_classes = [IsAuthenticated]
-
-    @extend_schema(tags=['Driver Identification'], summary='User identification status', description="Get user's driver identification status. For each type: is_upload_user, document_file, driver_identification_upload_id.")
-    async def get(self, request):
-        """
-        Get user's identification status - ASYNC VERSION
-        """
-        user = request.user
-        
-        # Get all active driver identifications
-        def get_active_identifications():
-            return list(DriverIdentification.objects.filter(is_active=True).order_by('id'))
-        active_identifications = await sync_to_async(get_active_identifications)()
-        
-        # Get user's uploads
-        def get_user_uploads():
-            return list(DriverIdentificationUploadDocument.objects.filter(
-                user=user
-            ).select_related('driver_identification'))
-        user_uploads = await sync_to_async(get_user_uploads)()
-        
-        # Create a dictionary for quick lookup
-        uploads_dict = {upload.driver_identification_id: upload for upload in user_uploads}
-        
-        # Build response data
-        response_data = []
-        for identification in active_identifications:
-            upload = uploads_dict.get(identification.id)
-            
-            if upload:
-                document_file = request.build_absolute_uri(upload.document_file.url) if upload.document_file else ""
-                response_data.append({
-                    'driver_identification_id': identification.id,
-                    'driver_identification_name': identification.name,
-                    'driver_identification_title': identification.title,
-                    'driver_identification_display_type': identification.display_type,
-                    'driver_identification_display_type_display': identification.get_display_type_display(),
-                    'driver_identification_upload_id': upload.id,
-                    'is_upload_user': True,
-                    'document_file': document_file
-                })
-            else:
-                response_data.append({
-                    'driver_identification_id': identification.id,
-                    'driver_identification_name': identification.name,
-                    'driver_identification_title': identification.title,
-                    'driver_identification_display_type': identification.display_type,
-                    'driver_identification_display_type_display': identification.get_display_type_display(),
-                    'driver_identification_upload_id': None,
-                    'is_upload_user': False,
-                    'document_file': ""
-                })
-        
-        return Response(
-            {
-                'message': 'Identification status retrieved successfully',
-                'status': 'success',
-                'data': response_data
-            },
-            status=status.HTTP_200_OK
-        )
-
-
-class DriverIdentificationListView(AsyncAPIView):
-    """
-    Get all active driver identifications endpoint - GET
-    
-    Returns all active driver identification types.
-    """
-    permission_classes = [IsAuthenticated]
-
-    @extend_schema(tags=['Driver Identification'], summary='List identifications', description='Get all active driver identifications. Each includes identification_faq (question, link, file).')
-    async def get(self, request):
-        """
-        Get all active driver identifications - ASYNC VERSION
-        """
-        def get_identifications():
-            return list(DriverIdentification.objects.filter(is_active=True)
-                       .prefetch_related('items', 'identification_faq').order_by('id'))
-        identifications = await sync_to_async(get_identifications)()
-        
-        serializer = DriverIdentificationSerializer(
-            identifications,
-            many=True,
-            context={'request': request}
-        )
-        serializer_data = await sync_to_async(lambda: serializer.data)()
-        
-        return Response(
-            {
-                'message': 'Driver identifications retrieved successfully',
-                'status': 'success',
-                'data': serializer_data
-            },
-            status=status.HTTP_200_OK
-        )
-
-
-class DriverAgreementListView(AsyncAPIView):
-    """
-    Get all active driver agreements endpoint - GET
-    
-    Returns all active driver agreements.
-    """
-    permission_classes = [AllowAny]
-
-    @extend_schema(tags=['Driver Agreement'], summary='List agreements', description='Get all active driver agreements.')
-    async def get(self, request):
-        """
-        Get all active driver agreements - ASYNC VERSION
-        """
-        def get_agreements():
-            return list(DriverAgreement.objects.filter(is_active=True).order_by('id'))
-        agreements = await sync_to_async(get_agreements)()
-        
-        serializer = DriverAgreementSerializer(
-            agreements,
-            many=True,
-            context={'request': request}
-        )
-        serializer_data = await sync_to_async(lambda: serializer.data)()
-        return Response(
-            {
-                'message': 'Driver agreements retrieved successfully',
-                'status': 'success',
-                'data': serializer_data
-            },
-            status=status.HTTP_200_OK
-        )
-
-
-class TermsAndConditionsAcceptanceCreateView(AsyncAPIView):
-    """
-    POST - Accept terms and conditions. Body: { "driver_identification_data": [1, 2, 3] }
-    Creates TermsAndConditionsAcceptance for each DriverIdentification ID with request.user.
-    """
-    permission_classes = [IsAuthenticated]
 
     @extend_schema(
-        tags=['Terms and Conditions Acceptance'],
-        summary='Accept terms and conditions',
-        description='Accept multiple driver identifications by IDs. User is taken from request.',
-        request=TermsAndConditionsAcceptanceCreateSerializer,
-        responses={201: TermsAndConditionsAcceptanceSerializer(many=True)},
+        tags=['Driver Identification'],
+        summary='List identification checklist steps',
+        description=(
+            'Returns a single ordered list for the Identification screen: **upload**, **terms**, and **legal** '
+            'configurations that are active. Each row includes `kind` (`upload` | `terms` | `legal`), `id`, `title`, '
+            'and `is_accepted`.\n\n'
+            '**Upload (`kind=upload`):** `is_accepted` is true when every required checklist slot has a stored file '
+            'and `is_accepted` on `DriverIdentificationUploadTypeUserAccepted`. If the step has no question/slot rows, '
+            'one type-level submission (`question_answer` null) is used.\n\n'
+            '**Terms (`kind=terms`):** `is_accepted` is true only when the user has accepted **every** '
+            '`DriverIdentificationAgreementsItems` with `item_type=terms` linked to that terms type '
+            '(`DriverIdentificationTermsItemUserAccepted`).\n\n'
+            '**Legal (`kind=legal`):** `is_accepted` follows `DriverIdentificationLegalAgreementsUserAccepted` '
+            'for that legal type (same idea as registration terms).\n\n'
+            '**Role:** Driver (JWT).'
+        ),
+        responses={
+            200: OpenApiResponse(description='Checklist rows with kind, id, title, is_accepted.'),
+        },
     )
-    async def post(self, request):
-        serializer = TermsAndConditionsAcceptanceCreateSerializer(data=request.data)
-        is_valid = await sync_to_async(serializer.is_valid)()
-        if not is_valid:
-            errors = await sync_to_async(lambda: serializer.errors)()
-            return Response(
-                {'message': 'Validation error', 'status': 'error', 'errors': errors},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+    async def get(self, request):
+        permission_error = await self.check_driver_permission(request)
+        if permission_error:
+            return permission_error
 
-        def create_acceptances():
-            ids = serializer.validated_data['driver_identification_data']
-            user = request.user
-            result = []
-            for di_id in ids:
-                di = DriverIdentification.objects.get(id=di_id)
-                obj = TermsAndConditionsAcceptance.accept_driver_identification(user=user, driver_identification=di)
-                result.append(obj)
-            return result
+        data = await sync_to_async(build_checklist_payload)(request.user)
 
-        acceptances = await sync_to_async(create_acceptances)()
-        response_serializer = TermsAndConditionsAcceptanceSerializer(
-            acceptances, many=True, context={'request': request}
-        )
-        data = await sync_to_async(lambda: response_serializer.data)()
         return Response(
             {
-                'message': 'Terms and conditions accepted successfully',
+                'message': 'Identification checklist retrieved successfully',
                 'status': 'success',
                 'data': data,
             },
-            status=status.HTTP_201_CREATED
+            status=status.HTTP_200_OK,
         )
 
 
-class TermsAndConditionsAcceptanceListView(AsyncAPIView):
+class DriverIdentificationUploadTypeDetailView(DriverVerificationBaseView):
     """
-    GET - List all TermsAndConditionsAcceptance for request.user
+    GET /api/v1/accounts/driver/identification/upload-types/<id>/
     """
-    permission_classes = [IsAuthenticated]
 
     @extend_schema(
-        tags=['Terms and Conditions Acceptance'],
-        summary='List my acceptances',
-        description='Get all terms and conditions acceptances for the authenticated user.',
-        responses={200: TermsAndConditionsAcceptanceSerializer(many=True)},
-    )
-    async def get(self, request):
-        def get_list():
-            return list(
-                TermsAndConditionsAcceptance.objects.filter(user=request.user)
-                .select_related('driver_identification')
-                .prefetch_related('driver_identification__items', 'driver_identification__identification_faq')
-                .order_by('-created_at')
-            )
-
-        items = await sync_to_async(get_list)()
-        serializer = TermsAndConditionsAcceptanceSerializer(items, many=True, context={'request': request})
-        data = await sync_to_async(lambda: serializer.data)()
-        return Response(
-            {
-                'message': 'Terms and conditions acceptances retrieved successfully',
-                'status': 'success',
-                'data': data,
-            },
-            status=status.HTTP_200_OK
-        )
-
-
-class TermsAndConditionsAcceptanceDetailView(AsyncAPIView):
-    """
-    GET - Get single TermsAndConditionsAcceptance by ID, only if it belongs to request.user
-    """
-    permission_classes = [IsAuthenticated]
-
-    @extend_schema(
-        tags=['Terms and Conditions Acceptance'],
-        summary='Get acceptance by ID',
-        description='Get a single terms and conditions acceptance by ID. Only returns if it belongs to the authenticated user.',
-        responses={200: TermsAndConditionsAcceptanceSerializer, 404: None},
+        tags=['Driver Identification'],
+        summary='Get upload identification step detail',
+        description=(
+            'Returns one **upload** identification type with nested **items** (checklist steps) and '
+            '**question_answers** (slots). Each slot includes `template_file` (admin reference) and `user_file` '
+            'when the driver has submitted a file for that slot. Optional `type_user_file` is set when the step uses '
+            'a single type-level upload (no slots).\n\n'
+            '**Role:** Driver (JWT).'
+        ),
+        responses={200: OpenApiResponse(description='Upload type with items and question_answers.')},
     )
     async def get(self, request, pk):
-        def get_object():
+        permission_error = await self.check_driver_permission(request)
+        if permission_error:
+            return permission_error
+
+        user = request.user
+
+        def load():
             try:
-                return TermsAndConditionsAcceptance.objects.select_related(
-                    'driver_identification'
-                ).prefetch_related(
-                    'driver_identification__items', 'driver_identification__identification_faq'
-                ).get(pk=pk, user=request.user)
-            except TermsAndConditionsAcceptance.DoesNotExist:
+                obj = (
+                    DriverIdentificationUploadType.objects.filter(
+                        pk=pk,
+                        is_active=True,
+                        display_type='upload',
+                    )
+                    .prefetch_related(
+                        Prefetch(
+                            'items',
+                            queryset=DriverIdentificationUploadTypeItem.objects.prefetch_related(
+                                Prefetch(
+                                    'question_answers',
+                                    queryset=DriverIdentificationUploadTypeQuestionAnswer.objects.order_by(
+                                        'created_at', 'id'
+                                    ),
+                                )
+                            ).order_by('created_at', 'id'),
+                        ),
+                    )
+                    .get()
+                )
+            except DriverIdentificationUploadType.DoesNotExist:
                 return None
 
-        obj = await sync_to_async(get_object)()
-        if obj is None:
+            qa_ids_for_type = question_answer_ids_by_upload_type([obj.pk]).get(obj.pk, [])
+            user_rows = {
+                r.question_answer_id: r
+                for r in DriverIdentificationUploadTypeUserAccepted.objects.filter(
+                    user=user,
+                    driver_identification_upload_type=obj,
+                )
+            }
+            type_level = user_rows.get(None)
+
+            items_out = []
+            for it in obj.items.all():
+                qas_out = []
+                for qa in it.question_answers.all():
+                    ua = user_rows.get(qa.pk)
+                    qas_out.append(
+                        {
+                            'id': qa.pk,
+                            'question': qa.question,
+                            'template_file': _absolute_file_url(request, qa.file),
+                            'user_file': _absolute_file_url(request, ua.file) if ua else None,
+                            'is_submitted': bool(
+                                ua and ua.is_accepted and ua.file and getattr(ua.file, 'name', '')
+                            ),
+                            'created_at': qa.created_at,
+                        }
+                    )
+                items_out.append(
+                    {
+                        'id': it.pk,
+                        'title': it.item,
+                        'created_at': it.created_at,
+                        'question_answers': qas_out,
+                    }
+                )
+
+            return {
+                'id': obj.pk,
+                'title': obj.title,
+                'description': obj.description or '',
+                'display_type': obj.display_type,
+                'is_active': obj.is_active,
+                'icon': _absolute_file_url(request, obj.icon),
+                'type_user_file': _absolute_file_url(request, type_level.file) if type_level else None,
+                'type_level_submitted': bool(
+                    type_level
+                    and type_level.is_accepted
+                    and type_level.file
+                    and getattr(type_level.file, 'name', '')
+                    and not qa_ids_for_type
+                ),
+                'items': items_out,
+            }
+
+        data = await sync_to_async(load)()
+        if data is None:
             return Response(
-                {'message': 'Not found', 'status': 'error'},
-                status=status.HTTP_404_NOT_FOUND
+                {'message': 'Upload identification type not found', 'status': 'error'},
+                status=status.HTTP_404_NOT_FOUND,
             )
 
-        serializer = TermsAndConditionsAcceptanceSerializer(obj, context={'request': request})
-        data = await sync_to_async(lambda: serializer.data)()
         return Response(
             {
-                'message': 'Terms and conditions acceptance retrieved successfully',
+                'message': 'Upload identification detail retrieved successfully',
                 'status': 'success',
                 'data': data,
             },
-            status=status.HTTP_200_OK
+            status=status.HTTP_200_OK,
+        )
+
+
+class DriverIdentificationLegalTypeDetailView(DriverVerificationBaseView):
+    """
+    GET /api/v1/accounts/driver/identification/legal-types/<id>/
+    """
+
+    @extend_schema(
+        tags=['Driver Identification'],
+        summary='Get legal agreements identification detail',
+        description=(
+            'Returns a **legal** identification type and its `agreement_items` (`item_type=legal`).\n\n'
+            '**Role:** Driver (JWT).'
+        ),
+        responses={200: OpenApiResponse(description='Legal type with agreement_items.')},
+    )
+    async def get(self, request, pk):
+        permission_error = await self.check_driver_permission(request)
+        if permission_error:
+            return permission_error
+
+        def load():
+            try:
+                obj = DriverIdentificationLegalType.objects.get(
+                    pk=pk,
+                    is_active=True,
+                    display_type='legal',
+                )
+            except DriverIdentificationLegalType.DoesNotExist:
+                return None
+
+            items_out = []
+            for item in legal_agreement_items(obj):
+                items_out.append(
+                    {
+                        'id': item.pk,
+                        'title': item.title,
+                        'content': item.content,
+                        'file': _absolute_file_url(request, item.file),
+                        'item_type': item.item_type,
+                        'created_at': item.created_at,
+                    }
+                )
+
+            return {
+                'id': obj.pk,
+                'title': obj.title,
+                'description': obj.description or '',
+                'display_type': obj.display_type,
+                'is_active': obj.is_active,
+                'agreement_items': items_out,
+            }
+
+        data = await sync_to_async(load)()
+        if data is None:
+            return Response(
+                {'message': 'Legal identification type not found', 'status': 'error'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        return Response(
+            {
+                'message': 'Legal identification detail retrieved successfully',
+                'status': 'success',
+                'data': data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class DriverIdentificationTermsTypeDetailView(DriverVerificationBaseView):
+    """
+    GET /api/v1/accounts/driver/identification/terms-types/<id>/
+    """
+
+    @extend_schema(
+        tags=['Driver Identification'],
+        summary='Get terms identification detail',
+        description=(
+            'Returns a **terms** identification type and its `agreement_items` (`item_type=terms`).\n\n'
+            '**Role:** Driver (JWT).'
+        ),
+        responses={200: OpenApiResponse(description='Terms type with agreement_items.')},
+    )
+    async def get(self, request, pk):
+        permission_error = await self.check_driver_permission(request)
+        if permission_error:
+            return permission_error
+
+        def load():
+            try:
+                obj = DriverIdentificationTermsType.objects.get(
+                    pk=pk,
+                    is_active=True,
+                    display_type='terms',
+                )
+            except DriverIdentificationTermsType.DoesNotExist:
+                return None
+
+            items_out = []
+            for item in terms_agreement_items(obj):
+                items_out.append(
+                    {
+                        'id': item.pk,
+                        'title': item.title,
+                        'content': item.content,
+                        'file': _absolute_file_url(request, item.file),
+                        'item_type': item.item_type,
+                        'created_at': item.created_at,
+                    }
+                )
+
+            return {
+                'id': obj.pk,
+                'title': obj.title,
+                'description': obj.description or '',
+                'display_type': obj.display_type,
+                'is_active': obj.is_active,
+                'agreement_items': items_out,
+            }
+
+        data = await sync_to_async(load)()
+        if data is None:
+            return Response(
+                {'message': 'Terms identification type not found', 'status': 'error'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        return Response(
+            {
+                'message': 'Terms identification detail retrieved successfully',
+                'status': 'success',
+                'data': data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class DriverIdentificationUploadSubmitView(DriverVerificationBaseView):
+    """
+    POST /api/v1/accounts/driver/identification/upload-types/submit/
+    """
+
+    parser_classes = [MultiPartParser, FormParser]
+
+    @extend_schema(
+        tags=['Driver Identification'],
+        summary='Submit upload identification file',
+        description=(
+            'Use **multipart/form-data**: **`upload_type_id`** and **`file`** only.\n\n'
+            'If the step has checklist slots, the server picks the slot in admin order: '
+            'the first slot that is not yet complete; if every slot is already complete, the first slot is updated.\n\n'
+            'If there are no slots, a single type-level file is stored.\n\n'
+            'Creates or updates `DriverIdentificationUploadTypeUserAccepted` for `request.user` with '
+            '`is_accepted=true`.\n\n'
+            '**Role:** Driver (JWT).'
+        ),
+        request=IdentificationUploadSubmitSerializer,
+        responses={
+            200: OpenApiResponse(description='Submission stored; returns record id, upload_type_id, file URL, is_accepted.'),
+            400: OpenApiResponse(description='Validation error.'),
+        },
+    )
+    async def post(self, request):
+        permission_error = await self.check_driver_permission(request)
+        if permission_error:
+            return permission_error
+
+        user = request.user
+        try:
+            upload_type_id = int(request.POST.get('upload_type_id', ''))
+        except (TypeError, ValueError):
+            return Response(
+                {'message': 'upload_type_id is required and must be an integer', 'status': 'error'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        upload_file = request.FILES.get('file')
+        if not upload_file:
+            return Response(
+                {'message': 'file is required', 'status': 'error'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        def submit():
+            try:
+                upload = DriverIdentificationUploadType.objects.get(
+                    pk=upload_type_id,
+                    is_active=True,
+                    display_type='upload',
+                )
+            except DriverIdentificationUploadType.DoesNotExist:
+                return None, 'Upload identification type not found'
+
+            qa_ids = question_answer_ids_by_upload_type([upload.pk]).get(upload.pk, [])
+
+            if qa_ids:
+                qid = pick_question_answer_id_for_submit(user.pk, qa_ids)
+                qa = DriverIdentificationUploadTypeQuestionAnswer.objects.get(pk=qid)
+                obj, _ = DriverIdentificationUploadTypeUserAccepted.objects.update_or_create(
+                    user=user,
+                    question_answer=qa,
+                    defaults={
+                        'driver_identification_upload_type': upload,
+                        'file': upload_file,
+                        'is_accepted': True,
+                    },
+                )
+                return obj, None
+
+            obj, _ = DriverIdentificationUploadTypeUserAccepted.objects.update_or_create(
+                user=user,
+                driver_identification_upload_type=upload,
+                question_answer=None,
+                defaults={
+                    'file': upload_file,
+                    'is_accepted': True,
+                },
+            )
+            return obj, None
+
+        obj, err = await sync_to_async(submit)()
+        if err:
+            st = (
+                status.HTTP_404_NOT_FOUND
+                if err == 'Upload identification type not found'
+                else status.HTTP_400_BAD_REQUEST
+            )
+            return Response({'message': err, 'status': 'error'}, status=st)
+
+        return Response(
+            {
+                'message': 'Upload submitted successfully',
+                'status': 'success',
+                'data': {
+                    'id': obj.pk,
+                    'upload_type_id': upload_type_id,
+                    'file': _absolute_file_url(request, obj.file),
+                    'is_accepted': obj.is_accepted,
+                },
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class DriverIdentificationLegalAcceptView(DriverVerificationBaseView):
+    """POST .../legal-types/accept/"""
+
+    @extend_schema(
+        tags=['Driver Identification'],
+        summary='Accept legal identification agreements',
+        description=(
+            'Same contract as registration terms: JSON body **`legal_type_id`**. '
+            'Sets `DriverIdentificationLegalAgreementsUserAccepted.is_accepted=true` for the current user.\n\n'
+            '**Role:** Driver (JWT).'
+        ),
+        request=IdentificationLegalTypeActionSerializer,
+    )
+    async def post(self, request):
+        permission_error = await self.check_driver_permission(request)
+        if permission_error:
+            return permission_error
+
+        serializer = IdentificationLegalTypeActionSerializer(data=request.data)
+        valid = await sync_to_async(serializer.is_valid)(raise_exception=False)
+        if not valid:
+            return Response(
+                {'message': 'Validation failed', 'status': 'error', 'errors': serializer.errors},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        user = request.user
+        lid = serializer.validated_data['legal_type_id']
+
+        def upsert():
+            obj, _ = DriverIdentificationLegalAgreementsUserAccepted.objects.update_or_create(
+                user=user,
+                driver_identification_legal_agreements_id=lid,
+                defaults={'is_accepted': True},
+            )
+            return obj
+
+        obj = await sync_to_async(upsert)()
+
+        return Response(
+            {
+                'message': 'Legal agreements accepted successfully',
+                'status': 'success',
+                'data': {
+                    'id': obj.pk,
+                    'legal_type_id': lid,
+                    'is_accepted': obj.is_accepted,
+                },
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class DriverIdentificationLegalDeclineView(DriverVerificationBaseView):
+    """POST .../legal-types/decline/"""
+
+    @extend_schema(
+        tags=['Driver Identification'],
+        summary='Decline legal identification agreements',
+        description=(
+            'JSON body **`legal_type_id`**. Sets `is_accepted=false` for the current user.\n\n'
+            '**Role:** Driver (JWT).'
+        ),
+        request=IdentificationLegalTypeActionSerializer,
+    )
+    async def post(self, request):
+        permission_error = await self.check_driver_permission(request)
+        if permission_error:
+            return permission_error
+
+        serializer = IdentificationLegalTypeActionSerializer(data=request.data)
+        valid = await sync_to_async(serializer.is_valid)(raise_exception=False)
+        if not valid:
+            return Response(
+                {'message': 'Validation failed', 'status': 'error', 'errors': serializer.errors},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        user = request.user
+        lid = serializer.validated_data['legal_type_id']
+
+        def upsert():
+            obj, _ = DriverIdentificationLegalAgreementsUserAccepted.objects.update_or_create(
+                user=user,
+                driver_identification_legal_agreements_id=lid,
+                defaults={'is_accepted': False},
+            )
+            return obj
+
+        obj = await sync_to_async(upsert)()
+
+        return Response(
+            {
+                'message': 'Legal agreements declined successfully',
+                'status': 'success',
+                'data': {
+                    'id': obj.pk,
+                    'legal_type_id': lid,
+                    'is_accepted': obj.is_accepted,
+                },
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class DriverIdentificationTermsAcceptView(DriverVerificationBaseView):
+    """POST .../terms-types/accept/"""
+
+    @extend_schema(
+        tags=['Driver Identification'],
+        summary='Accept terms identification (all agreement items)',
+        description=(
+            'JSON body **`terms_type_id`**. For every `DriverIdentificationAgreementsItems` linked to that '
+            'terms type with `item_type=terms`, creates or updates `DriverIdentificationTermsItemUserAccepted` '
+            'with `is_accepted=true`.\n\n'
+            '**Role:** Driver (JWT).'
+        ),
+        request=IdentificationTermsTypeActionSerializer,
+    )
+    async def post(self, request):
+        permission_error = await self.check_driver_permission(request)
+        if permission_error:
+            return permission_error
+
+        serializer = IdentificationTermsTypeActionSerializer(data=request.data)
+        valid = await sync_to_async(serializer.is_valid)(raise_exception=False)
+        if not valid:
+            return Response(
+                {'message': 'Validation failed', 'status': 'error', 'errors': serializer.errors},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        user = request.user
+        tid = serializer.validated_data['terms_type_id']
+
+        def apply():
+            obj = DriverIdentificationTermsType.objects.get(pk=tid)
+            apply_terms_acceptance(user, obj, True)
+            count = terms_agreement_items(obj).count()
+            return count
+
+        try:
+            count = await sync_to_async(apply)()
+        except DriverIdentificationTermsType.DoesNotExist:
+            return Response(
+                {'message': 'Terms identification type not found', 'status': 'error'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        return Response(
+            {
+                'message': 'Terms accepted successfully',
+                'status': 'success',
+                'data': {
+                    'terms_type_id': tid,
+                    'agreement_items_updated': count,
+                    'is_accepted': count > 0,
+                },
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class DriverIdentificationTermsDeclineView(DriverVerificationBaseView):
+    """POST .../terms-types/decline/"""
+
+    @extend_schema(
+        tags=['Driver Identification'],
+        summary='Decline terms identification (all agreement items)',
+        description=(
+            'JSON body **`terms_type_id`**. Sets `is_accepted=false` on every linked terms agreement item '
+            'for the current user.\n\n'
+            '**Role:** Driver (JWT).'
+        ),
+        request=IdentificationTermsTypeActionSerializer,
+    )
+    async def post(self, request):
+        permission_error = await self.check_driver_permission(request)
+        if permission_error:
+            return permission_error
+
+        serializer = IdentificationTermsTypeActionSerializer(data=request.data)
+        valid = await sync_to_async(serializer.is_valid)(raise_exception=False)
+        if not valid:
+            return Response(
+                {'message': 'Validation failed', 'status': 'error', 'errors': serializer.errors},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        user = request.user
+        tid = serializer.validated_data['terms_type_id']
+
+        def apply():
+            obj = DriverIdentificationTermsType.objects.get(pk=tid)
+            apply_terms_acceptance(user, obj, False)
+            count = terms_agreement_items(obj).count()
+            return count
+
+        try:
+            count = await sync_to_async(apply)()
+        except DriverIdentificationTermsType.DoesNotExist:
+            return Response(
+                {'message': 'Terms identification type not found', 'status': 'error'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        return Response(
+            {
+                'message': 'Terms declined successfully',
+                'status': 'success',
+                'data': {
+                    'terms_type_id': tid,
+                    'agreement_items_updated': count,
+                    'is_accepted': False,
+                },
+            },
+            status=status.HTTP_200_OK,
         )
