@@ -2,7 +2,6 @@ import json
 import logging
 from channels.generic.websocket import AsyncWebsocketConsumer
 from channels.db import database_sync_to_async
-from django.contrib.auth.models import Group
 
 logger = logging.getLogger(__name__)
 
@@ -98,6 +97,93 @@ class DriverOrdersConsumer(AsyncWebsocketConsumer):
     def _get_current_orders(self):
         from apps.order.services.driver_orders_websocket import get_driver_current_orders
         return get_driver_current_orders(self.user)
+
+
+class RiderOrdersConsumer(AsyncWebsocketConsumer):
+    """
+    WebSocket for riders: active trips + real-time driver accept/reject updates.
+    Group: rider_orders_<user_id>
+    """
+
+    async def connect(self):
+        self.user = self.scope['user']
+
+        if self.user.is_anonymous:
+            logger.info('[WS rider/orders] Reject: anonymous')
+            await self.close(code=4401)
+            return
+
+        is_rider = await self._check_rider_role(self.user)
+        if not is_rider:
+            logger.info(
+                '[WS rider/orders] Reject: user id=%s not in Rider group',
+                getattr(self.user, 'id', None),
+            )
+            await self.close(code=4403)
+            return
+
+        self.rider_id = self.user.id
+        self.room_group_name = f'rider_orders_{self.rider_id}'
+
+        await self.channel_layer.group_add(
+            self.room_group_name,
+            self.channel_name,
+        )
+
+        await self.accept()
+
+        await self.send(text_data=json.dumps({
+            'type': 'connection_established',
+            'message': 'Connected to rider orders',
+            'rider_id': self.rider_id,
+        }))
+
+        orders_data = await self._get_active_orders()
+        await self.send(text_data=json.dumps({
+            'type': 'initial_orders',
+            'orders': orders_data,
+            'message': 'Your active orders',
+        }))
+
+    async def disconnect(self, close_code):
+        if hasattr(self, 'room_group_name') and self.room_group_name:
+            await self.channel_layer.group_discard(
+                self.room_group_name,
+                self.channel_name,
+            )
+
+    async def receive(self, text_data):
+        try:
+            data = json.loads(text_data)
+            if data.get('type') == 'ping':
+                await self.send(text_data=json.dumps({'type': 'pong'}))
+        except json.JSONDecodeError:
+            pass
+
+    async def rider_order_accepted(self, event):
+        await self.send(text_data=json.dumps({
+            'type': 'rider_order_accepted',
+            'order': event.get('order', {}),
+            'message': event.get('message', ''),
+        }))
+
+    async def rider_driver_rejected(self, event):
+        await self.send(text_data=json.dumps({
+            'type': 'rider_driver_rejected',
+            'order': event.get('order', {}),
+            'rejected_driver_id': event.get('rejected_driver_id'),
+            'reassigned': event.get('reassigned', False),
+            'message': event.get('message', ''),
+        }))
+
+    @database_sync_to_async
+    def _check_rider_role(self, user):
+        return user.groups.filter(name='Rider').exists()
+
+    @database_sync_to_async
+    def _get_active_orders(self):
+        from apps.order.services.rider_orders_websocket import get_rider_active_orders
+        return get_rider_active_orders(self.user)
 
 
 class DriverSurgeZonesConsumer(AsyncWebsocketConsumer):

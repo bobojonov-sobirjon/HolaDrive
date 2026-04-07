@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from django.db import transaction
 from django.db.models import Avg, Count
-from ..models import Order, OrderItem, RideType, TripRating
+from ..models import Order, OrderItem, OrderDriver, RideType, TripRating
 from apps.accounts.serializers.user import UserDetailSerializer
 
 
@@ -219,6 +219,35 @@ class OrderSerializer(serializers.ModelSerializer):
             status='approved',
             tip_amount__gt=0,
         ).count()
+
+
+class OrderDetailSerializer(OrderSerializer):
+    """Order by id: includes assigned driver (same shape as rider WebSocket) when status has ACCEPTED OrderDriver."""
+
+    driver = serializers.SerializerMethodField()
+    order_driver = serializers.SerializerMethodField()
+
+    class Meta(OrderSerializer.Meta):
+        fields = list(OrderSerializer.Meta.fields) + ['driver', 'order_driver']
+
+    def _accepted_order_driver(self, obj):
+        for row in obj.order_drivers.all():
+            if row.status == OrderDriver.DriverRequestStatus.ACCEPTED:
+                return row
+        return None
+
+    def get_driver(self, obj):
+        od = self._accepted_order_driver(obj)
+        if not od or not od.driver_id:
+            return None
+        from ..services.rider_orders_websocket import build_driver_for_rider
+
+        return build_driver_for_rider(od.driver, request=self.context.get('request'))
+
+    def get_order_driver(self, obj):
+        from ..services.rider_orders_websocket import _order_driver_row
+
+        return _order_driver_row(self._accepted_order_driver(obj))
 
 
 class PriceEstimateSerializer(serializers.Serializer):

@@ -1,6 +1,7 @@
 from .order import (
     OrderCreateSerializer,
     OrderSerializer,
+    OrderDetailSerializer,
     OrderItemSerializer,
     PriceEstimateSerializer,
     OrderItemUpdateSerializer,
@@ -32,6 +33,7 @@ from .rating import (
 __all__ = [
     'OrderCreateSerializer',
     'OrderSerializer',
+    'OrderDetailSerializer',
     'OrderItemSerializer',
     'PriceEstimateSerializer',
     'OrderItemUpdateSerializer',

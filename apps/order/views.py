@@ -9,6 +9,7 @@ from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiTypes,
 from .serializers import (
     OrderCreateSerializer,
     OrderSerializer,
+    OrderDetailSerializer,
     PriceEstimateSerializer,
     OrderItemUpdateSerializer,
     OrderItemSerializer,
@@ -75,7 +76,7 @@ class OrderCreateView(AsyncAPIView):
                 'order_items__ride_type'
             ).aget(pk=order.pk)
             
-            order_serializer = OrderSerializer(order)
+            order_serializer = OrderSerializer(order, context={'request': request})
             serializer_data = await sync_to_async(lambda: order_serializer.data)()
             
             return Response(
@@ -466,15 +467,28 @@ class DriverOrderActionView(AsyncAPIView):
                 import logging
                 logger = logging.getLogger(__name__)
                 logger.error(f"Failed to send push notification to rider {order.user.id}: {e}")
+
+            try:
+                from apps.order.services.rider_orders_websocket import send_rider_order_driver_accepted
+
+                await sync_to_async(send_rider_order_driver_accepted)(order.id)
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).error(
+                    'Failed to send rider WebSocket accept for order %s: %s', order.id, e
+                )
         else:
             order_driver.status = OrderDriver.DriverRequestStatus.REJECTED
             order_driver.responded_at = timezone.now()
             await sync_to_async(order_driver.save)()
-            
+            rejected_driver_id = user.id
+            reassigned = False
+
             try:
                 next_order_driver = await sync_to_async(DriverAssignmentService.assign_to_next_driver)(order)
                 if next_order_driver:
                     message = "Order rejected. Reassigned to next driver."
+                    reassigned = True
                 else:
                     message = "Order rejected. No more drivers available at the moment."
             except Exception as e:
@@ -482,6 +496,21 @@ class DriverOrderActionView(AsyncAPIView):
                 logger = logging.getLogger(__name__)
                 logger.error(f"Failed to reassign order {order.id} after rejection: {e}")
                 message = "Order rejected successfully."
+
+            try:
+                from apps.order.services.rider_orders_websocket import send_rider_order_driver_rejected
+
+                await sync_to_async(send_rider_order_driver_rejected)(
+                    order.id,
+                    rejected_driver_id=rejected_driver_id,
+                    rider_message=message,
+                    reassigned=reassigned,
+                )
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).error(
+                    'Failed to send rider WebSocket reject for order %s: %s', order.id, e
+                )
 
         return Response(
             {
@@ -1204,7 +1233,7 @@ class OrderCancelView(AsyncAPIView):
                 'order_drivers__driver'
             ).aget(pk=order.pk)
             
-            order_serializer = OrderSerializer(order)
+            order_serializer = OrderSerializer(order, context={'request': request})
             serializer_data = await sync_to_async(lambda: order_serializer.data)()
             
             return Response(
@@ -1293,7 +1322,7 @@ class MyOrderListView(AsyncAPIView):
         paginated_orders = await sync_to_async(paginator.paginate_queryset)(orders, request)
         
         if paginated_orders is not None:
-            serializer = OrderSerializer(paginated_orders, many=True)
+            serializer = OrderSerializer(paginated_orders, many=True, context={'request': request})
             serializer_data = await sync_to_async(lambda: serializer.data)()
             
             response = await sync_to_async(paginator.get_paginated_response)(serializer_data)
@@ -1302,7 +1331,7 @@ class MyOrderListView(AsyncAPIView):
             response.data['data'] = response.data.pop('results')
             return response
         
-        serializer = OrderSerializer(orders, many=True)
+        serializer = OrderSerializer(orders, many=True, context={'request': request})
         serializer_data = await sync_to_async(lambda: serializer.data)()
         orders_count = await sync_to_async(len)(orders)
         
@@ -1315,6 +1344,71 @@ class MyOrderListView(AsyncAPIView):
             },
             status=status.HTTP_200_OK
         )
+
+
+class OrderDetailView(AsyncAPIView):
+    """
+    Single order by id. Rider: own orders. Driver: orders linked via OrderDriver (any request status).
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    async def _check_driver_role(self, user):
+        groups = await sync_to_async(list)(user.groups.all())
+        names = [g.name for g in groups]
+        return 'Driver' in names
+
+    async def _can_access_order(self, user, order):
+        if order.user_id == user.id:
+            return True
+        if not await self._check_driver_role(user):
+            return False
+        return await OrderDriver.objects.filter(order=order, driver=user).aexists()
+
+    @extend_schema(
+        tags=['Order'],
+        summary='Get order by ID',
+        description=(
+            'Returns one order with order_items, user, and when a driver has accepted — '
+            '`driver` (profile, vehicle, images) and `order_driver` (assignment row). '
+            'Rider: only their orders. Driver: orders where this driver has an OrderDriver row.'
+        ),
+        responses={200: OrderDetailSerializer},
+    )
+    async def get(self, request, order_id: int):
+        try:
+            order = await Order.objects.select_related('user').prefetch_related(
+                'order_items__ride_type',
+                'order_preferences',
+                'order_drivers__driver__vehicle_details__images',
+                'additional_passengers',
+            ).aget(id=order_id)
+        except Order.DoesNotExist:
+            return Response(
+                {'message': 'Order not found', 'status': 'error'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if not await self._can_access_order(request.user, order):
+            return Response(
+                {
+                    'message': 'You do not have permission to view this order',
+                    'status': 'error',
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        order_serializer = OrderDetailSerializer(order, context={'request': request})
+        serializer_data = await sync_to_async(lambda: order_serializer.data)()
+        return Response(
+            {
+                'message': 'Order retrieved successfully',
+                'status': 'success',
+                'data': serializer_data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
 
 class DriverDashboardView(AsyncAPIView):
     """Figma Earnings screen: overview, cash_history, ride_history."""

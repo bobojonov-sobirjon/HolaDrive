@@ -371,7 +371,6 @@ class RiderUserAdmin(UserAdmin):
         (None, {'fields': ('username', 'password')}),
         ('Personal Information', {'fields': ('first_name', 'last_name', 'email', 'phone_number', 'date_of_birth', 'avatar')}),
         ('Additional Information', {'fields': ('address', 'longitude', 'latitude', 'tax_number', 'id_identification')}),
-        ('Permissions', {'fields': ('is_active', 'groups')}),
         ('Important Dates', {'fields': ('last_login', 'date_joined', 'created_at', 'updated_at')}),
         ('Verification', {'fields': ('is_verified',)}),
     )

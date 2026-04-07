@@ -6,6 +6,7 @@ from .views import (
     OrderItemManagePriceView,
     OrderCancelView,
     MyOrderListView,
+    OrderDetailView,
     OrderPreferencesGetView,
     OrderPreferencesCreateView,
     AdditionalPassengerCreateView,
@@ -32,6 +33,7 @@ from .views import (
 urlpatterns = [
     path('create/', OrderCreateView.as_view(), name='order-create'),
     path('my-orders/', MyOrderListView.as_view(), name='my-orders'),
+    path('<int:order_id>/', OrderDetailView.as_view(), name='order-detail'),
     path('price-estimate/', PriceEstimateView.as_view(), name='price-estimate'),
     path('order-item/<int:order_item_id>/update/', OrderItemUpdateView.as_view(), name='order-item-update'),
     path('order-item/<int:order_item_id>/manage-price/', OrderItemManagePriceView.as_view(), name='order-item-manage-price'),

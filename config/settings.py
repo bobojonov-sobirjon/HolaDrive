@@ -154,6 +154,9 @@ STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 MEDIA_URL = "/media/"
 MEDIA_ROOT = os.getenv('MEDIA_ROOT', '/var/www/media')
 
+# Prepended to MEDIA paths in WebSocket/API payloads (e.g. https://api.example.com — no trailing slash)
+PUBLIC_BASE_URL = os.getenv('PUBLIC_BASE_URL', '').rstrip('/')
+
 LOCALE_PATHS = [
     os.path.join(BASE_DIR, 'locale'),
 ]
