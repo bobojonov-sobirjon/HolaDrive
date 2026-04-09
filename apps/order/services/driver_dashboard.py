@@ -104,6 +104,75 @@ def get_cash_history(user_id, filter_type='last_30', start_date=None, end_date=N
     return data, total
 
 
+def _completed_orders_for_driver(user):
+    return Order.objects.filter(
+        order_drivers__driver=user,
+        order_drivers__status=OrderDriver.DriverRequestStatus.ACCEPTED,
+        status=Order.OrderStatus.COMPLETED,
+    ).prefetch_related('order_items')
+
+
+def _earnings_stats_for_period(user, dt_start, dt_end):
+    """Sum earnings (calculated_price), ride count, distance (distance_km) for completed trips in [dt_start, dt_end]."""
+    qs = _completed_orders_for_driver(user).filter(
+        updated_at__gte=dt_start,
+        updated_at__lte=dt_end,
+    )
+    total_earnings = Decimal('0')
+    total_distance = Decimal('0')
+    rides = 0
+    for o in qs:
+        rides += 1
+        for i in o.order_items.all():
+            if i.calculated_price:
+                total_earnings += Decimal(str(i.calculated_price))
+            if i.distance_km is not None:
+                total_distance += Decimal(str(i.distance_km))
+    return total_earnings, rides, total_distance
+
+
+def get_driver_earnings(user_id, today_target=10):
+    """
+    Stats for DriverEarningsSerializer: today, rolling 7-day week, calendar month-to-date, all-time.
+    ``today_target`` is a UI goal (no DB field yet); default 10 rides.
+    """
+    user = CustomUser.objects.get(id=user_id)
+    now = timezone.now()
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    week_start = today_start - timedelta(days=7)
+    month_start = today_start.replace(day=1)
+
+    t_earn, t_rides, t_dist = _earnings_stats_for_period(user, today_start, now)
+    w_earn, w_rides, w_dist = _earnings_stats_for_period(user, week_start, now)
+    m_earn, m_rides, m_dist = _earnings_stats_for_period(user, month_start, now)
+
+    qs_all = _completed_orders_for_driver(user)
+    total_earn, total_rides, total_dist = Decimal('0'), 0, Decimal('0')
+    for o in qs_all:
+        total_rides += 1
+        for i in o.order_items.all():
+            if i.calculated_price:
+                total_earn += Decimal(str(i.calculated_price))
+            if i.distance_km is not None:
+                total_dist += Decimal(str(i.distance_km))
+
+    return {
+        'today_earnings': t_earn,
+        'today_rides_count': t_rides,
+        'today_distance_km': t_dist,
+        'today_target': int(today_target),
+        'weekly_earnings': w_earn,
+        'weekly_rides_count': w_rides,
+        'weekly_distance_km': w_dist,
+        'monthly_earnings': m_earn,
+        'monthly_rides_count': m_rides,
+        'monthly_distance_km': m_dist,
+        'total_earnings': total_earn,
+        'total_rides_count': total_rides,
+        'total_distance_km': total_dist,
+    }
+
+
 def get_ride_history(user_id, filter_type='last_30', start_date=None, end_date=None, page=1, page_size=10):
     """Paginated ride history. Returns (list, total_count)."""
     user = CustomUser.objects.get(id=user_id)

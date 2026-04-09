@@ -176,6 +176,20 @@ class RiderOrdersConsumer(AsyncWebsocketConsumer):
             'message': event.get('message', ''),
         }))
 
+    async def rider_order_updated(self, event):
+        """Full order snapshot on any lifecycle change (listen for this in Flutter)."""
+        payload = {
+            'type': 'rider_order_updated',
+            'change': event.get('change'),
+            'order': event.get('order', {}),
+            'message': event.get('message', ''),
+        }
+        if 'rejected_driver_id' in event:
+            payload['rejected_driver_id'] = event['rejected_driver_id']
+        if 'reassigned' in event:
+            payload['reassigned'] = event['reassigned']
+        await self.send(text_data=json.dumps(payload))
+
     @database_sync_to_async
     def _check_rider_role(self, user):
         return user.groups.filter(name='Rider').exists()

@@ -19,6 +19,7 @@ from .views import (
     DriverLocationUpdateView,
     DriverLocationForOrderView,
     DriverDashboardView,
+    DriverEarningsView,
     DriverCashoutHistoryView,
     DriverCashoutCreateView,
     DriverRideHistoryView,
@@ -56,6 +57,7 @@ urlpatterns = [
 
     # Driver dashboard (Figma Earnings: overview, cash_history, ride_history)
     path('driver/dashboard/', DriverDashboardView.as_view(), name='driver-dashboard'),
+    path('driver/earnings/', DriverEarningsView.as_view(), name='driver-earnings'),
     path('driver/cash-history/', DriverCashoutHistoryView.as_view(), name='driver-cash-history'),
     path('driver/cashout/', DriverCashoutCreateView.as_view(), name='driver-cashout-create'),
     path('driver/ride-history/', DriverRideHistoryView.as_view(), name='driver-ride-history'),

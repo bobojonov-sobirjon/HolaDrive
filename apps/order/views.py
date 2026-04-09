@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 from rest_framework import status
 from rest_framework.response import Response
 from apps.common.views import AsyncAPIView
@@ -25,6 +27,7 @@ from .serializers import (
     DriverLocationSerializer,
     DriverInfoSerializer,
     DriverOnlineStatusSerializer,
+    DriverEarningsSerializer,
     TripRatingCreateSerializer,
     TripRatingSerializer,
     DriverRiderRatingCreateSerializer,
@@ -36,7 +39,7 @@ from .models import Order, OrderItem, OrderDriver, OrderPreferences, TripRating,
 from apps.accounts.models import CustomUser, DriverPreferences
 from .services.surge_pricing_service import calculate_distance
 from .services.driver_assignment_service import DriverAssignmentService
-from .services.driver_dashboard import get_driver_dashboard, get_cash_history, get_ride_history
+from .services.driver_dashboard import get_driver_dashboard, get_cash_history, get_ride_history, get_driver_earnings
 
 class OrderCreateView(AsyncAPIView):
     permission_classes = [IsAuthenticated]
@@ -586,6 +589,20 @@ class DriverPickupView(AsyncAPIView):
             import logging
             logging.getLogger(__name__).error(f"Failed to send pickup push to rider {order.user.id}: {e}")
 
+        try:
+            from apps.order.services.rider_orders_websocket import notify_rider_order_updated
+
+            await sync_to_async(notify_rider_order_updated)(
+                order.id,
+                'in_progress',
+                'Driver picked you up. Ride in progress.',
+            )
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).error(
+                'Failed to send rider WebSocket pickup update for order %s: %s', order.id, e
+            )
+
         return Response({'message': 'Pickup confirmed successfully', 'status': 'success'}, status=status.HTTP_200_OK)
 
 
@@ -658,6 +675,20 @@ class DriverCompleteView(AsyncAPIView):
         except Exception as e:
             import logging
             logging.getLogger(__name__).error(f"Failed to send complete push to rider {order.user.id}: {e}")
+
+        try:
+            from apps.order.services.rider_orders_websocket import notify_rider_order_updated
+
+            await sync_to_async(notify_rider_order_updated)(
+                order.id,
+                'completed',
+                'Your ride has been completed.',
+            )
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).error(
+                'Failed to send rider WebSocket complete for order %s: %s', order.id, e
+            )
 
         return Response({'message': 'Ride completed successfully', 'status': 'success'}, status=status.HTTP_200_OK)
 
@@ -744,6 +775,20 @@ class DriverCancelOrderView(AsyncAPIView):
         except Exception as e:
             import logging
             logging.getLogger(__name__).error(f"Failed to send cancel push to rider {order.user.id}: {e}")
+
+        try:
+            from apps.order.services.rider_orders_websocket import notify_rider_order_updated
+
+            await sync_to_async(notify_rider_order_updated)(
+                order.id,
+                'cancelled_driver',
+                'Your ride has been cancelled by the driver.',
+            )
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).error(
+                'Failed to send rider WebSocket driver cancel for order %s: %s', order.id, e
+            )
 
         return Response({'message': 'Order cancelled successfully', 'status': 'success'}, status=status.HTTP_200_OK)
 
@@ -1227,7 +1272,21 @@ class OrderCancelView(AsyncAPIView):
                 reason=reason,
                 other_reason=other_reason if reason == CancelOrder.CancelReason.OTHER else None
             )
-            
+
+            try:
+                from apps.order.services.rider_orders_websocket import notify_rider_order_updated
+
+                await sync_to_async(notify_rider_order_updated)(
+                    order.id,
+                    'cancelled_rider',
+                    'Ride cancelled.',
+                )
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).error(
+                    'Failed to send rider WebSocket rider cancel for order %s: %s', order.id, e
+                )
+
             order = await Order.objects.select_related('user').prefetch_related(
                 'order_items__ride_type',
                 'order_drivers__driver'
@@ -1453,6 +1512,62 @@ class DriverDashboardView(AsyncAPIView):
         groups = await sync_to_async(list)(user.groups.all())
         names = [g.name for g in groups]
         return 'Driver' in names
+
+
+class DriverEarningsView(AsyncAPIView):
+    """Dedicated earnings summary for driver apps (matches DriverEarningsSerializer)."""
+
+    permission_classes = [IsAuthenticated]
+
+    async def _check_driver_role(self, user):
+        groups = await sync_to_async(list)(user.groups.all())
+        names = [g.name for g in groups]
+        return 'Driver' in names
+
+    @extend_schema(
+        tags=['Driver'],
+        summary='Driver earnings',
+        description=(
+            'Completed-trip earnings and distance: today, last 7 days, month-to-date, all-time. '
+            'Optional query: today_target (default 10) — daily ride goal for UI.'
+        ),
+        parameters=[
+            OpenApiParameter(
+                'today_target',
+                OpenApiTypes.INT,
+                OpenApiParameter.QUERY,
+                required=False,
+                description='Target rides for today (default 10)',
+            ),
+        ],
+        responses={200: DriverEarningsSerializer},
+    )
+    async def get(self, request):
+        user = request.user
+        is_driver = await self._check_driver_role(user)
+        if not is_driver:
+            return Response(
+                {'message': 'Only drivers can access this endpoint', 'status': 'error'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        try:
+            today_target = int(request.query_params.get('today_target', 10))
+        except (ValueError, TypeError):
+            today_target = 10
+        if today_target < 0:
+            today_target = 10
+
+        payload = await sync_to_async(get_driver_earnings)(user.id, today_target=today_target)
+        serializer = DriverEarningsSerializer(instance=SimpleNamespace(**payload))
+        data = await sync_to_async(lambda: serializer.data)()
+        return Response(
+            {
+                'message': 'Earnings retrieved successfully',
+                'status': 'success',
+                'data': data,
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 class DriverCashoutHistoryView(AsyncAPIView):
