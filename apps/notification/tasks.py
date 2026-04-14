@@ -25,14 +25,18 @@ def send_push_notification_async(user_id, title, body, data=None):
     Returns:
         tuple: (success: bool, error: str or None)
     """
-    logger.info(f"Starting send_push_notification_async for user {user_id}")
-    
+    logger.info(
+        "[PUSH DEBUG] send_push_notification_async START | user_id=%s title=%r",
+        user_id,
+        title,
+    )
+
     try:
         user = CustomUser.objects.get(id=user_id)
     except CustomUser.DoesNotExist:
-        logger.error(f"User {user_id} not found for push notification")
+        logger.error("[PUSH DEBUG] user_id=%s topilmadi (CustomUser)", user_id)
         return False, "user_not_found"
-    
+
     try:
         success, error = send_push_to_user(
             user=user,
@@ -41,9 +45,17 @@ def send_push_notification_async(user_id, title, body, data=None):
             data=data or {}
         )
         if success:
-            logger.info(f"Push notification sent successfully to user {user_id}")
+            logger.info(
+                "[PUSH DEBUG] send_push_notification_async OK | user_id=%s",
+                user_id,
+            )
         else:
-            logger.warning(f"Push notification failed for user {user_id}: {error}")
+            logger.warning(
+                "[PUSH DEBUG] send_push_notification_async FAIL | user_id=%s error=%r "
+                "(ko‘p hollarda: UserDeviceToken yo‘q yoki Firebase xato)",
+                user_id,
+                error,
+            )
         return success, error
     except Exception as e:
         logger.error(

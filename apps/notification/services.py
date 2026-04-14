@@ -63,7 +63,7 @@ def _init_firebase_app() -> Optional["firebase_admin.App"]:
     env = {k: os.getenv(k) for k in required_keys}
     if not all(env.values()):
         logger.warning(
-            "Firebase service account env lar to‘liq emas, push uchun firebase_admin ishlamaydi: %s",
+            "[PUSH DEBUG] FIREBASE_* env to‘liq emas — firebase_admin ishlamaydi | bor-yo‘qlik: %s",
             {k: bool(v) for k, v in env.items()},
         )
         return None
@@ -87,7 +87,10 @@ def _init_firebase_app() -> Optional["firebase_admin.App"]:
     try:
         cred = credentials.Certificate(service_account_info)
         _firebase_app = firebase_admin.initialize_app(cred)
-        logger.info("Firebase app muvaffaqiyatli initialize qilindi")
+        logger.info(
+            "[PUSH DEBUG] Firebase app init OK | project_id=%s",
+            env.get("FIREBASE_PROJECT_ID", "?"),
+        )
         return _firebase_app
     except Exception as exc:  # pragma: no cover
         logger.exception("Firebase app initialize bo‘lmadi: %s", exc)
@@ -115,7 +118,20 @@ def _send_via_firebase_admin(tokens, title: str, body: str, data: Optional[dict]
                 success_count += 1
             except Exception as token_exc:  # pragma: no cover
                 failure_count += 1
-                logger.warning("send_push_to_user (firebase_admin): token=%s xatolik=%s", token, token_exc)
+                err_txt = str(token_exc)
+                logger.warning(
+                    "send_push_to_user (firebase_admin): token=%s xatolik=%s", token, token_exc
+                )
+                if "SenderId" in err_txt or "sender id" in err_txt.lower():
+                    pid = os.getenv("FIREBASE_PROJECT_ID") or "(FIREBASE_PROJECT_ID)"
+                    logger.error(
+                        "[PUSH] SenderId mismatch: FCM token mobil ilovadagi Firebase loyihasiga "
+                        "tegishli; backend esa FIREBASE_PROJECT_ID=%s bilan yubormoqda. "
+                        "Ikkalasi bir xil loyiha bo‘lishi kerak: .env service account shu ilova "
+                        "google-services.json loyihasiga mos, yoki ilovada to‘g‘ri konfig bilan "
+                        "yangi token oling.",
+                        pid,
+                    )
 
         logger.info(
             "send_push_to_user (firebase_admin): success_count=%s failure_count=%s",
@@ -182,6 +198,13 @@ def _send_via_http_legacy(tokens, title: str, body: str, data: Optional[dict]) -
         return False, str(exc)
 
 
+def _token_fingerprint(token: str) -> str:
+    """Log uchun: to‘liq token chiqarmaymiz."""
+    if not token or len(token) < 8:
+        return "(qisqa)"
+    return f"{token[:6]}…{token[-4:]}"
+
+
 def send_push_to_user(user, title: str, body: str, data: dict | None = None) -> tuple[bool, str | None]:
     """
     Send push notification to all device tokens of given user.
@@ -191,6 +214,7 @@ def send_push_to_user(user, title: str, body: str, data: dict | None = None) -> 
     Returns (success: bool, error_message: Optional[str])
     """
     if user is None:
+        logger.warning("[PUSH DEBUG] send_push_to_user: user is None")
         return False, "User is None"
 
     tokens = list(
@@ -198,16 +222,49 @@ def send_push_to_user(user, title: str, body: str, data: dict | None = None) -> 
         .values_list("token", flat=True)
     )
 
+    logger.info(
+        "[PUSH DEBUG] send_push_to_user | user_id=%s token_count=%s title=%r",
+        user.id,
+        len(tokens),
+        title,
+    )
+    if tokens:
+        logger.info(
+            "[PUSH DEBUG] FCM token(lar) fingerprint: %s",
+            [_token_fingerprint(t) for t in tokens[:5]],
+        )
+
     if not tokens:
-        logger.info("send_push_to_user: no device tokens for user=%s", user.id)
+        logger.warning(
+            "[PUSH DEBUG] user_id=%s uchun UserDeviceToken yo‘q — push yuborib bo‘lmaydi "
+            "(mobil ilova login/registratsiyada token yuborilganini tekshiring)",
+            user.id,
+        )
         return False, "no_tokens"
 
     # 1) Avval firebase_admin orqali (sizdagi FIREBASE_* env lar bilan) jo‘natishga harakat qilamiz
+    logger.info("[PUSH DEBUG] firebase_admin orqali yuborishga urinilmoqda…")
     success, error = _send_via_firebase_admin(tokens, title, body, data)
+    if success:
+        logger.info("[PUSH DEBUG] firebase_admin muvaffaqiyatli | user_id=%s", user.id)
+    elif error == "firebase_admin_not_available":
+        logger.warning(
+            "[PUSH DEBUG] firebase_admin ishlamayapti (%s) — legacy FCM_SERVER_KEY ga o‘tiladi",
+            error,
+        )
+    else:
+        logger.warning(
+            "[PUSH DEBUG] firebase_admin natija | user_id=%s success=%s error=%s",
+            user.id,
+            success,
+            error,
+        )
+
     if success or error not in {"firebase_admin_not_available", "firebase_service_account_invalid"}:
         return success, error
 
     # 2) Agar firebase_admin ishlamasa, eski HTTP legacy (server key) usuliga fallback qilamiz
+    logger.info("[PUSH DEBUG] legacy HTTP FCM (FCM_SERVER_KEY) urinilmoqda…")
     return _send_via_http_legacy(tokens, title, body, data)
 
 

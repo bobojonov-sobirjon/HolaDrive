@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from ..models import OrderPreferences, Order
+from ..models import OrderPreferences, Order, UserOrderPreferences
 
 
 class OrderPreferencesSerializer(serializers.ModelSerializer):
@@ -100,3 +100,40 @@ class OrderPreferencesSerializer(serializers.ModelSerializer):
         
         return preferences
 
+
+class UserOrderPreferencesSerializer(serializers.ModelSerializer):
+    """
+    Serializer for user-level order preferences (pre-order screen).
+    """
+
+    class Meta:
+        model = UserOrderPreferences
+        fields = [
+            'id',
+            'chatting_preference',
+            'temperature_preference',
+            'music_preference',
+            'volume_level',
+            'pet_preference',
+            'kids_chair_preference',
+            'wheelchair_preference',
+            'gender_preference',
+            'favorite_driver_preference',
+            'created_at',
+            'updated_at',
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
+
+    def create(self, validated_data):
+        user = self.context['request'].user
+        obj, _ = UserOrderPreferences.objects.update_or_create(
+            user=user,
+            defaults=validated_data,
+        )
+        return obj
+
+    def update(self, instance, validated_data):
+        for key, value in validated_data.items():
+            setattr(instance, key, value)
+        instance.save()
+        return instance

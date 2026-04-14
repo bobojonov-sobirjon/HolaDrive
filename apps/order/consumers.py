@@ -54,6 +54,7 @@ class DriverOrdersConsumer(AsyncWebsocketConsumer):
             'orders': orders_data,
             'message': 'Current pending orders'
         }))
+        await self._schedule_active_ride_snapshot_once('driver')
 
     async def disconnect(self, close_code):
         if hasattr(self, 'room_group_name') and self.room_group_name:
@@ -89,6 +90,25 @@ class DriverOrdersConsumer(AsyncWebsocketConsumer):
             'message': event.get('message', 'Order expired or reassigned to another driver')
         }))
 
+    async def order_cancelled_by_rider(self, event):
+        await self.send(text_data=json.dumps({
+            'type': 'order_cancelled_by_rider',
+            'change': event.get('change', 'cancelled_rider'),
+            'message': event.get('message', 'The rider cancelled this ride.'),
+            'order': event.get('order', {}),
+            'cancel': event.get('cancel'),
+        }))
+
+    async def active_ride_snapshot(self, event):
+        await self.send(text_data=json.dumps({
+            'type': 'active_ride_snapshot',
+            'scope': event.get('scope', 'driver'),
+            'has_active_ride': event.get('has_active_ride', False),
+            'order': event.get('order'),
+            'checked_at': event.get('checked_at'),
+            'message': event.get('message', 'Active ride status refreshed'),
+        }))
+
     @database_sync_to_async
     def _check_driver_role(self, user):
         return user.groups.filter(name='Driver').exists()
@@ -97,6 +117,14 @@ class DriverOrdersConsumer(AsyncWebsocketConsumer):
     def _get_current_orders(self):
         from apps.order.services.driver_orders_websocket import get_driver_current_orders
         return get_driver_current_orders(self.user)
+
+    @database_sync_to_async
+    def _schedule_active_ride_snapshot_once(self, scope: str):
+        from apps.order.tasks import send_active_ride_snapshot_once
+        send_active_ride_snapshot_once.apply_async(
+            kwargs={'user_id': self.user.id, 'scope': scope},
+            countdown=3,
+        )
 
 
 class RiderOrdersConsumer(AsyncWebsocketConsumer):
@@ -144,6 +172,7 @@ class RiderOrdersConsumer(AsyncWebsocketConsumer):
             'orders': orders_data,
             'message': 'Your active orders',
         }))
+        await self._schedule_active_ride_snapshot_once('rider')
 
     async def disconnect(self, close_code):
         if hasattr(self, 'room_group_name') and self.room_group_name:
@@ -190,6 +219,16 @@ class RiderOrdersConsumer(AsyncWebsocketConsumer):
             payload['reassigned'] = event['reassigned']
         await self.send(text_data=json.dumps(payload))
 
+    async def active_ride_snapshot(self, event):
+        await self.send(text_data=json.dumps({
+            'type': 'active_ride_snapshot',
+            'scope': event.get('scope', 'rider'),
+            'has_active_ride': event.get('has_active_ride', False),
+            'order': event.get('order'),
+            'checked_at': event.get('checked_at'),
+            'message': event.get('message', 'Active ride status refreshed'),
+        }))
+
     @database_sync_to_async
     def _check_rider_role(self, user):
         return user.groups.filter(name='Rider').exists()
@@ -198,6 +237,14 @@ class RiderOrdersConsumer(AsyncWebsocketConsumer):
     def _get_active_orders(self):
         from apps.order.services.rider_orders_websocket import get_rider_active_orders
         return get_rider_active_orders(self.user)
+
+    @database_sync_to_async
+    def _schedule_active_ride_snapshot_once(self, scope: str):
+        from apps.order.tasks import send_active_ride_snapshot_once
+        send_active_ride_snapshot_once.apply_async(
+            kwargs={'user_id': self.user.id, 'scope': scope},
+            countdown=3,
+        )
 
 
 class DriverSurgeZonesConsumer(AsyncWebsocketConsumer):
@@ -301,6 +348,94 @@ class DriverSurgeZonesConsumer(AsyncWebsocketConsumer):
                 "days_of_week": z.days_of_week or [],
             })
         return result
+
+
+class OrderTrackingConsumer(AsyncWebsocketConsumer):
+    """
+    Real-time location stream for one order.
+    Group: order_tracking_<order_id>
+    """
+
+    async def connect(self):
+        self.user = self.scope["user"]
+        if self.user.is_anonymous:
+            await self.close(code=4401)
+            return
+
+        try:
+            self.order_id = int(self.scope["url_route"]["kwargs"]["order_id"])
+        except (ValueError, TypeError, KeyError):
+            await self.close(code=4400)
+            return
+
+        allowed = await self._has_access(self.user.id, self.order_id)
+        if not allowed:
+            await self.close(code=4403)
+            return
+
+        self.group_name = f"order_tracking_{self.order_id}"
+        await self.channel_layer.group_add(self.group_name, self.channel_name)
+        await self.accept()
+
+        await self.send(text_data=json.dumps({
+            "type": "connection_established",
+            "message": "Connected to order tracking",
+            "order_id": self.order_id,
+        }))
+
+        initial_payload = await self._initial_driver_location(self.order_id)
+        if initial_payload:
+            await self.send(text_data=json.dumps({
+                "type": "driver_location_update",
+                **initial_payload,
+            }))
+
+    async def disconnect(self, close_code):
+        if hasattr(self, "group_name"):
+            await self.channel_layer.group_discard(self.group_name, self.channel_name)
+
+    async def receive(self, text_data):
+        try:
+            payload = json.loads(text_data)
+            if payload.get("type") == "ping":
+                await self.send(text_data=json.dumps({"type": "pong"}))
+        except json.JSONDecodeError:
+            pass
+
+    async def driver_location_update(self, event):
+        await self.send(text_data=json.dumps({
+            "type": "driver_location_update",
+            "order_id": event.get("order_id"),
+            "driver_id": event.get("driver_id"),
+            "latitude": event.get("latitude"),
+            "longitude": event.get("longitude"),
+            "updated_at": event.get("updated_at"),
+            "eta_minutes": event.get("eta_minutes"),
+            "eta_to_pickup_minutes": event.get("eta_to_pickup_minutes"),
+            "eta_to_destination_minutes": event.get("eta_to_destination_minutes"),
+            "tracking_phase": event.get("tracking_phase"),
+        }))
+
+    @database_sync_to_async
+    def _has_access(self, user_id: int, order_id: int):
+        from .models import Order, OrderDriver
+
+        order = Order.objects.filter(id=order_id).only("id", "user_id").first()
+        if not order:
+            return False
+        if order.user_id == user_id:
+            return True
+        return OrderDriver.objects.filter(
+            order_id=order_id,
+            driver_id=user_id,
+            status=OrderDriver.DriverRequestStatus.ACCEPTED,
+        ).exists()
+
+    @database_sync_to_async
+    def _initial_driver_location(self, order_id: int):
+        from .services.order_tracking_websocket import get_initial_tracking_payload
+
+        return get_initial_tracking_payload(order_id)
 
 
 class OrderChatConsumer(AsyncWebsocketConsumer):

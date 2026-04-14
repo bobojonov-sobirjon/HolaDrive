@@ -1,6 +1,6 @@
 """
 Service to send real-time WebSocket messages to drivers.
-Used when order is assigned or when order times out.
+Used when order is assigned, times out, or is cancelled by the rider.
 Can be called from sync code (Celery, views, services).
 """
 import logging
@@ -196,3 +196,88 @@ def send_order_timeout_to_driver(driver_id, order_id):
         logger.info(f"WebSocket order_timeout sent to driver {driver_id} for order {order_id}")
     except Exception as e:
         logger.warning(f"Failed to send WebSocket order_timeout to driver {driver_id}: {e}")
+
+
+def notify_drivers_order_cancelled_by_rider(order_id: int, request=None):
+    """
+    After rider cancels: notify every driver who still had this order as REQUESTED or ACCEPTED.
+    Payload uses OrderDetailSerializer (same shape as REST) plus cancel metadata.
+    """
+    from channels.layers import get_channel_layer
+    from ..models import Order, OrderDriver
+    from apps.order.serializers.order import OrderDetailSerializer
+
+    order = (
+        Order.objects.filter(pk=order_id)
+        .select_related('user')
+        .prefetch_related(
+            'order_items__ride_type',
+            'order_drivers__driver',
+            'cancel_orders',
+        )
+        .first()
+    )
+    if not order:
+        logger.warning(
+            'notify_drivers_order_cancelled_by_rider: order %s not found', order_id
+        )
+        return
+
+    ctx = {'request': request} if request is not None else {}
+    order_data = OrderDetailSerializer(order, context=ctx).data
+
+    cancel = order.cancel_orders.first()
+    cancel_data = None
+    if cancel:
+        cancel_data = {
+            'cancelled_by': cancel.cancelled_by,
+            'reason': cancel.reason,
+            'other_reason': cancel.other_reason,
+            'created_at': cancel.created_at.isoformat() if cancel.created_at else None,
+        }
+        if cancel.driver_id:
+            cancel_data['order_driver_id'] = cancel.driver_id
+
+    driver_ids = list(
+        OrderDriver.objects.filter(
+            order_id=order_id,
+            status__in=(
+                OrderDriver.DriverRequestStatus.REQUESTED,
+                OrderDriver.DriverRequestStatus.ACCEPTED,
+            ),
+        )
+        .values_list('driver_id', flat=True)
+        .distinct()
+    )
+
+    channel_layer = get_channel_layer()
+    if not channel_layer:
+        return
+
+    if not driver_ids:
+        logger.debug(
+            'notify_drivers_order_cancelled_by_rider: no REQUESTED/ACCEPTED drivers for order %s',
+            order_id,
+        )
+        return
+
+    message = {
+        'type': 'order_cancelled_by_rider',
+        'change': 'cancelled_rider',
+        'message': 'The rider cancelled this ride.',
+        'order': order_data,
+        'cancel': cancel_data,
+    }
+
+    for did in driver_ids:
+        try:
+            async_to_sync(channel_layer.group_send)(f'driver_orders_{did}', message)
+            logger.info(
+                'WebSocket order_cancelled_by_rider sent to driver %s for order %s',
+                did,
+                order_id,
+            )
+        except Exception as e:
+            logger.warning(
+                'Failed WebSocket order_cancelled_by_rider to driver %s: %s', did, e
+            )

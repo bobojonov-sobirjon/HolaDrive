@@ -13,10 +13,11 @@ from .serializers import (
     OrderSerializer,
     OrderDetailSerializer,
     PriceEstimateSerializer,
+    PriceEstimateManagePriceSerializer,
     OrderItemUpdateSerializer,
     OrderItemSerializer,
     OrderItemManagePriceSerializer,
-    OrderPreferencesSerializer,
+    UserOrderPreferencesSerializer,
     AdditionalPassengerSerializer,
     OrderScheduleSerializer,
     DriverNearbyOrderSerializer,
@@ -35,7 +36,16 @@ from .serializers import (
     RatingFeedbackTagSerializer,
 )
 from .serializers.cancel_order import OrderCancelSerializer, DriverCancelSerializer
-from .models import Order, OrderItem, OrderDriver, OrderPreferences, TripRating, DriverRiderRating, DriverCashout, CancelOrder
+from .models import (
+    Order,
+    OrderItem,
+    OrderDriver,
+    UserOrderPreferences,
+    TripRating,
+    DriverRiderRating,
+    DriverCashout,
+    CancelOrder,
+)
 from apps.accounts.models import CustomUser, DriverPreferences
 from .services.surge_pricing_service import calculate_distance
 from .services.driver_assignment_service import DriverAssignmentService
@@ -46,9 +56,13 @@ class OrderCreateView(AsyncAPIView):
     throttle_classes = [OrderCreateThrottle]
 
     @extend_schema(
-        tags=['Order'],
+        tags=['Rider: Orders'],
         summary='Create order',
-        description='Create order and order items. Optional ride_type_id: tariff (RideType) ID; if omitted, first active is used.',
+        description=(
+            'Create order and order items. Optional ride_type_id: tariff (RideType) ID; '
+            'if omitted, first active is used. Optional adjusted_price: reja/min-max '
+            'qoidalariga mos narx (``price-estimate/manage-price/`` dan keyin).'
+        ),
         request=OrderCreateSerializer,
         examples=[
             OpenApiExample(
@@ -105,67 +119,35 @@ class OrderPreferencesGetView(AsyncAPIView):
     permission_classes = [IsAuthenticated]
 
     @extend_schema(
-        tags=['Order'],
-        summary='Get order preferences',
-        description='Get order preferences by order_id (query param).',
-        parameters=[OpenApiParameter('order_id', OpenApiTypes.INT, OpenApiParameter.QUERY, required=True, description='Order ID')],
+        tags=['Rider: Preferences'],
+        summary='Get user order preferences (pre-order)',
+        description='Fetch current rider preference template used before creating orders. Returns one saved profile for request.user; order_id is not required.',
+        responses={200: UserOrderPreferencesSerializer},
     )
     async def get(self, request):
-        order_id = request.query_params.get('order_id')
-        
-        if not order_id:
-            return Response(
-                {
-                    'message': 'order_id parameter is required',
-                    'status': 'error'
-                },
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        try:
-            order_id = int(order_id)
-        except (ValueError, TypeError):
-            return Response(
-                {
-                    'message': 'Invalid order_id. Must be an integer.',
-                    'status': 'error'
-                },
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        try:
-            order = await Order.objects.select_related('user').aget(
-                id=order_id,
-                user=request.user
-            )
-        except Order.DoesNotExist:
-            return Response(
-                {
-                    'message': 'Order not found or you do not have permission to access it',
-                    'status': 'error'
-                },
-                status=status.HTTP_404_NOT_FOUND
-            )
-        
-        preferences = await OrderPreferences.objects.filter(
-            order=order
-        ).select_related('order').afirst()
-        
+        preferences = await UserOrderPreferences.objects.filter(
+            user=request.user
+        ).afirst()
+
         if not preferences:
+            default_preferences = UserOrderPreferences(user=request.user)
+            serializer = UserOrderPreferencesSerializer(default_preferences, context={'request': request})
+            serializer_data = await sync_to_async(lambda: serializer.data)()
             return Response(
                 {
-                    'message': 'Order preferences not found for this order',
-                    'status': 'error'
+                    'message': 'Preferences not set yet, returning defaults',
+                    'status': 'success',
+                    'data': serializer_data
                 },
-                status=status.HTTP_404_NOT_FOUND
+                status=status.HTTP_200_OK
             )
-        
-        serializer = OrderPreferencesSerializer(preferences, context={'request': request})
+
+        serializer = UserOrderPreferencesSerializer(preferences, context={'request': request})
         serializer_data = await sync_to_async(lambda: serializer.data)()
-        
+
         return Response(
             {
-                'message': 'Order preferences retrieved successfully',
+                'message': 'Preferences retrieved successfully',
                 'status': 'success',
                 'data': serializer_data
             },
@@ -175,27 +157,38 @@ class OrderPreferencesGetView(AsyncAPIView):
 class OrderPreferencesCreateView(AsyncAPIView):
     permission_classes = [IsAuthenticated]
 
-    @extend_schema(tags=['Order'], summary='Create order preferences', description='Create or update order preferences.', request=OrderPreferencesSerializer)
+    @extend_schema(
+        tags=['Rider: Preferences'],
+        summary='Create/update user order preferences (pre-order)',
+        description='Create or replace the current rider preference template. This endpoint is pre-order and works without order_id.',
+        request=UserOrderPreferencesSerializer,
+        responses={200: UserOrderPreferencesSerializer},
+    )
     async def post(self, request):
-        serializer = OrderPreferencesSerializer(data=request.data, context={'request': request})
-        
+        current = await UserOrderPreferences.objects.filter(user=request.user).afirst()
+        serializer = UserOrderPreferencesSerializer(
+            current,
+            data=request.data,
+            context={'request': request},
+            partial=current is not None,
+        )
+
         is_valid = await sync_to_async(lambda: serializer.is_valid())()
-        
+
         if is_valid:
             preferences = await sync_to_async(serializer.save)()
-            
-            pref_serializer = OrderPreferencesSerializer(preferences)
+            pref_serializer = UserOrderPreferencesSerializer(preferences, context={'request': request})
             serializer_data = await sync_to_async(lambda: pref_serializer.data)()
-            
+
             return Response(
                 {
-                    'message': 'Order preferences saved successfully',
+                    'message': 'Preferences saved successfully',
                     'status': 'success',
                     'data': serializer_data
                 },
-                status=status.HTTP_201_CREATED
+                status=status.HTTP_200_OK
             )
-        
+
         errors = await sync_to_async(lambda: serializer.errors)()
         return Response(
             {
@@ -206,10 +199,20 @@ class OrderPreferencesCreateView(AsyncAPIView):
             status=status.HTTP_400_BAD_REQUEST
         )
 
+    @extend_schema(
+        tags=['Rider: Preferences'],
+        summary='Update user order preferences (pre-order)',
+        description='Partially update fields of the current rider preference template (pre-order profile).',
+        request=UserOrderPreferencesSerializer,
+        responses={200: UserOrderPreferencesSerializer},
+    )
+    async def put(self, request):
+        return await self.post(request)
+
 class AdditionalPassengerCreateView(AsyncAPIView):
     permission_classes = [IsAuthenticated]
 
-    @extend_schema(tags=['Order'], summary='Add passenger', description='Create additional passenger for an order.', request=AdditionalPassengerSerializer)
+    @extend_schema(tags=['Rider: Orders'], summary='Add passenger', description='Add an extra passenger record to an existing order owned by the current rider.', request=AdditionalPassengerSerializer)
     async def post(self, request):
         serializer = AdditionalPassengerSerializer(data=request.data, context={'request': request})
         
@@ -243,7 +246,7 @@ class AdditionalPassengerCreateView(AsyncAPIView):
 class OrderScheduleCreateView(AsyncAPIView):
     permission_classes = [IsAuthenticated]
 
-    @extend_schema(tags=['Order'], summary='Create schedule', description='Create order schedule (pickup/drop-off time).', request=OrderScheduleSerializer)
+    @extend_schema(tags=['Rider: Orders'], summary='Create schedule', description='Attach or update scheduling info for an order (planned pickup/drop-off time window).', request=OrderScheduleSerializer)
     async def post(self, request):
         serializer = OrderScheduleSerializer(data=request.data, context={'request': request})
         
@@ -282,7 +285,7 @@ class DriverNearbyOrdersView(AsyncAPIView):
         names = [g.name for g in groups]
         return 'Driver' in names
 
-    @extend_schema(tags=['Driver'], summary='Nearby orders', description='List nearby pending orders for driver. Role: Driver.')
+    @extend_schema(tags=['Driver: Orders & trips'], summary='Nearby orders', description='List pending ride requests near the current driver with distance and order brief payload. Driver role required.')
     async def get(self, request):
         user = request.user
 
@@ -376,7 +379,7 @@ class DriverOrderActionView(AsyncAPIView):
         names = [g.name for g in groups]
         return 'Driver' in names
 
-    @extend_schema(tags=['Driver'], summary='Accept/Reject order', description='Driver accept or reject a pending order. Body: order_id, action (accept/reject). Role: Driver.', request=DriverOrderActionSerializer)
+    @extend_schema(tags=['Driver: Orders & trips'], summary='Accept/Reject order', description='Driver decision endpoint for a pending request. Body: order_id and action=accept|reject. Updates assignment and notifies rider in real time.', request=DriverOrderActionSerializer)
     async def post(self, request):
         user = request.user
 
@@ -437,7 +440,7 @@ class DriverOrderActionView(AsyncAPIView):
 
         if action == 'accept':
             order_driver.status = OrderDriver.DriverRequestStatus.ACCEPTED
-            order.status = Order.OrderStatus.CONFIRMED
+            order.status = Order.OrderStatus.ACCEPTED
             order_driver.responded_at = timezone.now()
             await sync_to_async(order_driver.save)()
             await sync_to_async(order.save)()
@@ -455,21 +458,42 @@ class DriverOrderActionView(AsyncAPIView):
                 logging.getLogger(__name__).error(f"Failed to update ChatRoom for order {order.id}: {e}")
             
             try:
-                from apps.notification.services import send_push_to_user
-                send_push_to_user(
-                    user=order.user,
-                    title="Driver found",
-                    body=f"Your ride has been accepted. Driver is on the way.",
+                from apps.notification.tasks import send_push_notification_async
+
+                send_push_notification_async.delay(
+                    user_id=order.user_id,
+                    title='Driver found',
+                    body='Your ride has been accepted. Driver is on the way.',
                     data={
-                        "order_id": order.id,
-                        "order_code": order.order_code,
-                        "type": "driver_accepted"
-                    }
+                        'order_id': order.id,
+                        'order_code': order.order_code,
+                        'type': 'driver_accepted',
+                    },
                 )
+            except ImportError:
+                from apps.notification.services import send_push_to_user
+
+                try:
+                    send_push_to_user(
+                        user=order.user,
+                        title='Driver found',
+                        body='Your ride has been accepted. Driver is on the way.',
+                        data={
+                            'order_id': order.id,
+                            'order_code': order.order_code,
+                            'type': 'driver_accepted',
+                        },
+                    )
+                except Exception as e:
+                    import logging
+                    logging.getLogger(__name__).error(
+                        'Failed to send push to rider %s (sync): %s', order.user_id, e
+                    )
             except Exception as e:
                 import logging
-                logger = logging.getLogger(__name__)
-                logger.error(f"Failed to send push notification to rider {order.user.id}: {e}")
+                logging.getLogger(__name__).error(
+                    'Failed to schedule push to rider %s: %s', order.user_id, e
+                )
 
             try:
                 from apps.order.services.rider_orders_websocket import send_rider_order_driver_accepted
@@ -515,6 +539,46 @@ class DriverOrderActionView(AsyncAPIView):
                     'Failed to send rider WebSocket reject for order %s: %s', order.id, e
                 )
 
+            try:
+                from apps.notification.tasks import send_push_notification_async
+
+                send_push_notification_async.delay(
+                    user_id=order.user_id,
+                    title='Order update',
+                    body=message,
+                    data={
+                        'order_id': order.id,
+                        'order_code': order.order_code,
+                        'type': 'driver_rejected',
+                        'reassigned': str(reassigned).lower(),
+                    },
+                )
+            except ImportError:
+                from apps.notification.services import send_push_to_user
+
+                try:
+                    send_push_to_user(
+                        user=order.user,
+                        title='Order update',
+                        body=message,
+                        data={
+                            'order_id': order.id,
+                            'order_code': order.order_code,
+                            'type': 'driver_rejected',
+                            'reassigned': str(reassigned).lower(),
+                        },
+                    )
+                except Exception as e:
+                    import logging
+                    logging.getLogger(__name__).error(
+                        'Failed to send reject push to rider %s (sync): %s', order.user_id, e
+                    )
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).error(
+                    'Failed to schedule reject push to rider %s: %s', order.user_id, e
+                )
+
         return Response(
             {
                 'message': message if action == 'reject' else f"Order {action}ed successfully",
@@ -532,7 +596,7 @@ class DriverPickupView(AsyncAPIView):
         names = [g.name for g in groups]
         return 'Driver' in names
 
-    @extend_schema(tags=['Driver'], summary='Confirm pickup', description='Driver confirms client is picked up (ride started). Body: order_id. Role: Driver.', request=DriverPickupSerializer)
+    @extend_schema(tags=['Driver: Orders & trips'], summary='Confirm pickup', description='Mark trip as started after driver picks up rider. Body requires order_id; validates assignment and current lifecycle state.', request=DriverPickupSerializer)
     async def post(self, request):
         user = request.user
         is_driver = await self._check_driver_role(user)
@@ -564,9 +628,9 @@ class DriverPickupView(AsyncAPIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        if order.status != Order.OrderStatus.CONFIRMED:
+        if order.status != Order.OrderStatus.ACCEPTED:
             return Response(
-                {'message': f'Order must be confirmed to confirm pickup. Current status: {order.status}', 'status': 'error'},
+                {'message': f'Order must be accepted before pickup. Current status: {order.status}', 'status': 'error'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -614,7 +678,7 @@ class DriverCompleteView(AsyncAPIView):
         names = [g.name for g in groups]
         return 'Driver' in names
 
-    @extend_schema(tags=['Driver'], summary='Confirm complete/dropoff', description='Driver confirms ride completed (client dropped off). Body: order_id. Role: Driver.', request=DriverCompleteSerializer)
+    @extend_schema(tags=['Driver: Orders & trips'], summary='Confirm complete/dropoff', description='Mark trip as completed after drop-off. Body requires order_id; updates lifecycle and triggers post-trip flows.', request=DriverCompleteSerializer)
     async def post(self, request):
         user = request.user
         is_driver = await self._check_driver_role(user)
@@ -701,7 +765,7 @@ class DriverCancelOrderView(AsyncAPIView):
         names = [g.name for g in groups]
         return 'Driver' in names
 
-    @extend_schema(tags=['Driver'], summary='Cancel order (driver)', description='Driver cancels an order. Body: order_id, reason, optional other_reason. Role: Driver.', request=DriverCancelSerializer)
+    @extend_schema(tags=['Driver: Orders & trips'], summary='Cancel order (driver)', description='Driver-initiated cancellation. Body: order_id, reason, optional other_reason. Persists CancelOrder and notifies rider channels.', request=DriverCancelSerializer)
     async def post(self, request):
         user = request.user
         is_driver = await self._check_driver_role(user)
@@ -742,7 +806,12 @@ class DriverCancelOrderView(AsyncAPIView):
         if order.status == Order.OrderStatus.COMPLETED:
             return Response({'message': 'Cannot cancel a completed order', 'status': 'error'}, status=status.HTTP_400_BAD_REQUEST)
 
-        if order.status not in [Order.OrderStatus.CONFIRMED, Order.OrderStatus.IN_PROGRESS]:
+        if order.status not in [
+            Order.OrderStatus.ACCEPTED,
+            Order.OrderStatus.ON_THE_WAY,
+            Order.OrderStatus.ARRIVED,
+            Order.OrderStatus.IN_PROGRESS,
+        ]:
             return Response(
                 {'message': f'Cannot cancel order with status: {order.status}', 'status': 'error'},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -801,7 +870,7 @@ class DriverLocationUpdateView(AsyncAPIView):
         names = [g.name for g in groups]
         return 'Driver' in names
 
-    @extend_schema(tags=['Driver'], summary='Update location', description="Update driver's GPS location. Body: latitude, longitude. Role: Driver.", request=DriverLocationUpdateSerializer)
+    @extend_schema(tags=['Driver: Location'], summary='Update location', description="Update driver's GPS location. Body: latitude, longitude. Role: Driver.", request=DriverLocationUpdateSerializer)
     async def post(self, request):
         user = request.user
 
@@ -834,6 +903,19 @@ class DriverLocationUpdateView(AsyncAPIView):
         user.longitude = data['longitude']
         await sync_to_async(user.save)(update_fields=['latitude', 'longitude'])
 
+        try:
+            from .services.order_tracking_websocket import notify_driver_location_updated
+
+            await sync_to_async(notify_driver_location_updated)(
+                user.id,
+                user.latitude,
+                user.longitude,
+                user.updated_at,
+            )
+        except Exception:
+            # Location update API should still succeed even if websocket push fails.
+            pass
+
         response_data = {
             'driver_id': user.id,
             'latitude': user.latitude,
@@ -855,7 +937,7 @@ class DriverLocationUpdateView(AsyncAPIView):
 class DriverLocationForOrderView(AsyncAPIView):
     permission_classes = [IsAuthenticated]
 
-    @extend_schema(tags=['Order'], summary='Driver location for order', description="Rider: get driver's current location for an order (when driver is assigned).")
+    @extend_schema(tags=['Rider: Live tracking'], summary='Driver location for order', description="Rider: get driver's current location for an order (when driver is assigned).")
     async def get(self, request, order_id: int):
         user = request.user
 
@@ -959,7 +1041,17 @@ class DriverLocationForOrderView(AsyncAPIView):
 class PriceEstimateView(AsyncAPIView):
     permission_classes = [IsAuthenticated]
 
-    @extend_schema(tags=['Order'], summary='Price estimate', description='Get price estimates for all active ride types (from/to coordinates).', request=PriceEstimateSerializer)
+    @extend_schema(
+        tags=['Rider: Pricing'],
+        summary='Price estimate',
+        description=(
+            'Barcha aktiv ride type lar uchun narx. Har bir ``estimates`` elementida '
+            '``id`` = ``ride_type_id`` (reja bosqichi; buyurtma hali yo‘q). '
+            'Buyurtma yaratilgach narxni o‘zgartirish uchun ``order_items[].id`` bilan '
+            '``PATCH .../order-item/{id}/manage-price/`` ishlating.'
+        ),
+        request=PriceEstimateSerializer,
+    )
     async def post(self, request):
         from apps.order.models import RideType
         from apps.order.services.surge_pricing_service import SurgePricingService, calculate_distance
@@ -988,6 +1080,7 @@ class PriceEstimateView(AsyncAPIView):
                 if ride_type.base_price and ride_type.price_per_km:
                     price = await sync_to_async(ride_type.calculate_price)(distance_km, surge_multiplier)
                     estimates.append({
+                        'id': ride_type.id,
                         'ride_type_id': ride_type.id,
                         'ride_type_name': ride_type.name or ride_type.name_large,
                         'ride_type_name_large': ride_type.name_large,
@@ -1025,10 +1118,97 @@ class PriceEstimateView(AsyncAPIView):
             status=status.HTTP_400_BAD_REQUEST
         )
 
+
+class PriceEstimateManagePriceView(AsyncAPIView):
+    """
+    Reja (order create oldin): bir ride_type va yo‘nalish uchun tanlangan narxni
+    min/max oralig‘ida tekshirish. DB ga yozmaydi.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        tags=['Rider: Pricing'],
+        summary='Plan: validate adjusted price (pre-order)',
+        description=(
+            '``price-estimate`` dagi ``id`` / ``ride_type_id`` va xuddi shu koordinatalar bilan '
+            'yuboring. Muvaffaqiyatli javobda ``valid``: true va min/max/calculated qaytadi. '
+            'Buyurtma yaratishda shu narxni ``POST /order/create/`` bodyda ``adjusted_price`` '
+            'sifatida yuborishingiz mumkin.'
+        ),
+        request=PriceEstimateManagePriceSerializer,
+    )
+    async def post(self, request):
+        from apps.order.models import RideType
+        from apps.order.services.surge_pricing_service import SurgePricingService
+        from decimal import Decimal, ROUND_HALF_UP
+
+        serializer = PriceEstimateManagePriceSerializer(data=request.data)
+        is_valid = await sync_to_async(lambda: serializer.is_valid())()
+        if not is_valid:
+            errors = await sync_to_async(lambda: serializer.errors)()
+            return Response(
+                {'message': 'Validation error', 'status': 'error', 'errors': errors},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        data = await sync_to_async(lambda: serializer.validated_data)()
+        lat_from = float(data['latitude_from'])
+        lon_from = float(data['longitude_from'])
+        lat_to = float(data['latitude_to'])
+        lon_to = float(data['longitude_to'])
+        ride_type_id = data['ride_type_id']
+        adjusted = Decimal(str(data['adjusted_price']))
+
+        distance_km = await sync_to_async(calculate_distance)(lat_from, lon_from, lat_to, lon_to)
+        surge_multiplier = await sync_to_async(SurgePricingService.get_multiplier)(lat_from, lon_from)
+
+        try:
+            ride_type = await RideType.objects.aget(id=ride_type_id, is_active=True)
+        except RideType.DoesNotExist:
+            return Response(
+                {'message': 'Ride type not found', 'status': 'error'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if not ride_type.base_price or not ride_type.price_per_km:
+            return Response(
+                {'message': 'Ride type has no pricing configured', 'status': 'error'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        calculated = await sync_to_async(ride_type.calculate_price)(distance_km, surge_multiplier)
+        original = Decimal(str(calculated)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+        min_price = (original * (Decimal('1.00') - Decimal('0.20'))).quantize(
+            Decimal('0.01'), rounding=ROUND_HALF_UP
+        )
+        max_price = (original * (Decimal('1.00') + Decimal('0.50'))).quantize(
+            Decimal('0.01'), rounding=ROUND_HALF_UP
+        )
+
+        valid = min_price <= adjusted <= max_price
+        body = {
+            'message': 'Price validated successfully' if valid else 'Price is outside allowed range',
+            'status': 'success' if valid else 'error',
+            'data': {
+                'id': ride_type.id,
+                'ride_type_id': ride_type.id,
+                'distance_km': round(distance_km, 2),
+                'surge_multiplier': surge_multiplier,
+                'calculated_price': float(original),
+                'min_price': float(min_price),
+                'max_price': float(max_price),
+                'adjusted_price': float(adjusted),
+                'valid': valid,
+            },
+        }
+        return Response(body, status=status.HTTP_200_OK if valid else status.HTTP_400_BAD_REQUEST)
+
+
 class OrderItemUpdateView(AsyncAPIView):
     permission_classes = [IsAuthenticated]
 
-    @extend_schema(tags=['Order'], summary='Update order item', description='Update order item (e.g. ride_type).', request=OrderItemUpdateSerializer)
+    @extend_schema(tags=['Rider: Order items'], summary='Update order item', description='Update mutable order-item fields (for example ride_type) for an order owned by current rider.', request=OrderItemUpdateSerializer)
     async def patch(self, request, order_item_id):
         try:
             order_item = await OrderItem.objects.select_related(
@@ -1089,7 +1269,18 @@ class OrderItemUpdateView(AsyncAPIView):
 class OrderItemManagePriceView(AsyncAPIView):
     permission_classes = [IsAuthenticated]
 
-    @extend_schema(tags=['Order'], summary='Manage order item price', description='Adjust order item price.', request=OrderItemManagePriceSerializer)
+    @extend_schema(
+        tags=['Rider: Order items'],
+        summary='Manage order item price',
+        description=(
+            'URL dagi ``order_item_id`` — **OrderItem** jadvalidagi primary key '
+            '(``POST /order/create/`` yoki buyurtma detalidagi ``order_items[].id``). '
+            '``GET/POST price-estimate`` dagi ``id`` bu yerda **emas** (u reja uchun '
+            '``ride_type_id`` bilan bir xil). Buyurtma ``pending`` bo‘lsa ham '
+            '(masalan, haydovchi kutish) ishlaydi — faqat buyurtma egasi.'
+        ),
+        request=OrderItemManagePriceSerializer,
+    )
     async def patch(self, request, order_item_id):
         try:
             order_item = await OrderItem.objects.select_related(
@@ -1205,7 +1396,7 @@ class OrderItemManagePriceView(AsyncAPIView):
 class OrderCancelView(AsyncAPIView):
     permission_classes = [IsAuthenticated]
 
-    @extend_schema(tags=['Order'], summary='Cancel order', description='Cancel an order. Body: reason, optional other_reason.', request=OrderCancelSerializer)
+    @extend_schema(tags=['Rider: Orders'], summary='Cancel order', description='Rider-initiated cancellation endpoint. Body: reason and optional other_reason. Writes cancellation meta and broadcasts updates to rider/driver sockets.', request=OrderCancelSerializer)
     async def post(self, request, order_id):
         try:
             order = await Order.objects.select_related('user').aget(id=order_id)
@@ -1287,6 +1478,22 @@ class OrderCancelView(AsyncAPIView):
                     'Failed to send rider WebSocket rider cancel for order %s: %s', order.id, e
                 )
 
+            try:
+                from apps.order.services.driver_orders_websocket import (
+                    notify_drivers_order_cancelled_by_rider,
+                )
+
+                await sync_to_async(notify_drivers_order_cancelled_by_rider)(
+                    order.id, request
+                )
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).error(
+                    'Failed to send driver WebSocket rider cancel for order %s: %s',
+                    order.id,
+                    e,
+                )
+
             order = await Order.objects.select_related('user').prefetch_related(
                 'order_items__ride_type',
                 'order_drivers__driver'
@@ -1318,7 +1525,7 @@ class MyOrderListView(AsyncAPIView):
     permission_classes = [IsAuthenticated]
 
     @extend_schema(
-        tags=['Order'],
+        tags=['Rider: Orders'],
         summary='My orders',
         description="Get current user's orders. Optional query: status, order_type, page, page_size.",
         parameters=[
@@ -1425,7 +1632,7 @@ class OrderDetailView(AsyncAPIView):
         return await OrderDriver.objects.filter(order=order, driver=user).aexists()
 
     @extend_schema(
-        tags=['Order'],
+        tags=['Rider: Orders'],
         summary='Get order by ID',
         description=(
             'Returns one order with order_items, user, and when a driver has accepted — '
@@ -1469,12 +1676,100 @@ class OrderDetailView(AsyncAPIView):
         )
 
 
+class RiderActiveRideView(AsyncAPIView):
+    """
+    Resume UX: one call after app launch to know if the rider still has a trip in progress.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        tags=['Rider: Active ride'],
+        summary='Rider: active ride',
+        description=(
+            'Returns this user’s current order if status is pending, accepted, on_the_way, '
+            'arrived, or in_progress; otherwise `has_active_ride` is false and `data` is null. '
+            'Picks the most recently updated order when several match (edge case).'
+        ),
+        responses={200: OrderDetailSerializer},
+    )
+    async def get(self, request):
+        from .services.active_ride import get_rider_active_order
+
+        order = await sync_to_async(get_rider_active_order)(request.user)
+        if not order:
+            return Response(
+                {
+                    'message': 'No active ride',
+                    'status': 'success',
+                    'has_active_ride': False,
+                    'data': None,
+                },
+                status=status.HTTP_200_OK,
+            )
+        order_serializer = OrderDetailSerializer(order, context={'request': request})
+        serializer_data = await sync_to_async(lambda: order_serializer.data)()
+        return Response(
+            {
+                'message': 'Active ride',
+                'status': 'success',
+                'has_active_ride': True,
+                'data': serializer_data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class DriverActiveRideView(AsyncAPIView):
+    """
+    Resume UX: driver returns to the accepted trip after relaunching the app.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        tags=['Driver: Orders & trips'],
+        summary='Driver: active ride',
+        description=(
+            'Returns the order this driver has **accepted** (OrderDriver accepted) while the '
+            'order is still in pending … in_progress. Does not return mere **requested** offers; '
+            'use nearby orders / WebSocket for those.'
+        ),
+        responses={200: OrderDetailSerializer},
+    )
+    async def get(self, request):
+        from .services.active_ride import get_driver_active_order
+
+        order = await sync_to_async(get_driver_active_order)(request.user)
+        if not order:
+            return Response(
+                {
+                    'message': 'No active ride',
+                    'status': 'success',
+                    'has_active_ride': False,
+                    'data': None,
+                },
+                status=status.HTTP_200_OK,
+            )
+        order_serializer = OrderDetailSerializer(order, context={'request': request})
+        serializer_data = await sync_to_async(lambda: order_serializer.data)()
+        return Response(
+            {
+                'message': 'Active ride',
+                'status': 'success',
+                'has_active_ride': True,
+                'data': serializer_data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
 class DriverDashboardView(AsyncAPIView):
     """Figma Earnings screen: overview, cash_history, ride_history."""
     permission_classes = [IsAuthenticated]
 
     @extend_schema(
-        tags=['Driver'],
+        tags=['Driver: Earnings & wallet'],
         summary='Driver dashboard',
         description='Overview, cashout history, ride history. Filters: filter=day|week|last_30|range, start_date, end_date (for range).',
         parameters=[
@@ -1525,7 +1820,7 @@ class DriverEarningsView(AsyncAPIView):
         return 'Driver' in names
 
     @extend_schema(
-        tags=['Driver'],
+        tags=['Driver: Earnings & wallet'],
         summary='Driver earnings',
         description=(
             'Completed-trip earnings and distance: today, last 7 days, month-to-date, all-time. '
@@ -1575,7 +1870,7 @@ class DriverCashoutHistoryView(AsyncAPIView):
     permission_classes = [IsAuthenticated]
 
     @extend_schema(
-        tags=['Driver'],
+        tags=['Driver: Earnings & wallet'],
         summary='Cash history (See all)',
         description='Paginated cashout history. Filters: filter=day|week|last_30|range, start_date, end_date. Pagination: page, page_size.',
         parameters=[
@@ -1621,9 +1916,9 @@ class DriverCashoutCreateView(AsyncAPIView):
     permission_classes = [IsAuthenticated]
 
     @extend_schema(
-        tags=['Driver'],
+        tags=['Driver: Earnings & wallet'],
         summary='Cash out',
-        description='Create withdrawal request. Body: amount, payment_type (card|cash|hola_wallet_cash).',
+        description='Create a driver cashout request. Body: amount and payment_type (card|cash|hola_wallet_cash). Returns the created withdrawal row.',
     )
     async def post(self, request):
         user = request.user
@@ -1665,7 +1960,7 @@ class DriverRideHistoryView(AsyncAPIView):
         return 'Driver' in names
 
     @extend_schema(
-        tags=['Driver'],
+        tags=['Driver: Earnings & wallet'],
         summary='Ride history (See all)',
         description='Paginated completed orders. Filters: filter=day|week|last_30|range, start_date, end_date. Pagination: page, page_size.',
         parameters=[
@@ -1707,7 +2002,7 @@ class DriverOnlineStatusView(AsyncAPIView):
         names = [g.name for g in groups]
         return 'Driver' in names
 
-    @extend_schema(tags=['Driver'], summary='Online status (GET)', description='Get driver online/offline status. Role: Driver.')
+    @extend_schema(tags=['Driver: Availability'], summary='Online status (GET)', description='Read current availability flag for the authenticated driver (`is_online`). Driver role required.')
     async def get(self, request):
         user = request.user
 
@@ -1735,7 +2030,7 @@ class DriverOnlineStatusView(AsyncAPIView):
             status=status.HTTP_200_OK,
         )
 
-    @extend_schema(tags=['Driver'], summary='Update online status', description='Set driver online/offline. Body: is_online. Role: Driver.', request=DriverOnlineStatusSerializer)
+    @extend_schema(tags=['Driver: Availability'], summary='Update online status', description='Update driver availability flag. Body requires boolean `is_online`; used by dispatch and nearby-order visibility.', request=DriverOnlineStatusSerializer)
     async def post(self, request):
         user = request.user
 
@@ -1784,7 +2079,7 @@ class DriverOnlineStatusView(AsyncAPIView):
 class TripRatingCreateView(AsyncAPIView):
     permission_classes = [IsAuthenticated]
 
-    @extend_schema(tags=['Rating'], summary='Create rating', description='Create a rating for a completed trip.', request=TripRatingCreateSerializer)
+    @extend_schema(tags=['Trip ratings'], summary='Create rating', description='Rider submits rating/feedback for a completed trip and accepted driver assignment.', request=TripRatingCreateSerializer)
     async def post(self, request):
         user = request.user
 
@@ -1916,7 +2211,7 @@ class DriverRiderRatingCreateView(AsyncAPIView):
     permission_classes = [IsAuthenticated]
 
     @extend_schema(
-        tags=['Rating'],
+        tags=['Trip ratings'],
         summary='Driver rate rider',
         description='Driver submits rating for rider after completed trip (1-5 stars, optional comment, feedback tags).',
         request=DriverRiderRatingCreateSerializer,
@@ -1983,7 +2278,7 @@ class RatingFeedbackTagsListView(AsyncAPIView):
     permission_classes = [IsAuthenticated]
 
     @extend_schema(
-        tags=['Rating'],
+        tags=['Trip ratings'],
         summary='Feedback tags',
         description='Get feedback tags by rating and target. target: rider_to_driver (rider rates driver), driver_to_rider (driver rates rider).',
         parameters=[
@@ -2050,7 +2345,7 @@ class RatingFeedbackTagsListView(AsyncAPIView):
 class OrderChatDetailView(AsyncAPIView):
     permission_classes = [IsAuthenticated]
 
-    @extend_schema(tags=['Order Chat'], summary='Get order chat', description='Get chat for a specific order. Returns chat details if exists.')
+    @extend_schema(tags=['Trip chat'], summary='Get order chat', description='Return chat-room metadata for a specific order if rider/driver access is valid and room exists.')
     async def get(self, request, order_id: int):
         user = request.user
 
@@ -2087,9 +2382,9 @@ class OrderChatMessagesView(AsyncAPIView):
     permission_classes = [IsAuthenticated]
 
     @extend_schema(
-        tags=['Order Chat'],
+        tags=['Trip chat'],
         summary='Get chat messages',
-        description='Get all messages in an order chat. Marks messages as read.',
+        description='Return paginated messages for an order chat and mark incoming messages as read for current participant.',
         parameters=[OpenApiParameter('page_size', OpenApiTypes.INT, OpenApiParameter.QUERY, required=False, description='Number of messages per page')]
     )
     async def get(self, request, order_id: int):

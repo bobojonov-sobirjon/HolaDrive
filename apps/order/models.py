@@ -7,12 +7,13 @@ class Order(models.Model):
     
     class OrderStatus(models.TextChoices):
         PENDING = 'pending', 'Pending'
-        CONFIRMED = 'confirmed', 'Confirmed'
-        IN_PROGRESS = 'in_progress', 'In Progress'
-        CANCELLED = 'cancelled', 'Cancelled'
+        ACCEPTED = 'accepted', 'Accepted'
+        ON_THE_WAY = 'on_the_way', 'On the way'
+        ARRIVED = 'arrived', 'Arrived'
+        IN_PROGRESS = 'in_progress', 'In progress'
         COMPLETED = 'completed', 'Completed'
-        REFUNDED = 'refunded', 'Refunded'
-        FAILED = 'failed', 'Failed'
+        CANCELLED = 'cancelled', 'Cancelled'
+        REJECTED = 'rejected', 'Rejected'
     
     class OrderType(models.TextChoices):
         PICKUP = 'pickup', 'Pickup'
@@ -473,7 +474,88 @@ class OrderPreferences(models.Model):
             models.Index(fields=['order'], name='order_preferences_order_idx'),
             models.Index(fields=['created_at'], name='order_preferences_created_idx'),
         ]
-        
+
+
+class UserOrderPreferences(models.Model):
+    """
+    User-level preference template saved before order creation.
+    Copied into OrderPreferences when a new order is created.
+    """
+
+    class ChattingPreference(models.TextChoices):
+        NO_COMMUNICATION = 'no_communication', 'No Communication'
+        CASUAL = 'casual', 'Casual'
+        FRIENDLY = 'friendly', 'Friendly'
+
+    class TemperaturePreference(models.TextChoices):
+        WARM = 'warm', 'Warm (25°C and above)'
+        COMFORTABLE = 'comfortable', 'Comfortable (22-24°C)'
+        COOL = 'cool', 'Cool (18-21°C)'
+        COLD = 'cold', 'Cold (below 18°C)'
+
+    class MusicPreference(models.TextChoices):
+        POP = 'pop', 'Pop'
+        ROCK = 'rock', 'Rock'
+        JAZZ = 'jazz', 'Jazz'
+        CLASSICAL = 'classical', 'Classical'
+        HIP_HOP = 'hip_hop', 'Hip Hop'
+        ELECTRONIC = 'electronic', 'Electronic'
+        COUNTRY = 'country', 'Country'
+        NO_MUSIC = 'no_music', 'No Music'
+
+    class VolumeLevel(models.TextChoices):
+        LOW = 'low', 'Low'
+        MEDIUM = 'medium', 'Medium'
+        HIGH = 'high', 'High'
+        MUTE = 'mute', 'Mute'
+
+    class PetPreferences(models.TextChoices):
+        YES = 'yes', 'Yes'
+        NO = 'no', 'No'
+
+    class KidsChairPreferences(models.TextChoices):
+        YES = 'yes', 'Yes'
+        NO = 'no', 'No'
+
+    class WheelchairPreferences(models.TextChoices):
+        YES = 'yes', 'Yes'
+        NO = 'no', 'No'
+
+    class GenderPreferences(models.TextChoices):
+        MALE = 'male', 'Male'
+        FEMALE = 'female', 'Female'
+        OTHER = 'other', 'Other'
+
+    class FavoriteDriverPreferences(models.TextChoices):
+        YES = 'yes', 'Yes'
+        NO = 'no', 'No'
+
+    user = models.OneToOneField(CustomUser, on_delete=models.CASCADE, related_name='order_preferences_template')
+
+    chatting_preference = models.CharField(max_length=20, choices=ChattingPreference.choices, default=ChattingPreference.NO_COMMUNICATION)
+    temperature_preference = models.CharField(max_length=20, choices=TemperaturePreference.choices, default=TemperaturePreference.COMFORTABLE)
+    music_preference = models.CharField(max_length=20, choices=MusicPreference.choices, default=MusicPreference.POP)
+    volume_level = models.CharField(max_length=10, choices=VolumeLevel.choices, default=VolumeLevel.MEDIUM)
+    pet_preference = models.CharField(max_length=20, choices=PetPreferences.choices, default=PetPreferences.NO)
+    kids_chair_preference = models.CharField(max_length=20, choices=KidsChairPreferences.choices, default=KidsChairPreferences.NO)
+    wheelchair_preference = models.CharField(max_length=20, choices=WheelchairPreferences.choices, default=WheelchairPreferences.NO)
+    gender_preference = models.CharField(max_length=20, choices=GenderPreferences.choices, default=GenderPreferences.OTHER)
+    favorite_driver_preference = models.CharField(max_length=20, choices=FavoriteDriverPreferences.choices, default=FavoriteDriverPreferences.NO)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    objects = models.Manager()
+
+    class Meta:
+        verbose_name = 'User Order Preferences'
+        verbose_name_plural = '04b User Order Preferences'
+        ordering = ['-updated_at']
+        indexes = [
+            models.Index(fields=['user'], name='user_ord_pref_user_idx'),
+            models.Index(fields=['updated_at'], name='user_ord_pref_updated_idx'),
+        ]
+
 class AdditionalPassenger(models.Model):
     order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name='additional_passengers')
     full_name = models.CharField(max_length=255, verbose_name='Full Name', null=True, blank=True)

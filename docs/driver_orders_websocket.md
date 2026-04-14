@@ -125,6 +125,60 @@ Order timeout bo'lib boshqa driverga o'tganda:
 }
 ```
 
+### 5. `order_cancelled_by_rider` — rider buyurtmani bekor qilganda
+
+**Maqsod:** Haydovchi ilovasi real-time bilishi kerak: yo‘lovchi safarni bekor qildi (masalan, haydovchi allaqachon taklifni ko‘rib turgan yoki qabul qilgan, lekin yo‘lda emas).
+
+**Backend oqimi:**
+
+1. Yo‘lovchi `POST /api/v1/order/{order_id}/cancel/` chaqiradi (`OrderCancelView`).
+2. Buyurtma `cancelled` bo‘ladi, `CancelOrder` yozuvi yaratiladi.
+3. `apps.order.services.driver_orders_websocket.notify_drivers_order_cancelled_by_rider(order_id, request)` chaqiriladi.
+4. Shu buyurtmada `OrderDriver` statusi **`requested`** yoki **`accepted`** bo‘lgan **barcha** haydovchilar aniqlanadi (bir nechta taklif bo‘lsa ham).
+5. Har biriga Channels orqali `driver_orders_{driver_user_id}` guruhiga `type: order_cancelled_by_rider` yuboriladi.
+6. `DriverOrdersConsumer.order_cancelled_by_rider` klientga JSON qaytaradi.
+
+**Eslatma:** Agar haydovchi bu buyurtmada `requested`/`accepted` da bo‘lmasa, xabar **kelmaydi** (masalan, faqat boshqa haydovchilarga taklif ketgan bo‘lsa). Shuning uchun ilovada REST (`GET .../driver/active-ride/`) bilan socketni birga ishlatish tavsiya etiladi.
+
+**Namuna javob:**
+
+```json
+{
+  "type": "order_cancelled_by_rider",
+  "change": "cancelled_rider",
+  "message": "The rider cancelled this ride.",
+  "order": { "...": "OrderDetailSerializer — to'liq buyurtma (REST bilan bir xil shakl)" },
+  "cancel": {
+    "cancelled_by": "rider",
+    "reason": "changed_mind",
+    "other_reason": null,
+    "created_at": "2026-04-14T12:00:00+00:00",
+    "order_driver_id": 42
+  }
+}
+```
+
+`cancel` ba’zi maydonlari `null` bo‘lishi mumkin; front `type === "order_cancelled_by_rider"` bo‘lsa ro‘yxatdan olib tashlash yoki “bekor qilindi” ekranini ko‘rsatishi kerak.
+
+### 6. `active_ride_snapshot` — ulanishdan keyin bir marta (aktiv safar holati)
+
+Ulanishdan so‘ng Celery task taxminan 3 soniyada bitta snapshot yuboradi (`send_active_ride_snapshot_once`). Bu **rider kuzatish** emas, balki “hozir qabul qilingan safar bormi?” ni sinxronlashtirish uchun.
+
+```json
+{
+  "type": "active_ride_snapshot",
+  "scope": "driver",
+  "has_active_ride": true,
+  "order": { "...": "OrderDetailSerializer yoki null" },
+  "checked_at": "2026-04-14T12:00:00Z",
+  "message": "Active ride status refreshed"
+}
+```
+
+Batafsil: `docs/ACTIVE_RIDE_AND_QA_CHECKLIST.md` (active ride + WS).
+
+**Yo‘lovchini xaritada kuzatish (haydovchi pozitsiyasi yo‘lovchiga):** alohida endpoint — `ws/order/{order_id}/tracking/` (`OrderTrackingConsumer`). Bu hujjat faqat `ws/driver/orders/` kanalini qamrab oladi.
+
 ## Client → Server (ixtiyoriy)
 
 ### `ping` - keepalive
@@ -140,9 +194,11 @@ Javob: `{"type": "pong"}`
 | Voqea | WebSocket xabari |
 |-------|------------------|
 | Driver ulandi | `connection_established` + `initial_orders` (avtomatik) |
+| ~3 s keyin (bir marta) | `active_ride_snapshot` |
 | Order driverga assign qilindi | `new_order` |
 | Order timeout (5 min) - Celery | `order_timeout` (eski driver), `new_order` (yangi driver) |
 | Order timeout - Driver poll qilganda | `order_timeout` (o'sha driver) |
+| Rider `POST .../{order_id}/cancel/` | `order_cancelled_by_rider` (faqat `requested` / `accepted` haydovchilarga) |
 
 ## Mobile app misoli (JavaScript)
 
@@ -165,6 +221,20 @@ ws.onmessage = (event) => {
     case 'order_timeout':
       removeOrderFromList(data.order_id);
       break;
+    case 'order_cancelled_by_rider':
+      removeOrderFromList(data.order?.id);
+      showToast(data.message);
+      break;
+    case 'active_ride_snapshot':
+      syncActiveRideUI(data.has_active_ride, data.order);
+      break;
   }
 };
 ```
+
+## Kod manbalari
+
+| Qism | Fayl |
+|------|------|
+| URL / consumer | `config/routing.py`, `apps/order/consumers.py` — `DriverOrdersConsumer` |
+| Rider cancel → driver push | `apps/order/views.py` — `OrderCancelView`; `apps/order/services/driver_orders_websocket.py` — `notify_drivers_order_cancelled_by_rider` |

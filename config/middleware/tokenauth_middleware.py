@@ -136,6 +136,23 @@ class TokenAuthMiddleware(BaseMiddleware):
                     elif "." in potential_token and len(potential_token) > 50:
                         token_key = potential_token
 
+            # Check if path has format:
+            # /ws/order/<id>/tracking/TOKEN or /ws/order/<id>/tracking/token=TOKEN
+            # /ws/order/<id>/chat/TOKEN or /ws/order/<id>/chat/token=TOKEN
+            if (
+                not token_key
+                and len(path_parts) >= 5
+                and path_parts[0] == "ws"
+                and path_parts[1] == "order"
+                and path_parts[2].isdigit()
+                and path_parts[3] in ("tracking", "chat")
+            ):
+                potential_token = path_parts[4]
+                if potential_token.startswith("token="):
+                    token_key = potential_token[6:]
+                elif "." in potential_token and len(potential_token) > 50:
+                    token_key = potential_token
+
         if _is_ws_orders_path(path):
             logger.debug(
                 "[WS orders] token_source=%s token_found=%s path_prefix=%s",

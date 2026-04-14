@@ -1,7 +1,15 @@
 from rest_framework import serializers
 from django.db import transaction
 from django.db.models import Avg, Count
-from ..models import Order, OrderItem, OrderDriver, RideType, TripRating
+from ..models import (
+    Order,
+    OrderItem,
+    OrderDriver,
+    OrderPreferences,
+    RideType,
+    TripRating,
+    UserOrderPreferences,
+)
 from apps.accounts.serializers.user import UserDetailSerializer
 
 
@@ -47,6 +55,17 @@ class OrderCreateSerializer(serializers.Serializer):
         required=False,
         help_text="Payment type: card, cash, hola_wallet_cash (Card, Cash, Hola Wallet Cash)"
     )
+    adjusted_price = serializers.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        required=False,
+        allow_null=True,
+        coerce_to_string=False,
+        help_text=(
+            "Optional. After ride_type and prices are computed, same rules as manage-price "
+            "(must be between min_price and max_price)."
+        ),
+    )
 
     def validate_order_type(self, value):
         if value not in [1, 2]:
@@ -68,6 +87,7 @@ class OrderCreateSerializer(serializers.Serializer):
         order_type = Order.OrderType.PICKUP if order_type_value == 1 else Order.OrderType.FOR_ME
         ride_type_id = validated_data.pop('ride_type_id', None)
         payment_type = validated_data.pop('payment_type', 'card')
+        adjusted_price = validated_data.pop('adjusted_price', None)
 
         order = Order.objects.create(
             user=user,
@@ -75,6 +95,21 @@ class OrderCreateSerializer(serializers.Serializer):
             payment_type=payment_type,
             status=Order.OrderStatus.PENDING
         )
+
+        template = UserOrderPreferences.objects.filter(user=user).first()
+        if template:
+            OrderPreferences.objects.create(
+                order=order,
+                chatting_preference=template.chatting_preference,
+                temperature_preference=template.temperature_preference,
+                music_preference=template.music_preference,
+                volume_level=template.volume_level,
+                pet_preference=template.pet_preference,
+                kids_chair_preference=template.kids_chair_preference,
+                wheelchair_preference=template.wheelchair_preference,
+                gender_preference=template.gender_preference,
+                favorite_driver_preference=template.favorite_driver_preference,
+            )
 
         order_item = OrderItem.objects.create(
             order=order,
@@ -96,6 +131,21 @@ class OrderCreateSerializer(serializers.Serializer):
         if ride_type:
             order_item.ride_type = ride_type
             order_item.save()
+        if adjusted_price is not None:
+            order_item.refresh_from_db()
+            if not order_item.original_price:
+                raise serializers.ValidationError(
+                    {'adjusted_price': 'Prices not computed; check ride_type and coordinates.'}
+                )
+            if not order_item.min_price or not order_item.max_price:
+                min_p, max_p = order_item.calculate_price_range()
+                order_item.min_price = min_p
+                order_item.max_price = max_p
+                order_item.save(update_fields=['min_price', 'max_price'])
+            try:
+                order_item.adjust_price(float(adjusted_price))
+            except ValueError as e:
+                raise serializers.ValidationError({'adjusted_price': str(e)})
         try:
             from apps.chat.models import ChatRoom
             ChatRoom.objects.create(
@@ -182,7 +232,10 @@ class OrderSerializer(serializers.ModelSerializer):
     )
     status = serializers.ChoiceField(
         choices=Order.OrderStatus.choices,
-        help_text="Order status: pending, confirmed, in_progress, cancelled, completed, refunded, failed"
+        help_text=(
+            "Order status: pending, accepted, on_the_way, arrived, in_progress, "
+            "completed, cancelled, rejected"
+        )
     )
     
     class Meta:
@@ -278,6 +331,26 @@ class PriceEstimateSerializer(serializers.Serializer):
         required=True,
         coerce_to_string=False
     )
+
+
+class PriceEstimateManagePriceSerializer(PriceEstimateSerializer):
+    """
+    Plan bosqichi: buyurtma yaratilmasdan narxni min/max oralig'ida tekshirish.
+    price-estimate dagi ``id`` / ``ride_type_id`` bilan bir xil maydondan foydalaning.
+    """
+
+    ride_type_id = serializers.IntegerField(required=True)
+    adjusted_price = serializers.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        required=True,
+        coerce_to_string=False,
+    )
+
+    def validate_ride_type_id(self, value):
+        if not RideType.objects.filter(id=value, is_active=True).exists():
+            raise serializers.ValidationError('Ride type not found or inactive.')
+        return value
 
 
 class OrderItemUpdateSerializer(serializers.ModelSerializer):

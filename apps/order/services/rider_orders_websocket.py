@@ -345,7 +345,9 @@ def build_rider_order_payload(order: Order, accepted_assignment: OrderDriver | N
     driver_assignment = accepted_assignment
     # Include assigned driver on terminal statuses too (completed / cancelled) for rider UI.
     if driver_assignment is None and order.status in (
-        Order.OrderStatus.CONFIRMED,
+        Order.OrderStatus.ACCEPTED,
+        Order.OrderStatus.ON_THE_WAY,
+        Order.OrderStatus.ARRIVED,
         Order.OrderStatus.IN_PROGRESS,
         Order.OrderStatus.COMPLETED,
         Order.OrderStatus.CANCELLED,
@@ -399,8 +401,7 @@ def get_rider_active_orders(rider_user):
     terminal = [
         Order.OrderStatus.COMPLETED,
         Order.OrderStatus.CANCELLED,
-        Order.OrderStatus.REFUNDED,
-        Order.OrderStatus.FAILED,
+        Order.OrderStatus.REJECTED,
     ]
     qs = (
         Order.objects.filter(user=rider_user)
@@ -417,7 +418,12 @@ def get_rider_active_orders(rider_user):
     out = []
     for o in qs:
         assignment = None
-        if o.status in (Order.OrderStatus.CONFIRMED, Order.OrderStatus.IN_PROGRESS):
+        if o.status in (
+            Order.OrderStatus.ACCEPTED,
+            Order.OrderStatus.ON_THE_WAY,
+            Order.OrderStatus.ARRIVED,
+            Order.OrderStatus.IN_PROGRESS,
+        ):
             assignment = (
                 o.order_drivers.filter(status=OrderDriver.DriverRequestStatus.ACCEPTED)
                 .select_related('driver')
@@ -451,7 +457,7 @@ def notify_rider_order_updated(
     """
     Universal rider WS snapshot on lifecycle changes.
 
-    ``change`` (for clients): confirmed | driver_rejected | in_progress | completed
+    ``change`` (for clients): accepted | driver_rejected | in_progress | completed
     | cancelled_driver | cancelled_rider
     """
     order_full = _fetch_order_for_rider_ws(order_id)
@@ -494,7 +500,7 @@ def send_rider_order_driver_accepted(order_id: int):
         rider_id,
         {
             'type': 'rider_order_updated',
-            'change': 'confirmed',
+            'change': 'accepted',
             'order': payload,
             'message': msg,
         },

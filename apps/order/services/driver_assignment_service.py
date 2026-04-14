@@ -42,7 +42,9 @@ class DriverAssignmentService:
         for order_driver in active_order_drivers:
             if order_driver.order.status in [
                 Order.OrderStatus.PENDING,
-                Order.OrderStatus.CONFIRMED,
+                Order.OrderStatus.ACCEPTED,
+                Order.OrderStatus.ON_THE_WAY,
+                Order.OrderStatus.ARRIVED,
                 Order.OrderStatus.IN_PROGRESS,
             ]:
                 if new_order_pickup_lat and new_order_pickup_lon:
@@ -206,7 +208,15 @@ class DriverAssignmentService:
         
         try:
             from apps.notification.tasks import send_push_notification_async
-            send_push_notification_async.delay(
+
+            logger.info(
+                "[PUSH DEBUG] assign_order_to_driver: enqueue FCM task | order_id=%s order_code=%s driver_id=%s "
+                "(keyin log: celery worker terminalida send_push_notification_async)",
+                order.id,
+                order.order_code,
+                driver.id,
+            )
+            async_result = send_push_notification_async.delay(
                 user_id=driver.id,
                 title="New ride request",
                 body=f"New ride request available nearby. Order: {order.order_code}",
@@ -216,11 +226,19 @@ class DriverAssignmentService:
                     "type": "ride_request"
                 }
             )
+            logger.info(
+                "[PUSH DEBUG] Celery task queued OK | task_id=%s (worker ishlamasa push kelmaydi)",
+                getattr(async_result, "id", None),
+            )
         except ImportError:
-            logger.warning("Celery task not available, using sync push notification")
+            logger.warning(
+                "[PUSH DEBUG] Celery import yo‘q — sync send_push_to_user | driver_id=%s order_id=%s",
+                driver.id,
+                order.id,
+            )
             from apps.notification.services import send_push_to_user
             try:
-                send_push_to_user(
+                ok, err = send_push_to_user(
                     user=driver,
                     title="New ride request",
                     body=f"New ride request available nearby. Order: {order.order_code}",
@@ -230,10 +248,28 @@ class DriverAssignmentService:
                         "type": "ride_request"
                     }
                 )
+                logger.info(
+                    "[PUSH DEBUG] sync send_push_to_user tugadi | driver_id=%s success=%s error=%s",
+                    driver.id,
+                    ok,
+                    err,
+                )
             except Exception as e:
-                logger.error(f"Failed to send push notification to driver {driver.id}: {e}")
+                logger.error(
+                    "[PUSH DEBUG] sync push xato | driver_id=%s order_id=%s: %s",
+                    driver.id,
+                    order.id,
+                    e,
+                    exc_info=True,
+                )
         except Exception as e:
-            logger.error(f"Failed to send async push notification to driver {driver.id}: {e}")
+            logger.error(
+                "[PUSH DEBUG] Celery .delay() xato (Redis/worker?) | driver_id=%s order_id=%s: %s",
+                driver.id,
+                order.id,
+                e,
+                exc_info=True,
+            )
 
         try:
             from .driver_orders_websocket import send_new_order_to_driver

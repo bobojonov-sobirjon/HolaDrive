@@ -214,7 +214,26 @@ SPECTACULAR_SETTINGS = {
     'SERVE_INCLUDE_SCHEMA': False,
     'SCHEMA_PATH_PREFIX': r'/api/v1',
     'COMPONENT_SPLIT_REQUEST': True,
-    
+    # Swagger UI: guruhlar tartibi va qisqa tushuntirish (tags alfavit emas, shu ro‘yxat bo‘yicha).
+    'TAGS': [
+        {'name': 'Rider: Orders', 'description': 'Buyurtma yaratish, ro‘yxat, bitta order, bekor qilish, qo‘shimcha yo‘lovchi, jadval.'},
+        {'name': 'Rider: Preferences', 'description': 'Buyurtma oldidan saqlanadigan rider sozlamalari (pre-order).'},
+        {'name': 'Rider: Pricing', 'description': 'Narx baholash va reja bosqichida narxni tekshirish.'},
+        {'name': 'Rider: Order items', 'description': 'Buyurtma ichidagi stop/narx/ride type tahriri.'},
+        {'name': 'Rider: Active ride', 'description': 'Aktiv safarni qayta yuklash (resume) uchun bitta GET.'},
+        {'name': 'Rider: Live tracking', 'description': 'Rider: tayinlangan haydovchi lokatsiyasi (HTTP). WebSocket: ws/order/{id}/tracking/.'},
+        {'name': 'Driver: Orders & trips', 'description': 'Takliflar, qabul/rad, pickup, tugatish, haydovchi bekor, aktiv safar.'},
+        {'name': 'Driver: Location', 'description': 'Haydovchi GPS yangilashi (real-time tracking uchun).'},
+        {'name': 'Driver: Earnings & wallet', 'description': 'Dashboard, daromad, tarix, naqd chiqarish.'},
+        {'name': 'Driver: Availability', 'description': 'Onlayn / oflayn holat.'},
+        {'name': 'Trip ratings', 'description': 'Safar tugagach baholash va feedback teglari.'},
+        {'name': 'Trip chat', 'description': 'Buyurtma bo‘yicha rider va haydovchi chat (HTTP).'},
+    ],
+    # Test uchun: Authorize qilingan JWT Swagger sahifasini yangilaganda saqlanadi (browser localStorage).
+    # O‘chirish: SWAGGER_UI_SETTINGS blokini olib tashlang yoki brauzerda localStorage tozalang.
+    'SWAGGER_UI_SETTINGS': {
+        'persistAuthorization': True,
+    },
 }
 
 SIMPLE_JWT = {

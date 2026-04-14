@@ -1,8 +1,15 @@
 import logging
 from celery import shared_task
 from django.utils import timezone
+from apps.accounts.models import CustomUser
 from apps.order.models import Order, OrderDriver
 from apps.order.services.driver_assignment_service import DriverAssignmentService
+from apps.order.services.active_ride import (
+    get_driver_active_order,
+    get_rider_active_order,
+    notify_driver_active_ride_snapshot,
+    notify_rider_active_ride_snapshot,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -164,3 +171,29 @@ def assign_driver_to_order_async(order_id):
             exc_info=True
         )
         return {'order_id': order_id, 'status': 'error', 'error': str(e)}
+
+
+@shared_task(name='apps.order.tasks.send_active_ride_snapshot_once')
+def send_active_ride_snapshot_once(user_id: int, scope: str):
+    """
+    Send one active-ride snapshot (used right after WebSocket connect).
+    """
+    try:
+        user = CustomUser.objects.get(id=user_id)
+    except CustomUser.DoesNotExist:
+        return {'status': 'user_not_found', 'user_id': user_id, 'scope': scope}
+
+    if scope == 'driver':
+        order = get_driver_active_order(user)
+        notify_driver_active_ride_snapshot(user_id, order=order)
+    else:
+        order = get_rider_active_order(user)
+        notify_rider_active_ride_snapshot(user_id, order=order)
+
+    return {
+        'status': 'sent',
+        'user_id': user_id,
+        'scope': scope,
+        'has_active_ride': bool(order),
+        'sent_at': timezone.now().isoformat(),
+    }
