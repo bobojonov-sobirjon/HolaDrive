@@ -272,8 +272,9 @@ def enqueue_push_to_user_id(
     user_id: int, title: str, body: str, data: dict | None = None
 ) -> None:
     """
-    Queue an FCM push by user primary key. Uses Celery when available; otherwise
-    sends synchronously (same pattern as driver assignment / order actions).
+    Queue an FCM push by user primary key (best-effort, async-safe).
+    If Celery is unavailable or queueing fails, we only log and return.
+    This helper must never raise into API flow.
     """
     try:
         from apps.notification.tasks import send_push_notification_async
@@ -285,40 +286,15 @@ def enqueue_push_to_user_id(
             data=data or {},
         )
     except ImportError:
-        from apps.accounts.models import CustomUser
-
-        user = CustomUser.objects.filter(pk=user_id).first()
-        if not user:
-            logger.warning(
-                "enqueue_push_to_user_id: user_id=%s not found (sync path)", user_id
-            )
-            return
-        try:
-            send_push_to_user(user, title, body, data or {})
-        except Exception as exc:  # pragma: no cover
-            logger.exception(
-                "enqueue_push_to_user_id: sync push failed user_id=%s: %s",
-                user_id,
-                exc,
-            )
+        logger.warning(
+            "enqueue_push_to_user_id: Celery task unavailable user_id=%s; push skipped",
+            user_id,
+        )
     except Exception as exc:
         logger.warning(
-            "enqueue_push_to_user_id: Celery delay failed user_id=%s: %s — trying sync",
+            "enqueue_push_to_user_id: queue failed user_id=%s: %s; push skipped",
             user_id,
             exc,
         )
-        from apps.accounts.models import CustomUser
-
-        user = CustomUser.objects.filter(pk=user_id).first()
-        if not user:
-            return
-        try:
-            send_push_to_user(user, title, body, data or {})
-        except Exception as sync_exc:  # pragma: no cover
-            logger.exception(
-                "enqueue_push_to_user_id: sync fallback failed user_id=%s: %s",
-                user_id,
-                sync_exc,
-            )
 
 
