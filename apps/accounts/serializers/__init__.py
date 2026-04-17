@@ -1,6 +1,7 @@
 from .authentication import (
     RegistrationSerializer,
     LoginSerializer,
+    AdminLoginSerializer,
     SendVerificationCodeSerializer,
     VerifyCodeSerializer,
     ResetPasswordRequestSerializer,
@@ -18,6 +19,7 @@ from .pin_verification import PinVerificationForUserSerializer
 __all__ = [
     'RegistrationSerializer',
     'LoginSerializer',
+    'AdminLoginSerializer',
     'SendVerificationCodeSerializer',
     'VerifyCodeSerializer',
     'ResetPasswordRequestSerializer',

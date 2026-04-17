@@ -474,6 +474,7 @@ class DriverUserAdmin(UserAdmin):
         ('Additional Information', {'fields': ('address', 'longitude', 'latitude', 'tax_number', 'id_identification')}),
         ('Permissions', {'fields': ('is_active', 'groups')}),
         ('Online Status', {'fields': ('is_online',)}),
+        ('Stripe Connect (driver payouts)', {'fields': ('stripe_connect_account_id',)}),
         ('Important Dates', {'fields': ('last_login', 'date_joined', 'created_at', 'updated_at')}),
         ('Verification', {'fields': ('is_verified',)}),
     )

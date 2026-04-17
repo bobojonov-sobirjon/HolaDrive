@@ -10,7 +10,7 @@ from django.conf import settings
 from asgiref.sync import sync_to_async
 
 from ..serializers import (
-    RegistrationSerializer, LoginSerializer, SendVerificationCodeSerializer,
+    RegistrationSerializer, LoginSerializer, AdminLoginSerializer, SendVerificationCodeSerializer,
     VerifyCodeSerializer, ResetPasswordRequestSerializer, VerifyResetCodeSerializer,
     ResetPasswordConfirmSerializer
 )
@@ -201,6 +201,65 @@ class LoginView(AsyncAPIView):
             
             return Response(response_data, status=status.HTTP_200_OK)
         
+        errors = await sync_to_async(lambda: serializer.errors)()
+        return Response(
+            {
+                'message': 'Validation error',
+                'status': 'error',
+                'errors': errors
+            },
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+
+class AdminLoginView(AsyncAPIView):
+    permission_classes = [AllowAny]
+    throttle_classes = [LoginRateThrottle]
+
+    @extend_schema(
+        tags=['Authentication'],
+        summary='Admin login',
+        description='Admin panel login with email and password only. Allows only superusers and sends verification code to email.',
+        request=AdminLoginSerializer
+    )
+    async def post(self, request):
+        serializer = AdminLoginSerializer(data=request.data)
+        is_valid = await sync_to_async(lambda: serializer.is_valid())()
+
+        if is_valid:
+            validated_data = await sync_to_async(lambda: serializer.validated_data)()
+            user = validated_data['user']
+            email = validated_data['email']
+
+            _, success, error = await sync_to_async(send_verification_code)(
+                user=user,
+                email=email,
+                email_subject='Admin Panel Login Verification Code',
+                email_message='Your admin panel login verification code is: {code}',
+            )
+
+            if not success:
+                return Response(
+                    {
+                        'message': 'Failed to send verification code',
+                        'status': 'error',
+                        'errors': {'verification': [error] if error else ['Failed to send verification code']},
+                    },
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
+
+            return Response(
+                {
+                    'message': 'Admin verification code sent successfully',
+                    'status': 'success',
+                    'data': {
+                        'expires_in': 600,
+                        'sent_to': email
+                    }
+                },
+                status=status.HTTP_200_OK
+            )
+
         errors = await sync_to_async(lambda: serializer.errors)()
         return Response(
             {

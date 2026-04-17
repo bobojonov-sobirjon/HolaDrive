@@ -99,6 +99,12 @@ class CustomUser(AbstractUser):
         verbose_name="Driver Online Status",
         help_text="Indicates whether driver is online and available for orders."
     )
+    stripe_connect_account_id = models.CharField(
+        max_length=255,
+        blank=True,
+        verbose_name="Stripe Connect account",
+        help_text="Connected account id (acct_…) for trip payouts; optional until Connect onboarding.",
+    )
     created_at = models.DateTimeField(
         auto_now_add=True,
         verbose_name="Created At"

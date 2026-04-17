@@ -281,3 +281,25 @@ def notify_drivers_order_cancelled_by_rider(order_id: int, request=None):
             logger.warning(
                 'Failed WebSocket order_cancelled_by_rider to driver %s: %s', did, e
             )
+
+    try:
+        from apps.notification.services import enqueue_push_to_user_id
+
+        for did in driver_ids:
+            enqueue_push_to_user_id(
+                did,
+                title='Ride cancelled',
+                body='The rider cancelled this ride.',
+                data={
+                    'type': 'ride_cancelled_by_rider',
+                    'order_id': order.id,
+                    'order_code': order.order_code or '',
+                },
+            )
+    except Exception as e:
+        logger.warning(
+            'Failed FCM ride_cancelled_by_rider for order %s drivers %s: %s',
+            order_id,
+            driver_ids,
+            e,
+        )

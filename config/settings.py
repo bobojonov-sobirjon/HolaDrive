@@ -30,6 +30,7 @@ WEBSOCKET_URL = os.getenv('WEBSOCKET_URL', f'{WEBSOCKET_HOST}:{WEBSOCKET_PORT}')
 
 LOCAL_APPS = [
     'apps.accounts',
+    'apps.admin_panel',
     'apps.order',
     'apps.payment',
     'apps.notification',
@@ -226,8 +227,10 @@ SPECTACULAR_SETTINGS = {
         {'name': 'Driver: Location', 'description': 'Haydovchi GPS yangilashi (real-time tracking uchun).'},
         {'name': 'Driver: Earnings & wallet', 'description': 'Dashboard, daromad, tarix, naqd chiqarish.'},
         {'name': 'Driver: Availability', 'description': 'Onlayn / oflayn holat.'},
+        {'name': 'Admin Panel', 'description': 'Admin panel frontend endpoints (drivers, riders, and management lists).'},
         {'name': 'Trip ratings', 'description': 'Safar tugagach baholash va feedback teglari.'},
         {'name': 'Trip chat', 'description': 'Buyurtma bo‘yicha rider va haydovchi chat (HTTP).'},
+        {'name': 'Payment: Saved cards', 'description': 'Stripe: saqlangan kartalar (rider/driver), GET/POST/PUT/DELETE.'},
     ],
     # Test uchun: Authorize qilingan JWT Swagger sahifasini yangilaganda saqlanadi (browser localStorage).
     # O‘chirish: SWAGGER_UI_SETTINGS blokini olib tashlang yoki brauzerda localStorage tozalang.
@@ -244,10 +247,11 @@ SIMPLE_JWT = {
 CSRF_TRUSTED_ORIGINS = [
     "http://localhost:3000",
     "http://localhost:8000",
+    "http://localhost:5173", 
     "http://127.0.0.1:5173",
 ]
 
-_cors_origins = os.getenv('CORS_ALLOWED_ORIGINS', 'http://localhost:3000,http://localhost:8000,http://127.0.0.1:5173')
+_cors_origins = os.getenv('CORS_ALLOWED_ORIGINS', 'http://localhost:3000,http://localhost:8000,http://localhost:5173,http://127.0.0.1:5173')
 CORS_ALLOWED_ORIGINS = [origin.strip() for origin in _cors_origins.split(',') if origin.strip()]
 
 CORS_ALLOW_ALL_ORIGINS = os.getenv('CORS_ALLOW_ALL_ORIGINS', 'False').lower() == 'true'
@@ -424,6 +428,13 @@ FCM_SERVER_KEY = os.getenv('FCM_SERVER_KEY', '')
 TWILIO_ACCOUNT_SID = os.getenv('TWILIO_ACCOUNT_SID')
 TWILIO_AUTH_TOKEN = os.getenv('TWILIO_AUTH_TOKEN')
 TWILIO_PHONE_NUMBER = os.getenv('TWILIO_PHONE_NUMBER')
+
+# Stripe (saved cards, payments). Keys from https://dashboard.stripe.com/apikeys
+STRIPE_SECRET_KEY = os.getenv('STRIPE_SECRET_KEY', '')
+STRIPE_PUBLISHABLE_KEY = os.getenv('STRIPE_PUBLISHABLE_KEY', '')
+# Trip card charges (PaymentIntent): ISO currency, platform fee % when using Stripe Connect destination
+STRIPE_CHARGE_CURRENCY = os.getenv('STRIPE_CHARGE_CURRENCY', 'cad').strip().lower() or 'cad'
+STRIPE_APPLICATION_FEE_PERCENT = os.getenv('STRIPE_APPLICATION_FEE_PERCENT', '0').strip() or '0'
 
 
 # Django Channels Configuration

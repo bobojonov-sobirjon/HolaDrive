@@ -19,6 +19,7 @@ urlpatterns += [
 
 urlpatterns += [
     path('api/v1/accounts/', include('apps.accounts.urls')),
+    path('api/v1/admin-panel/', include('apps.admin_panel.urls')),
     path('api/v1/order/', include('apps.order.urls')),
     path('api/v1/payment/', include('apps.payment.urls')),
     path('api/v1/notification/', include('apps.notification.urls')),

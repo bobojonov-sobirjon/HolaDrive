@@ -32,6 +32,42 @@ class Order(models.Model):
         max_length=30, choices=PaymentType.choices, default=PaymentType.CARD, null=True, blank=True,
         verbose_name='Payment Type'
     )
+    saved_card = models.ForeignKey(
+        'payment.SavedCard',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='orders',
+        verbose_name='Saved payment card',
+        help_text='Rider saved card used when payment_type is card.',
+    )
+
+    class StripeTripPaymentStatus(models.TextChoices):
+        NOT_APPLICABLE = 'not_applicable', 'Not applicable'
+        SUCCEEDED = 'succeeded', 'Succeeded'
+
+    stripe_trip_payment_intent_id = models.CharField(
+        max_length=255,
+        blank=True,
+        verbose_name='Stripe PaymentIntent (trip)',
+        help_text='Set when card payment succeeds on trip complete.',
+    )
+    stripe_trip_payment_status = models.CharField(
+        max_length=32,
+        choices=StripeTripPaymentStatus.choices,
+        default=StripeTripPaymentStatus.NOT_APPLICABLE,
+        blank=True,
+    )
+    stripe_trip_payment_amount_cents = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        verbose_name='Charged amount (cents)',
+    )
+    stripe_trip_payment_currency = models.CharField(max_length=3, blank=True)
+    stripe_trip_payment_error = models.TextField(
+        blank=True,
+        help_text='Last card charge error (e.g. if complete was blocked).',
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -1320,26 +1356,26 @@ class TripRating(models.Model):
         super().save(*args, **kwargs)
         
         if is_new:
-            from apps.notification.tasks import send_push_notification_async
-            
+            from apps.notification.services import enqueue_push_to_user_id
+
             rating_text = f"{self.rating} star{'s' if self.rating != 1 else ''}"
             title = "New Rating Received"
             body = f"You received a {rating_text} rating from {self.rider.get_full_name()}"
             if self.comment:
                 body += f": {self.comment[:50]}..."
-            
+
             data = {
                 'type': 'trip_rating',
                 'order_id': self.order.id,
                 'rating': self.rating,
                 'rider_name': self.rider.get_full_name(),
             }
-            
-            send_push_notification_async.delay(
-                user_id=self.driver.id,
+
+            enqueue_push_to_user_id(
+                self.driver.id,
                 title=title,
                 body=body,
-                data=data
+                data=data,
             )
     
     class Meta:

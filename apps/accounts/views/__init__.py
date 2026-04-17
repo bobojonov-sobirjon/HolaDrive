@@ -1,6 +1,7 @@
 from .authentication import (
     RegistrationView,
     LoginView,
+    AdminLoginView,
     TokenRefreshView,
     SendVerificationCodeView,
     VerifyCodeView,
@@ -48,6 +49,7 @@ from .driver_identification import (
 __all__ = [
     'RegistrationView',
     'LoginView',
+    'AdminLoginView',
     'TokenRefreshView',
     'SendVerificationCodeView',
     'VerifyCodeView',

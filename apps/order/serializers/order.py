@@ -11,6 +11,7 @@ from ..models import (
     UserOrderPreferences,
 )
 from apps.accounts.serializers.user import UserDetailSerializer
+from apps.payment.serializers import SavedCardSerializer
 
 
 class OrderCreateSerializer(serializers.Serializer):
@@ -219,10 +220,17 @@ class OrderItemSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'created_at', 'updated_at']
 
 
+class OrderSetPaymentCardSerializer(serializers.Serializer):
+    """Assign a saved card to an order (rider)."""
+
+    card_id = serializers.IntegerField(min_value=1)
+
+
 class OrderSerializer(serializers.ModelSerializer):
     """Serializer for Order model."""
     order_items = OrderItemSerializer(many=True, read_only=True)
     user = UserDetailSerializer(read_only=True)
+    saved_card = SavedCardSerializer(read_only=True, allow_null=True)
     client_rating = serializers.SerializerMethodField()
     client_tip_count = serializers.SerializerMethodField()
     payment_type = serializers.ChoiceField(choices=Order.PaymentType.choices, read_only=True, allow_null=True)
@@ -241,11 +249,18 @@ class OrderSerializer(serializers.ModelSerializer):
     class Meta:
         model = Order
         fields = [
-            'id', 'order_code', 'user', 'client_rating', 'client_tip_count',
-            'status', 'order_type', 'payment_type', 'order_items',
-            'created_at', 'updated_at'
+            'id', 'order_code', 'user', 'saved_card', 'client_rating', 'client_tip_count',
+            'status', 'order_type', 'payment_type',
+            'stripe_trip_payment_intent_id', 'stripe_trip_payment_status',
+            'stripe_trip_payment_amount_cents', 'stripe_trip_payment_currency',
+            'order_items',
+            'created_at', 'updated_at',
         ]
-        read_only_fields = ['id', 'order_code', 'created_at', 'updated_at']
+        read_only_fields = [
+            'id', 'order_code', 'created_at', 'updated_at',
+            'stripe_trip_payment_intent_id', 'stripe_trip_payment_status',
+            'stripe_trip_payment_amount_cents', 'stripe_trip_payment_currency',
+        ]
 
     def get_client_rating(self, obj):
         """

@@ -190,6 +190,39 @@ class LoginSerializer(serializers.Serializer):
         return attrs
 
 
+class AdminLoginSerializer(serializers.Serializer):
+    """
+    Serializer for admin panel login (email + password only).
+    Allows only superusers.
+    """
+    email = serializers.EmailField(required=True, help_text="Admin email address")
+    password = serializers.CharField(
+        write_only=True,
+        required=True,
+        style={'input_type': 'password'},
+        help_text="Admin password"
+    )
+
+    def validate(self, attrs):
+        email = (attrs.get('email') or '').strip()
+        password = attrs.get('password') or ''
+
+        try:
+            user = CustomUser.objects.get(email=email)
+        except CustomUser.DoesNotExist:
+            raise serializers.ValidationError("Invalid email or password.")
+
+        if not user.check_password(password):
+            raise serializers.ValidationError("Invalid email or password.")
+
+        if not user.is_superuser:
+            raise serializers.ValidationError("Only superusers can log in via admin login.")
+
+        attrs['user'] = user
+        attrs['email'] = email
+        return attrs
+
+
 class SendVerificationCodeSerializer(serializers.Serializer):
     """
     Serializer for sending verification code

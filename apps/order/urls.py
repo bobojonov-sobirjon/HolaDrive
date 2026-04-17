@@ -8,6 +8,7 @@ from .views import (
     OrderCancelView,
     MyOrderListView,
     OrderDetailView,
+    OrderPaymentCardView,
     RiderActiveRideView,
     DriverActiveRideView,
     OrderPreferencesGetView,
@@ -16,6 +17,8 @@ from .views import (
     OrderScheduleCreateView,
     DriverNearbyOrdersView,
     DriverOrderActionView,
+    DriverOnTheWayView,
+    DriverArrivedView,
     DriverPickupView,
     DriverCompleteView,
     DriverCancelOrderView,
@@ -40,6 +43,7 @@ urlpatterns = [
     path('rider/active-ride/', RiderActiveRideView.as_view(), name='rider-active-ride'),
     path('driver/active-ride/', DriverActiveRideView.as_view(), name='driver-active-ride'),
     path('<int:order_id>/', OrderDetailView.as_view(), name='order-detail'),
+    path('<int:order_id>/payment-card/', OrderPaymentCardView.as_view(), name='order-payment-card'),
     path('price-estimate/', PriceEstimateView.as_view(), name='price-estimate'),
     path(
         'price-estimate/manage-price/',
@@ -58,6 +62,8 @@ urlpatterns = [
     # Advanced driver features
     path('driver/nearby-orders/', DriverNearbyOrdersView.as_view(), name='driver-nearby-orders'),
     path('driver/order-action/', DriverOrderActionView.as_view(), name='driver-order-action'),
+    path('driver/on-the-way/', DriverOnTheWayView.as_view(), name='driver-on-the-way'),
+    path('driver/arrived/', DriverArrivedView.as_view(), name='driver-arrived'),
     path('driver/pickup/', DriverPickupView.as_view(), name='driver-pickup'),
     path('driver/complete/', DriverCompleteView.as_view(), name='driver-complete'),
     path('driver/cancel/', DriverCancelOrderView.as_view(), name='driver-cancel'),

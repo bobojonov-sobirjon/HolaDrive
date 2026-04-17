@@ -338,6 +338,21 @@ def _order_driver_row(order_driver: OrderDriver | None):
     }
 
 
+def _saved_card_ws_payload(order: Order):
+    if not getattr(order, 'saved_card_id', None):
+        return None
+    sc = getattr(order, 'saved_card', None)
+    if sc is None:
+        return {'id': order.saved_card_id}
+    return {
+        'id': sc.id,
+        'brand': sc.brand or '',
+        'last4': sc.last4 or '',
+        'holder_role': sc.holder_role,
+        'is_default': sc.is_default,
+    }
+
+
 def build_rider_order_payload(order: Order, accepted_assignment: OrderDriver | None = None):
     """
     Full order JSON for rider WebSocket (no nested rider user — client already is the rider).
@@ -368,6 +383,7 @@ def build_rider_order_payload(order: Order, accepted_assignment: OrderDriver | N
         'status': order.status,
         'order_type': order.order_type,
         'payment_type': order.payment_type,
+        'saved_card': _saved_card_ws_payload(order),
         'created_at': order.created_at.isoformat() if order.created_at else None,
         'updated_at': order.updated_at.isoformat() if order.updated_at else None,
         'order_items': _order_items_payload(order),
@@ -382,6 +398,7 @@ def _fetch_order_for_rider_ws(order_id: int) -> Order | None:
     try:
         return (
             Order.objects.filter(id=order_id)
+            .select_related('saved_card')
             .prefetch_related(
                 'order_items__ride_type',
                 'order_preferences',
@@ -406,6 +423,7 @@ def get_rider_active_orders(rider_user):
     qs = (
         Order.objects.filter(user=rider_user)
         .exclude(status__in=terminal)
+        .select_related('saved_card')
         .prefetch_related(
             'order_items__ride_type',
             'order_preferences',

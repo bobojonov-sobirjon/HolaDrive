@@ -24,7 +24,7 @@ TERMINAL_ORDER_STATUSES = frozenset({
 
 
 def _order_detail_prefetch(queryset):
-    return queryset.select_related('user').prefetch_related(
+    return queryset.select_related('user', 'saved_card').prefetch_related(
         'order_items__ride_type',
         'order_preferences',
         'order_drivers__driver__vehicle_details__images',
@@ -53,7 +53,7 @@ def get_driver_active_order(user):
             status=OrderDriver.DriverRequestStatus.ACCEPTED,
             order__status__in=ACTIVE_RIDE_ORDER_STATUSES,
         )
-        .select_related('order', 'order__user')
+        .select_related('order', 'order__user', 'order__saved_card')
         .prefetch_related(
             'order__order_items__ride_type',
             'order__order_preferences',

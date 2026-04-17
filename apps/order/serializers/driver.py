@@ -70,6 +70,12 @@ class DriverOrderActionSerializer(serializers.Serializer):
     action = serializers.ChoiceField(choices=['accept', 'reject'])
 
 
+class DriverOrderLifecycleSerializer(serializers.Serializer):
+    """Body: order_id — driver lifecycle steps (on the way, arrived)."""
+
+    order_id = serializers.IntegerField()
+
+
 class DriverPickupSerializer(serializers.Serializer):
     """Serializer for driver pickup confirmation (client in car)."""
     order_id = serializers.IntegerField()

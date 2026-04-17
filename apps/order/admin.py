@@ -10,10 +10,28 @@ from .models import (
 
 @admin.register(Order)
 class OrderAdmin(admin.ModelAdmin):
-    list_display = ('order_code', 'user', 'status', 'created_at')
-    list_filter = ('status', 'created_at')
-    search_fields = ('order_code', 'user__email', 'user__username')
-    readonly_fields = ('order_code', 'created_at', 'updated_at')
+    list_display = (
+        'order_code',
+        'user',
+        'status',
+        'payment_type',
+        'saved_card',
+        'stripe_trip_payment_status',
+        'created_at',
+    )
+    list_filter = ('status', 'created_at', 'payment_type', 'stripe_trip_payment_status')
+    search_fields = ('order_code', 'user__email', 'user__username', 'stripe_trip_payment_intent_id')
+    readonly_fields = (
+        'order_code',
+        'created_at',
+        'updated_at',
+        'stripe_trip_payment_intent_id',
+        'stripe_trip_payment_status',
+        'stripe_trip_payment_amount_cents',
+        'stripe_trip_payment_currency',
+        'stripe_trip_payment_error',
+    )
+    raw_id_fields = ('saved_card',)
     ordering = ('-created_at',)
     actions = ['assign_driver_action']
 

@@ -55,7 +55,7 @@ def send_sms(phone_number, message):
         return False, error_message
 
 
-def send_verification_code(user, email=None, phone_number=None, code=None):
+def send_verification_code(user, email=None, phone_number=None, code=None, email_subject='Verification Code', email_message=None):
     import logging
     logger = logging.getLogger(__name__)
     
@@ -91,10 +91,14 @@ def send_verification_code(user, email=None, phone_number=None, code=None):
         logger.info(f"  - DEFAULT_FROM_EMAIL: {settings.DEFAULT_FROM_EMAIL}")
         
         try:
+            if email_message:
+                message_text = email_message.format(code=verification_code.code)
+            else:
+                message_text = f'Your verification code is: {verification_code.code}'
             logger.info(f"SEND_VERIFICATION_CODE DEBUG: Calling send_mail()...")
             result = send_mail(
-                subject='Verification Code',
-                message=f'Your verification code is: {verification_code.code}',
+                subject=email_subject,
+                message=message_text,
                 from_email=settings.DEFAULT_FROM_EMAIL,
                 recipient_list=[email],
                 fail_silently=False,

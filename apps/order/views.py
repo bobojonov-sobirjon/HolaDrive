@@ -12,6 +12,7 @@ from .serializers import (
     OrderCreateSerializer,
     OrderSerializer,
     OrderDetailSerializer,
+    OrderSetPaymentCardSerializer,
     PriceEstimateSerializer,
     PriceEstimateManagePriceSerializer,
     OrderItemUpdateSerializer,
@@ -22,6 +23,7 @@ from .serializers import (
     OrderScheduleSerializer,
     DriverNearbyOrderSerializer,
     DriverOrderActionSerializer,
+    DriverOrderLifecycleSerializer,
     DriverPickupSerializer,
     DriverCompleteSerializer,
     DriverLocationUpdateSerializer,
@@ -47,6 +49,7 @@ from .models import (
     CancelOrder,
 )
 from apps.accounts.models import CustomUser, DriverPreferences
+from apps.payment.models import SavedCard
 from .services.surge_pricing_service import calculate_distance
 from .services.driver_assignment_service import DriverAssignmentService
 from .services.driver_dashboard import get_driver_dashboard, get_cash_history, get_ride_history, get_driver_earnings
@@ -60,7 +63,8 @@ class OrderCreateView(AsyncAPIView):
         summary='Create order',
         description=(
             'Create order and order items. Optional ride_type_id: tariff (RideType) ID; '
-            'if omitted, first active is used. Optional adjusted_price: reja/min-max '
+            'if omitted, first active is used. Optional payment_type: ``card`` (default), '
+            '``cash``, or ``hola_wallet_cash``. Optional adjusted_price: reja/min-max '
             'qoidalariga mos narx (``price-estimate/manage-price/`` dan keyin).'
         ),
         request=OrderCreateSerializer,
@@ -76,6 +80,7 @@ class OrderCreateView(AsyncAPIView):
                     'longitude_to': 64.4272017,
                     'order_type': 2,
                     'ride_type_id': 1,
+                    'payment_type': 'card',
                 },
                 request_only=True,
             ),
@@ -89,7 +94,7 @@ class OrderCreateView(AsyncAPIView):
         if is_valid:
             order = await sync_to_async(serializer.save)()
             
-            order = await Order.objects.select_related('user').prefetch_related(
+            order = await Order.objects.select_related('user', 'saved_card').prefetch_related(
                 'order_items__ride_type'
             ).aget(pk=order.pk)
             
@@ -220,7 +225,36 @@ class AdditionalPassengerCreateView(AsyncAPIView):
         
         if is_valid:
             passenger = await sync_to_async(serializer.save)()
-            
+
+            def _notify_accepted_driver_additional_passenger():
+                od = (
+                    OrderDriver.objects.filter(
+                        order_id=passenger.order_id,
+                        status=OrderDriver.DriverRequestStatus.ACCEPTED,
+                    )
+                    .select_related('order')
+                    .first()
+                )
+                if not od:
+                    return
+                from apps.notification.services import enqueue_push_to_user_id
+
+                order_obj = od.order
+                label = (passenger.full_name or '').strip() or 'A passenger'
+                enqueue_push_to_user_id(
+                    od.driver_id,
+                    title='Additional passenger',
+                    body=f'{label} was added to order {order_obj.order_code}.',
+                    data={
+                        'type': 'additional_passenger',
+                        'order_id': order_obj.id,
+                        'order_code': order_obj.order_code or '',
+                        'additional_passenger_id': passenger.id,
+                    },
+                )
+
+            await sync_to_async(_notify_accepted_driver_additional_passenger)()
+
             pass_serializer = AdditionalPassengerSerializer(passenger)
             serializer_data = await sync_to_async(lambda: pass_serializer.data)()
             
@@ -588,6 +622,229 @@ class DriverOrderActionView(AsyncAPIView):
         )
 
 
+class DriverOnTheWayView(AsyncAPIView):
+    """accepted → on_the_way: driver is heading to pickup."""
+
+    permission_classes = [IsAuthenticated]
+
+    async def _check_driver_role(self, user):
+        groups = await sync_to_async(list)(user.groups.all())
+        names = [g.name for g in groups]
+        return 'Driver' in names
+
+    @extend_schema(
+        tags=['Driver: Orders & trips'],
+        summary='Driver: on the way to pickup',
+        description=(
+            'Sets order status to **on_the_way** after **accepted**. '
+            'Lifecycle: accepted → on_the_way → arrived → pickup (in_progress) → complete.'
+        ),
+        request=DriverOrderLifecycleSerializer,
+    )
+    async def post(self, request):
+        user = request.user
+        if not await self._check_driver_role(user):
+            return Response(
+                {'message': 'Only drivers can access this endpoint', 'status': 'error'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        serializer = DriverOrderLifecycleSerializer(data=request.data)
+        is_valid = await sync_to_async(lambda: serializer.is_valid())()
+        if not is_valid:
+            errors = await sync_to_async(lambda: serializer.errors)()
+            return Response(
+                {'message': 'Validation error', 'status': 'error', 'errors': errors},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        order_id = (await sync_to_async(lambda: serializer.validated_data)())['order_id']
+
+        try:
+            order = await Order.objects.select_related('user').aget(id=order_id)
+        except Order.DoesNotExist:
+            return Response({'message': 'Order not found', 'status': 'error'}, status=status.HTTP_404_NOT_FOUND)
+
+        order_driver = await OrderDriver.objects.filter(
+            order=order,
+            driver=user,
+            status=OrderDriver.DriverRequestStatus.ACCEPTED,
+        ).afirst()
+
+        if not order_driver:
+            return Response(
+                {
+                    'message': 'This order is not assigned to you or is not in accepted state',
+                    'status': 'error',
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if order.status != Order.OrderStatus.ACCEPTED:
+            return Response(
+                {
+                    'message': (
+                        f'Order must be accepted before marking on the way. Current status: {order.status}'
+                    ),
+                    'status': 'error',
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        order.status = Order.OrderStatus.ON_THE_WAY
+        await sync_to_async(order.save)(update_fields=['status'])
+
+        try:
+            from apps.notification.services import send_push_to_user
+
+            send_push_to_user(
+                user=order.user,
+                title='Driver on the way',
+                body='Your driver is heading to the pickup location.',
+                data={
+                    'order_id': order.id,
+                    'order_code': order.order_code or '',
+                    'type': 'driver_on_the_way',
+                },
+            )
+        except Exception as e:
+            import logging
+
+            logging.getLogger(__name__).error(
+                'Failed to send on-the-way push to rider %s: %s', order.user_id, e
+            )
+
+        try:
+            from apps.order.services.rider_orders_websocket import notify_rider_order_updated
+
+            await sync_to_async(notify_rider_order_updated)(
+                order.id,
+                'on_the_way',
+                'Driver is on the way to pickup.',
+            )
+        except Exception as e:
+            import logging
+
+            logging.getLogger(__name__).error(
+                'Failed rider WebSocket on_the_way for order %s: %s', order.id, e
+            )
+
+        return Response(
+            {'message': 'Order marked as on the way', 'status': 'success'},
+            status=status.HTTP_200_OK,
+        )
+
+
+class DriverArrivedView(AsyncAPIView):
+    """on_the_way → arrived: driver at pickup point."""
+
+    permission_classes = [IsAuthenticated]
+
+    async def _check_driver_role(self, user):
+        groups = await sync_to_async(list)(user.groups.all())
+        names = [g.name for g in groups]
+        return 'Driver' in names
+
+    @extend_schema(
+        tags=['Driver: Orders & trips'],
+        summary='Driver: arrived at pickup',
+        description='Sets order status to **arrived** when current status is **on_the_way**.',
+        request=DriverOrderLifecycleSerializer,
+    )
+    async def post(self, request):
+        user = request.user
+        if not await self._check_driver_role(user):
+            return Response(
+                {'message': 'Only drivers can access this endpoint', 'status': 'error'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        serializer = DriverOrderLifecycleSerializer(data=request.data)
+        is_valid = await sync_to_async(lambda: serializer.is_valid())()
+        if not is_valid:
+            errors = await sync_to_async(lambda: serializer.errors)()
+            return Response(
+                {'message': 'Validation error', 'status': 'error', 'errors': errors},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        order_id = (await sync_to_async(lambda: serializer.validated_data)())['order_id']
+
+        try:
+            order = await Order.objects.select_related('user').aget(id=order_id)
+        except Order.DoesNotExist:
+            return Response({'message': 'Order not found', 'status': 'error'}, status=status.HTTP_404_NOT_FOUND)
+
+        order_driver = await OrderDriver.objects.filter(
+            order=order,
+            driver=user,
+            status=OrderDriver.DriverRequestStatus.ACCEPTED,
+        ).afirst()
+
+        if not order_driver:
+            return Response(
+                {
+                    'message': 'This order is not assigned to you or is not in accepted state',
+                    'status': 'error',
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if order.status != Order.OrderStatus.ON_THE_WAY:
+            return Response(
+                {
+                    'message': (
+                        f'Order must be on_the_way before marking arrived. Current status: {order.status}'
+                    ),
+                    'status': 'error',
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        order.status = Order.OrderStatus.ARRIVED
+        await sync_to_async(order.save)(update_fields=['status'])
+
+        try:
+            from apps.notification.services import send_push_to_user
+
+            send_push_to_user(
+                user=order.user,
+                title='Driver has arrived',
+                body='Your driver is at the pickup location.',
+                data={
+                    'order_id': order.id,
+                    'order_code': order.order_code or '',
+                    'type': 'driver_arrived',
+                },
+            )
+        except Exception as e:
+            import logging
+
+            logging.getLogger(__name__).error(
+                'Failed to send arrived push to rider %s: %s', order.user_id, e
+            )
+
+        try:
+            from apps.order.services.rider_orders_websocket import notify_rider_order_updated
+
+            await sync_to_async(notify_rider_order_updated)(
+                order.id,
+                'arrived',
+                'Driver arrived at pickup.',
+            )
+        except Exception as e:
+            import logging
+
+            logging.getLogger(__name__).error(
+                'Failed rider WebSocket arrived for order %s: %s', order.id, e
+            )
+
+        return Response(
+            {'message': 'Order marked as arrived at pickup', 'status': 'success'},
+            status=status.HTTP_200_OK,
+        )
+
+
 class DriverPickupView(AsyncAPIView):
     permission_classes = [IsAuthenticated]
 
@@ -596,7 +853,15 @@ class DriverPickupView(AsyncAPIView):
         names = [g.name for g in groups]
         return 'Driver' in names
 
-    @extend_schema(tags=['Driver: Orders & trips'], summary='Confirm pickup', description='Mark trip as started after driver picks up rider. Body requires order_id; validates assignment and current lifecycle state.', request=DriverPickupSerializer)
+    @extend_schema(
+        tags=['Driver: Orders & trips'],
+        summary='Confirm pickup',
+        description=(
+            'Mark trip as **in_progress** after rider is in the vehicle. '
+            'Requires order status **arrived** (after **on_the_way**). Body: order_id.'
+        ),
+        request=DriverPickupSerializer,
+    )
     async def post(self, request):
         user = request.user
         is_driver = await self._check_driver_role(user)
@@ -628,9 +893,15 @@ class DriverPickupView(AsyncAPIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        if order.status != Order.OrderStatus.ACCEPTED:
+        if order.status != Order.OrderStatus.ARRIVED:
             return Response(
-                {'message': f'Order must be accepted before pickup. Current status: {order.status}', 'status': 'error'},
+                {
+                    'message': (
+                        f'Order must be arrived at pickup before confirming pickup. '
+                        f'Use driver/on-the-way/ then driver/arrived/ first. Current status: {order.status}'
+                    ),
+                    'status': 'error',
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -678,8 +949,21 @@ class DriverCompleteView(AsyncAPIView):
         names = [g.name for g in groups]
         return 'Driver' in names
 
-    @extend_schema(tags=['Driver: Orders & trips'], summary='Confirm complete/dropoff', description='Mark trip as completed after drop-off. Body requires order_id; updates lifecycle and triggers post-trip flows.', request=DriverCompleteSerializer)
+    @extend_schema(
+        tags=['Driver: Orders & trips'],
+        summary='Confirm complete/dropoff',
+        description=(
+            'Mark trip as completed after drop-off. Body: order_id. '
+            'If payment_type is **card**, charges the rider via Stripe (order total from order items) '
+            'before completing; funds go to the driver’s Stripe Connect account when '
+            '`stripe_connect_account_id` is set on the driver user, otherwise to the platform account. '
+            'Cash / hola_wallet_cash skip Stripe.'
+        ),
+        request=DriverCompleteSerializer,
+    )
     async def post(self, request):
+        import stripe
+
         user = request.user
         is_driver = await self._check_driver_role(user)
         if not is_driver:
@@ -694,9 +978,17 @@ class DriverCompleteView(AsyncAPIView):
         order_id = (await sync_to_async(lambda: serializer.validated_data)())['order_id']
 
         try:
-            order = await Order.objects.select_related('user').aget(id=order_id)
+            order = await Order.objects.select_related('user', 'saved_card').prefetch_related(
+                'order_items'
+            ).aget(id=order_id)
         except Order.DoesNotExist:
             return Response({'message': 'Order not found', 'status': 'error'}, status=status.HTTP_404_NOT_FOUND)
+
+        if order.status == Order.OrderStatus.COMPLETED:
+            return Response(
+                {'message': 'Order is already completed', 'status': 'error'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         order_driver = await OrderDriver.objects.filter(
             order=order,
@@ -716,12 +1008,61 @@ class DriverCompleteView(AsyncAPIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        stripe_pi = ''
+        stripe_pay_status = Order.StripeTripPaymentStatus.NOT_APPLICABLE
+        stripe_cents = None
+        stripe_currency = ''
+
+        if order.payment_type == Order.PaymentType.CARD:
+            from apps.payment.services.trip_charge import charge_trip_card_payment
+
+            try:
+                result = await sync_to_async(charge_trip_card_payment)(order, user)
+            except ValueError as e:
+                return Response(
+                    {'message': str(e), 'status': 'error'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            except stripe.error.StripeError as e:
+                msg = getattr(e, 'user_message', None) or str(e)
+
+                async def _persist_err():
+                    o = await Order.objects.aget(pk=order.pk)
+                    o.stripe_trip_payment_error = (msg or '')[:2000]
+                    await sync_to_async(o.save)(update_fields=['stripe_trip_payment_error', 'updated_at'])
+
+                await _persist_err()
+                return Response(
+                    {'message': msg, 'status': 'error'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            stripe_pi = result['payment_intent_id']
+            stripe_pay_status = Order.StripeTripPaymentStatus.SUCCEEDED
+            stripe_cents = result['amount_cents']
+            stripe_currency = result['currency']
+
         from django.utils import timezone
         now = timezone.now()
         order_driver.completed_at = now
         order.status = Order.OrderStatus.COMPLETED
+        order.stripe_trip_payment_intent_id = stripe_pi
+        order.stripe_trip_payment_status = stripe_pay_status
+        order.stripe_trip_payment_amount_cents = stripe_cents
+        order.stripe_trip_payment_currency = stripe_currency or ''
+        order.stripe_trip_payment_error = ''
         await sync_to_async(order_driver.save)(update_fields=['completed_at'])
-        await sync_to_async(order.save)(update_fields=['status'])
+        await sync_to_async(order.save)(
+            update_fields=[
+                'status',
+                'stripe_trip_payment_intent_id',
+                'stripe_trip_payment_status',
+                'stripe_trip_payment_amount_cents',
+                'stripe_trip_payment_currency',
+                'stripe_trip_payment_error',
+                'updated_at',
+            ]
+        )
         try:
             from apps.chat.models import ChatRoom
             await sync_to_async(lambda: ChatRoom.objects.filter(order=order).update(status=ChatRoom.RoomStatus.COMPLETED))()
@@ -754,7 +1095,27 @@ class DriverCompleteView(AsyncAPIView):
                 'Failed to send rider WebSocket complete for order %s: %s', order.id, e
             )
 
-        return Response({'message': 'Ride completed successfully', 'status': 'success'}, status=status.HTTP_200_OK)
+        payment_info = {
+            'payment_type': order.payment_type,
+            'is_paid': bool(order.payment_type != Order.PaymentType.CARD or stripe_pi),
+            'stripe_trip_payment_status': order.stripe_trip_payment_status,
+            'stripe_trip_payment_intent_id': order.stripe_trip_payment_intent_id or None,
+            'stripe_trip_payment_amount_cents': order.stripe_trip_payment_amount_cents,
+            'stripe_trip_payment_currency': order.stripe_trip_payment_currency or None,
+        }
+        return Response(
+            {
+                'message': 'Ride completed successfully',
+                'status': 'success',
+                'data': {
+                    'order_id': order.id,
+                    'order_code': order.order_code,
+                    'order_status': order.status,
+                    'payment': payment_info,
+                },
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 class DriverCancelOrderView(AsyncAPIView):
@@ -1452,9 +1813,24 @@ class OrderCancelView(AsyncAPIView):
             except Exception as e:
                 import logging
                 logging.getLogger(__name__).error(f"Failed to update ChatRoom status for order {order.id}: {e}")
-            order_driver = await sync_to_async(
-                lambda: OrderDriver.objects.select_related('driver').filter(order=order).first()
-            )()
+            def _cancel_order_driver_for_record():
+                od = (
+                    OrderDriver.objects.select_related('driver')
+                    .filter(
+                        order=order,
+                        status=OrderDriver.DriverRequestStatus.ACCEPTED,
+                    )
+                    .first()
+                )
+                if od:
+                    return od
+                return (
+                    OrderDriver.objects.select_related('driver')
+                    .filter(order=order)
+                    .first()
+                )
+
+            order_driver = await sync_to_async(_cancel_order_driver_for_record)()
             
             await sync_to_async(CancelOrder.objects.create)(
                 order=order,
@@ -1539,7 +1915,7 @@ class MyOrderListView(AsyncAPIView):
         from rest_framework.pagination import PageNumberPagination
         
         orders_queryset = Order.objects.filter(user=request.user).select_related(
-            'user'
+            'user', 'saved_card'
         ).prefetch_related(
             'order_items__ride_type',
             'order_preferences',
@@ -1643,7 +2019,7 @@ class OrderDetailView(AsyncAPIView):
     )
     async def get(self, request, order_id: int):
         try:
-            order = await Order.objects.select_related('user').prefetch_related(
+            order = await Order.objects.select_related('user', 'saved_card').prefetch_related(
                 'order_items__ride_type',
                 'order_preferences',
                 'order_drivers__driver__vehicle_details__images',
@@ -1669,6 +2045,113 @@ class OrderDetailView(AsyncAPIView):
         return Response(
             {
                 'message': 'Order retrieved successfully',
+                'status': 'success',
+                'data': serializer_data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class OrderPaymentCardView(AsyncAPIView):
+    """
+    Rider: attach a saved card to an order (card payment). Sets payment_type to card.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        tags=['Rider: Orders'],
+        summary='Set order payment card',
+        description=(
+            'Body: ``card_id`` — primary key of a **rider** saved card belonging to the request user. '
+            'Updates the order’s ``saved_card`` and sets ``payment_type`` to **card**. '
+            'Not allowed for completed / cancelled / rejected orders.'
+        ),
+        request=OrderSetPaymentCardSerializer,
+        responses={200: OrderDetailSerializer},
+        examples=[
+            OpenApiExample(
+                'Set card',
+                value={'card_id': 1},
+                request_only=True,
+            ),
+        ],
+    )
+    async def patch(self, request, order_id: int):
+        try:
+            order = await Order.objects.aget(id=order_id, user=request.user)
+        except Order.DoesNotExist:
+            return Response(
+                {'message': 'Order not found', 'status': 'error'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if order.status in (
+            Order.OrderStatus.COMPLETED,
+            Order.OrderStatus.CANCELLED,
+            Order.OrderStatus.REJECTED,
+        ):
+            return Response(
+                {
+                    'message': 'Cannot change payment card for this order.',
+                    'status': 'error',
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        ser_in = OrderSetPaymentCardSerializer(data=request.data)
+        valid = await sync_to_async(lambda: ser_in.is_valid())()
+        if not valid:
+            errors = await sync_to_async(lambda: ser_in.errors)()
+            return Response(
+                {'message': 'Validation error', 'status': 'error', 'errors': errors},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        card_id = ser_in.validated_data['card_id']
+        try:
+            card = await SavedCard.objects.aget(
+                id=card_id,
+                user=request.user,
+                is_active=True,
+                holder_role=SavedCard.HolderRole.RIDER,
+            )
+        except SavedCard.DoesNotExist:
+            return Response(
+                {
+                    'message': 'Saved card not found or not available for this user.',
+                    'status': 'error',
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        def _save():
+            order.saved_card = card
+            order.payment_type = Order.PaymentType.CARD
+            order.save(update_fields=['saved_card', 'payment_type', 'updated_at'])
+
+        await sync_to_async(_save)()
+
+        order = await Order.objects.select_related('user', 'saved_card').prefetch_related(
+            'order_items__ride_type',
+            'order_preferences',
+            'order_drivers__driver__vehicle_details__images',
+            'additional_passengers',
+        ).aget(pk=order.pk)
+
+        from apps.order.services.rider_orders_websocket import notify_rider_order_updated
+
+        await sync_to_async(notify_rider_order_updated)(
+            order.id,
+            'payment_card',
+            'Payment card updated',
+        )
+
+        order_serializer = OrderDetailSerializer(order, context={'request': request})
+        serializer_data = await sync_to_async(lambda: order_serializer.data)()
+        return Response(
+            {
+                'message': 'Order payment card updated successfully',
                 'status': 'success',
                 'data': serializer_data,
             },

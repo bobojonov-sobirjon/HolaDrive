@@ -268,3 +268,57 @@ def send_push_to_user(user, title: str, body: str, data: dict | None = None) -> 
     return _send_via_http_legacy(tokens, title, body, data)
 
 
+def enqueue_push_to_user_id(
+    user_id: int, title: str, body: str, data: dict | None = None
+) -> None:
+    """
+    Queue an FCM push by user primary key. Uses Celery when available; otherwise
+    sends synchronously (same pattern as driver assignment / order actions).
+    """
+    try:
+        from apps.notification.tasks import send_push_notification_async
+
+        send_push_notification_async.delay(
+            user_id=user_id,
+            title=title,
+            body=body,
+            data=data or {},
+        )
+    except ImportError:
+        from apps.accounts.models import CustomUser
+
+        user = CustomUser.objects.filter(pk=user_id).first()
+        if not user:
+            logger.warning(
+                "enqueue_push_to_user_id: user_id=%s not found (sync path)", user_id
+            )
+            return
+        try:
+            send_push_to_user(user, title, body, data or {})
+        except Exception as exc:  # pragma: no cover
+            logger.exception(
+                "enqueue_push_to_user_id: sync push failed user_id=%s: %s",
+                user_id,
+                exc,
+            )
+    except Exception as exc:
+        logger.warning(
+            "enqueue_push_to_user_id: Celery delay failed user_id=%s: %s — trying sync",
+            user_id,
+            exc,
+        )
+        from apps.accounts.models import CustomUser
+
+        user = CustomUser.objects.filter(pk=user_id).first()
+        if not user:
+            return
+        try:
+            send_push_to_user(user, title, body, data or {})
+        except Exception as sync_exc:  # pragma: no cover
+            logger.exception(
+                "enqueue_push_to_user_id: sync fallback failed user_id=%s: %s",
+                user_id,
+                sync_exc,
+            )
+
+
