@@ -7,6 +7,7 @@ import logging
 from asgiref.sync import async_to_sync
 from django.utils import timezone
 from django.db.models import Avg, Count, Q
+from .rider_orders_websocket import _media_absolute_url
 
 from ..models import TripRating
 
@@ -81,7 +82,7 @@ def _order_to_dict(order, driver=None, requested_at=None):
         avatar_url = None
         if user.avatar:
             try:
-                avatar_url = user.avatar.url  # Relative path, client prepends base URL
+                avatar_url = _media_absolute_url(user.avatar.url)
             except (ValueError, AttributeError):
                 avatar_url = None
         client_info = {

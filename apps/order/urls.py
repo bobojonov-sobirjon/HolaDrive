@@ -7,6 +7,7 @@ from .views import (
     OrderItemManagePriceView,
     OrderCancelView,
     MyOrderListView,
+    RiderRideHistoryView,
     OrderDetailView,
     OrderPaymentCardView,
     RiderActiveRideView,
@@ -40,6 +41,7 @@ from .views import (
 urlpatterns = [
     path('create/', OrderCreateView.as_view(), name='order-create'),
     path('my-orders/', MyOrderListView.as_view(), name='my-orders'),
+    path('rider/ride-history/', RiderRideHistoryView.as_view(), name='rider-ride-history'),
     path('rider/active-ride/', RiderActiveRideView.as_view(), name='rider-active-ride'),
     path('driver/active-ride/', DriverActiveRideView.as_view(), name='driver-active-ride'),
     path('<int:order_id>/', OrderDetailView.as_view(), name='order-detail'),

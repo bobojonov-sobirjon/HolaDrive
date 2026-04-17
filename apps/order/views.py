@@ -1988,6 +1988,127 @@ class MyOrderListView(AsyncAPIView):
         )
 
 
+class RiderRideHistoryView(AsyncAPIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        tags=['Rider: Orders'],
+        summary='Rider ride history',
+        description=(
+            'Paginated rider ride history. By default returns completed rides only. '
+            'Optional filters: status=completed|cancelled|rejected, order_type, page, page_size.'
+        ),
+        parameters=[
+            OpenApiParameter(
+                'status',
+                OpenApiTypes.STR,
+                OpenApiParameter.QUERY,
+                required=False,
+                description='completed (default), cancelled, rejected',
+            ),
+            OpenApiParameter(
+                'order_type',
+                OpenApiTypes.STR,
+                OpenApiParameter.QUERY,
+                required=False,
+                description='pickup or for_me',
+            ),
+            OpenApiParameter(
+                'page',
+                OpenApiTypes.INT,
+                OpenApiParameter.QUERY,
+                required=False,
+                description='Page number (default 1)',
+            ),
+            OpenApiParameter(
+                'page_size',
+                OpenApiTypes.INT,
+                OpenApiParameter.QUERY,
+                required=False,
+                description='Page size (default 10)',
+            ),
+        ],
+        responses={200: OrderSerializer(many=True)},
+    )
+    async def get(self, request):
+        from rest_framework.pagination import PageNumberPagination
+
+        allowed_statuses = {
+            Order.OrderStatus.COMPLETED,
+            Order.OrderStatus.CANCELLED,
+            Order.OrderStatus.REJECTED,
+        }
+        status_filter = request.query_params.get('status', Order.OrderStatus.COMPLETED)
+        if status_filter not in allowed_statuses:
+            return Response(
+                {
+                    'message': 'Invalid status value',
+                    'status': 'error',
+                    'errors': {
+                        'status': 'Must be one of: completed, cancelled, rejected'
+                    },
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        qs = Order.objects.filter(
+            user=request.user,
+            status=status_filter,
+        ).select_related(
+            'user',
+            'saved_card',
+        ).prefetch_related(
+            'order_items__ride_type',
+            'order_preferences',
+            'order_drivers__driver',
+            'additional_passengers',
+        ).order_by('-updated_at', '-created_at')
+
+        order_type_filter = request.query_params.get('order_type')
+        if order_type_filter:
+            order_type_choices = await sync_to_async(
+                lambda: [choice[0] for choice in Order.OrderType.choices]
+            )()
+            if order_type_filter not in order_type_choices:
+                return Response(
+                    {
+                        'message': 'Invalid order_type value',
+                        'status': 'error',
+                        'errors': {
+                            'order_type': f'Must be one of: {", ".join(order_type_choices)}'
+                        },
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            qs = qs.filter(order_type=order_type_filter)
+
+        orders = await sync_to_async(list)(qs)
+        paginator = PageNumberPagination()
+        paginator.page_size = int(request.query_params.get('page_size', 10))
+        paginated_orders = await sync_to_async(paginator.paginate_queryset)(orders, request)
+
+        if paginated_orders is not None:
+            serializer = OrderSerializer(paginated_orders, many=True, context={'request': request})
+            serializer_data = await sync_to_async(lambda: serializer.data)()
+            response = await sync_to_async(paginator.get_paginated_response)(serializer_data)
+            response.data['message'] = 'Ride history retrieved successfully'
+            response.data['status'] = 'success'
+            response.data['data'] = response.data.pop('results')
+            return response
+
+        serializer = OrderSerializer(orders, many=True, context={'request': request})
+        serializer_data = await sync_to_async(lambda: serializer.data)()
+        return Response(
+            {
+                'message': 'Ride history retrieved successfully',
+                'status': 'success',
+                'count': len(orders),
+                'data': serializer_data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
 class OrderDetailView(AsyncAPIView):
     """
     Single order by id. Rider: own orders. Driver: orders linked via OrderDriver (any request status).
