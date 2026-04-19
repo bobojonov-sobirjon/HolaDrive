@@ -38,6 +38,7 @@ from .serializers import (
     RatingFeedbackTagSerializer,
 )
 from .serializers.cancel_order import OrderCancelSerializer, DriverCancelSerializer
+from .serializers.pin_verify import OrderPinVerifySerializer
 from .models import (
     Order,
     OrderItem,
@@ -48,7 +49,8 @@ from .models import (
     DriverCashout,
     CancelOrder,
 )
-from apps.accounts.models import CustomUser, DriverPreferences
+from apps.accounts.models import CustomUser, DriverPreferences, PinVerificationForUser
+from apps.accounts.serializers.user import UserDetailSerializer
 from apps.payment.models import SavedCard
 from .services.surge_pricing_service import calculate_distance
 from .services.driver_assignment_service import DriverAssignmentService
@@ -478,6 +480,14 @@ class DriverOrderActionView(AsyncAPIView):
             order_driver.responded_at = timezone.now()
             await sync_to_async(order_driver.save)()
             await sync_to_async(order.save)()
+
+            def _attach_driver_pin():
+                from apps.order.services.order_pin import attach_driver_pin_to_order_driver
+
+                od = OrderDriver.objects.get(pk=order_driver.pk)
+                attach_driver_pin_to_order_driver(od)
+
+            await sync_to_async(_attach_driver_pin)()
             
             try:
                 from apps.chat.models import ChatRoom
@@ -505,11 +515,11 @@ class DriverOrderActionView(AsyncAPIView):
                     },
                 )
             except ImportError:
-                from apps.notification.services import send_push_to_user
-
                 try:
-                    send_push_to_user(
-                        user=order.user,
+                    from apps.notification.services import enqueue_push_to_user_id
+
+                    enqueue_push_to_user_id(
+                        order.user_id,
                         title='Driver found',
                         body='Your ride has been accepted. Driver is on the way.',
                         data={
@@ -521,7 +531,7 @@ class DriverOrderActionView(AsyncAPIView):
                 except Exception as e:
                     import logging
                     logging.getLogger(__name__).error(
-                        'Failed to send push to rider %s (sync): %s', order.user_id, e
+                        'Failed to enqueue push to rider %s: %s', order.user_id, e
                     )
             except Exception as e:
                 import logging
@@ -588,11 +598,11 @@ class DriverOrderActionView(AsyncAPIView):
                     },
                 )
             except ImportError:
-                from apps.notification.services import send_push_to_user
-
                 try:
-                    send_push_to_user(
-                        user=order.user,
+                    from apps.notification.services import enqueue_push_to_user_id
+
+                    enqueue_push_to_user_id(
+                        order.user_id,
                         title='Order update',
                         body=message,
                         data={
@@ -605,7 +615,7 @@ class DriverOrderActionView(AsyncAPIView):
                 except Exception as e:
                     import logging
                     logging.getLogger(__name__).error(
-                        'Failed to send reject push to rider %s (sync): %s', order.user_id, e
+                        'Failed to enqueue reject push to rider %s: %s', order.user_id, e
                     )
             except Exception as e:
                 import logging
@@ -695,10 +705,10 @@ class DriverOnTheWayView(AsyncAPIView):
         await sync_to_async(order.save)(update_fields=['status'])
 
         try:
-            from apps.notification.services import send_push_to_user
+            from apps.notification.services import enqueue_push_to_user_id
 
-            send_push_to_user(
-                user=order.user,
+            enqueue_push_to_user_id(
+                order.user_id,
                 title='Driver on the way',
                 body='Your driver is heading to the pickup location.',
                 data={
@@ -711,13 +721,13 @@ class DriverOnTheWayView(AsyncAPIView):
             import logging
 
             logging.getLogger(__name__).error(
-                'Failed to send on-the-way push to rider %s: %s', order.user_id, e
+                'Failed to enqueue on-the-way push to rider %s: %s', order.user_id, e
             )
 
         try:
-            from apps.order.services.rider_orders_websocket import notify_rider_order_updated
+            from apps.order.services.rider_orders_websocket import async_notify_rider_order_updated
 
-            await sync_to_async(notify_rider_order_updated)(
+            await async_notify_rider_order_updated(
                 order.id,
                 'on_the_way',
                 'Driver is on the way to pickup.',
@@ -805,10 +815,10 @@ class DriverArrivedView(AsyncAPIView):
         await sync_to_async(order.save)(update_fields=['status'])
 
         try:
-            from apps.notification.services import send_push_to_user
+            from apps.notification.services import enqueue_push_to_user_id
 
-            send_push_to_user(
-                user=order.user,
+            enqueue_push_to_user_id(
+                order.user_id,
                 title='Driver has arrived',
                 body='Your driver is at the pickup location.',
                 data={
@@ -821,13 +831,13 @@ class DriverArrivedView(AsyncAPIView):
             import logging
 
             logging.getLogger(__name__).error(
-                'Failed to send arrived push to rider %s: %s', order.user_id, e
+                'Failed to enqueue arrived push to rider %s: %s', order.user_id, e
             )
 
         try:
-            from apps.order.services.rider_orders_websocket import notify_rider_order_updated
+            from apps.order.services.rider_orders_websocket import async_notify_rider_order_updated
 
-            await sync_to_async(notify_rider_order_updated)(
+            await async_notify_rider_order_updated(
                 order.id,
                 'arrived',
                 'Driver arrived at pickup.',
@@ -913,21 +923,24 @@ class DriverPickupView(AsyncAPIView):
         await sync_to_async(order.save)(update_fields=['status'])
 
         try:
-            from apps.notification.services import send_push_to_user
-            send_push_to_user(
-                user=order.user,
+            from apps.notification.services import enqueue_push_to_user_id
+
+            enqueue_push_to_user_id(
+                order.user_id,
                 title="Ride started",
                 body="Driver has picked you up. Your ride has started.",
-                data={"order_id": order.id, "order_code": order.order_code, "type": "ride_started"}
+                data={"order_id": order.id, "order_code": order.order_code, "type": "ride_started"},
             )
         except Exception as e:
             import logging
-            logging.getLogger(__name__).error(f"Failed to send pickup push to rider {order.user.id}: {e}")
+            logging.getLogger(__name__).error(
+                "Failed to enqueue pickup push to rider %s: %s", order.user_id, e
+            )
 
         try:
-            from apps.order.services.rider_orders_websocket import notify_rider_order_updated
+            from apps.order.services.rider_orders_websocket import async_notify_rider_order_updated
 
-            await sync_to_async(notify_rider_order_updated)(
+            await async_notify_rider_order_updated(
                 order.id,
                 'in_progress',
                 'Driver picked you up. Ride in progress.',
@@ -1070,21 +1083,24 @@ class DriverCompleteView(AsyncAPIView):
             import logging
             logging.getLogger(__name__).error(f"Failed to update ChatRoom status for order {order.id}: {e}")
         try:
-            from apps.notification.services import send_push_to_user
-            send_push_to_user(
-                user=order.user,
+            from apps.notification.services import enqueue_push_to_user_id
+
+            enqueue_push_to_user_id(
+                order.user_id,
                 title="Ride completed",
                 body="Thank you for riding with us. Your ride has been completed.",
-                data={"order_id": order.id, "order_code": order.order_code, "type": "ride_completed"}
+                data={"order_id": order.id, "order_code": order.order_code, "type": "ride_completed"},
             )
         except Exception as e:
             import logging
-            logging.getLogger(__name__).error(f"Failed to send complete push to rider {order.user.id}: {e}")
+            logging.getLogger(__name__).error(
+                "Failed to enqueue complete push to rider %s: %s", order.user_id, e
+            )
 
         try:
-            from apps.order.services.rider_orders_websocket import notify_rider_order_updated
+            from apps.order.services.rider_orders_websocket import async_notify_rider_order_updated
 
-            await sync_to_async(notify_rider_order_updated)(
+            await async_notify_rider_order_updated(
                 order.id,
                 'completed',
                 'Your ride has been completed.',
@@ -1195,21 +1211,28 @@ class DriverCancelOrderView(AsyncAPIView):
         )
 
         try:
-            from apps.notification.services import send_push_to_user
-            send_push_to_user(
-                user=order.user,
+            from apps.notification.services import enqueue_push_to_user_id
+
+            enqueue_push_to_user_id(
+                order.user_id,
                 title="Ride cancelled",
                 body="Your ride has been cancelled by the driver.",
-                data={"order_id": order.id, "order_code": order.order_code, "type": "ride_cancelled_by_driver"}
+                data={
+                    "order_id": order.id,
+                    "order_code": order.order_code,
+                    "type": "ride_cancelled_by_driver",
+                },
             )
         except Exception as e:
             import logging
-            logging.getLogger(__name__).error(f"Failed to send cancel push to rider {order.user.id}: {e}")
+            logging.getLogger(__name__).error(
+                "Failed to enqueue cancel push to rider %s: %s", order.user_id, e
+            )
 
         try:
-            from apps.order.services.rider_orders_websocket import notify_rider_order_updated
+            from apps.order.services.rider_orders_websocket import async_notify_rider_order_updated
 
-            await sync_to_async(notify_rider_order_updated)(
+            await async_notify_rider_order_updated(
                 order.id,
                 'cancelled_driver',
                 'Your ride has been cancelled by the driver.',
@@ -1409,15 +1432,21 @@ class PriceEstimateView(AsyncAPIView):
             'Barcha aktiv ride type lar uchun narx. Har bir ``estimates`` elementida '
             '``id`` = ``ride_type_id`` (reja bosqichi; buyurtma hali yo‘q). '
             'Buyurtma yaratilgach narxni o‘zgartirish uchun ``order_items[].id`` bilan '
-            '``PATCH .../order-item/{id}/manage-price/`` ishlating.'
+            '``PATCH .../order-item/{id}/manage-price/`` ishlating. '
+            '``ride_type_icon`` qisqa matn bo‘lishi mumkin — mijozda ``substring(0, 10)`` '
+            'kabi qat’iy uzunlik ishlatmang.'
         ),
         request=PriceEstimateSerializer,
     )
     async def post(self, request):
+        import logging
+        import math
+
         from apps.order.models import RideType
         from apps.order.services.surge_pricing_service import SurgePricingService, calculate_distance
-        from decimal import Decimal
-        
+
+        logger = logging.getLogger(__name__)
+
         serializer = PriceEstimateSerializer(data=request.data)
         
         is_valid = await sync_to_async(lambda: serializer.is_valid())()
@@ -1431,40 +1460,78 @@ class PriceEstimateView(AsyncAPIView):
             lon_to = float(validated_data['longitude_to'])
             
             distance_km = await sync_to_async(calculate_distance)(lat_from, lon_from, lat_to, lon_to)
+            if math.isnan(distance_km) or math.isinf(distance_km) or distance_km < 0:
+                return Response(
+                    {
+                        'message': 'Could not compute distance from coordinates',
+                        'status': 'error',
+                        'errors': {'non_field_errors': ['Invalid distance result']},
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
             
             surge_multiplier = await sync_to_async(SurgePricingService.get_multiplier)(lat_from, lon_from)
+            try:
+                sm = float(surge_multiplier)
+                if math.isnan(sm) or math.isinf(sm) or sm < 0:
+                    surge_multiplier = 1.0
+            except (TypeError, ValueError):
+                surge_multiplier = 1.0
             
             ride_types = await sync_to_async(list)(RideType.objects.filter(is_active=True))
             
             estimates = []
             for ride_type in ride_types:
-                if ride_type.base_price and ride_type.price_per_km:
+                if not ride_type.base_price or not ride_type.price_per_km:
+                    continue
+                try:
                     price = await sync_to_async(ride_type.calculate_price)(distance_km, surge_multiplier)
+                    if not isinstance(price, (int, float)) or math.isnan(float(price)) or math.isinf(float(price)):
+                        logger.warning(
+                            'price-estimate: non-finite price for ride_type_id=%s', ride_type.id
+                        )
+                        continue
+                    price_f = round(float(price), 2)
+                    label = (ride_type.name_large or ride_type.name or '').strip()
+                    if not label:
+                        label = f'Ride type {ride_type.id}'
                     estimates.append({
                         'id': ride_type.id,
                         'ride_type_id': ride_type.id,
-                        'ride_type_name': ride_type.name or ride_type.name_large,
-                        'ride_type_name_large': ride_type.name_large,
-                        'ride_type_icon': ride_type.icon,
+                        'ride_type_name': label,
+                        'ride_type_name_large': ride_type.name_large or '',
+                        'ride_type_icon': ride_type.icon or '',
                         'base_price': float(ride_type.base_price) if ride_type.base_price else None,
                         'price_per_km': float(ride_type.price_per_km) if ride_type.price_per_km else None,
                         'distance_km': round(distance_km, 2),
-                        'surge_multiplier': surge_multiplier,
-                        'estimated_price': round(price, 2),
+                        'surge_multiplier': float(surge_multiplier),
+                        'estimated_price': price_f,
                         'capacity': ride_type.capacity,
                         'is_premium': ride_type.is_premium,
                         'is_ev': ride_type.is_ev,
                     })
-            
+                except Exception as exc:
+                    logger.exception(
+                        'price-estimate: skipped ride_type id=%s: %s', ride_type.id, exc
+                    )
+                    continue
+
+            payload = {
+                'distance_km': round(distance_km, 2),
+                'surge_multiplier': float(surge_multiplier),
+                'estimates': estimates,
+            }
+            if not estimates:
+                payload['warning'] = (
+                    'no_estimates: no active ride types with both base_price and price_per_km, '
+                    'or pricing failed for all types. Check admin RideType configuration.'
+                )
+
             return Response(
                 {
                     'message': 'Price estimates retrieved successfully',
                     'status': 'success',
-                    'data': {
-                        'distance_km': round(distance_km, 2),
-                        'surge_multiplier': surge_multiplier,
-                        'estimates': estimates
-                    }
+                    'data': payload,
                 },
                 status=status.HTTP_200_OK
             )
@@ -1841,9 +1908,9 @@ class OrderCancelView(AsyncAPIView):
             )
 
             try:
-                from apps.order.services.rider_orders_websocket import notify_rider_order_updated
+                from apps.order.services.rider_orders_websocket import async_notify_rider_order_updated
 
-                await sync_to_async(notify_rider_order_updated)(
+                await async_notify_rider_order_updated(
                     order.id,
                     'cancelled_rider',
                     'Ride cancelled.',
@@ -2260,9 +2327,9 @@ class OrderPaymentCardView(AsyncAPIView):
             'additional_passengers',
         ).aget(pk=order.pk)
 
-        from apps.order.services.rider_orders_websocket import notify_rider_order_updated
+        from apps.order.services.rider_orders_websocket import async_notify_rider_order_updated
 
-        await sync_to_async(notify_rider_order_updated)(
+        await async_notify_rider_order_updated(
             order.id,
             'payment_card',
             'Payment card updated',
@@ -3030,4 +3097,159 @@ class OrderChatMessagesView(AsyncAPIView):
             'data': data,
             'count': len(messages_list)
         }, status=status.HTTP_200_OK)
-        
+
+
+class OrderPinVerifyDriverView(AsyncAPIView):
+    """
+    Rider (order owner) verifies the assigned driver's PIN (e.g. taxi scenario).
+    Caller must be the order owner; PIN must match the accepted driver's saved PIN.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        tags=['Rider: Orders'],
+        summary='Verify driver PIN for order',
+        description=(
+            'POST `order_id` and `pin`. Confirms the PIN matches the **accepted driver** for this order '
+            'and that you are the rider who created the order. Returns driver profile on success.'
+        ),
+        request=OrderPinVerifySerializer,
+    )
+    async def post(self, request):
+        serializer = OrderPinVerifySerializer(data=request.data)
+        if not await sync_to_async(lambda: serializer.is_valid())():
+            return Response(
+                {'message': 'Validation error', 'status': 'error', 'errors': serializer.errors},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        data = serializer.validated_data
+        order_id = data['order_id']
+        pin = data['pin']
+
+        try:
+            order = await Order.objects.select_related('user').aget(id=order_id)
+        except Order.DoesNotExist:
+            return Response({'message': 'Order not found', 'status': 'error'}, status=status.HTTP_404_NOT_FOUND)
+
+        if order.user_id != request.user.id:
+            return Response(
+                {'message': 'This order does not belong to you', 'status': 'error'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        od = await OrderDriver.objects.filter(
+            order_id=order_id,
+            status=OrderDriver.DriverRequestStatus.ACCEPTED,
+        ).select_related('driver').afirst()
+
+        if not od:
+            return Response(
+                {'message': 'No accepted driver for this order yet', 'status': 'error'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        def _pin_ok():
+            return PinVerificationForUser.objects.filter(
+                user_id=od.driver_id,
+                pin=pin,
+            ).exists()
+
+        if not await sync_to_async(_pin_ok)():
+            return Response(
+                {'message': 'Invalid PIN or PIN does not match the assigned driver', 'status': 'error'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        driver = od.driver
+        out = UserDetailSerializer(driver, context={'request': request})
+        serializer_data = await sync_to_async(lambda: out.data)()
+        return Response(
+            {
+                'message': 'Driver PIN verified successfully',
+                'status': 'success',
+                'data': {'verified': True, 'driver': serializer_data},
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class OrderPinVerifyRiderView(AsyncAPIView):
+    """
+    Driver verifies the rider's PIN for this order.
+    Must be the accepted driver; PIN must match the order owner's saved PIN.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    async def _is_driver(self, user):
+        return await sync_to_async(user.groups.filter(name='Driver').exists)()
+
+    @extend_schema(
+        tags=['Driver: Orders & trips'],
+        summary='Verify rider PIN for order',
+        description=(
+            'POST `order_id` and `pin`. Confirms the PIN matches the **rider** who owns this order '
+            'and that you are the accepted driver. Returns rider profile on success.'
+        ),
+        request=OrderPinVerifySerializer,
+    )
+    async def post(self, request):
+        if not await self._is_driver(request.user):
+            return Response(
+                {'message': 'Only drivers can use this endpoint', 'status': 'error'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        serializer = OrderPinVerifySerializer(data=request.data)
+        if not await sync_to_async(lambda: serializer.is_valid())():
+            return Response(
+                {'message': 'Validation error', 'status': 'error', 'errors': serializer.errors},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        data = serializer.validated_data
+        order_id = data['order_id']
+        pin = data['pin']
+
+        try:
+            order = await Order.objects.select_related('user').aget(id=order_id)
+        except Order.DoesNotExist:
+            return Response({'message': 'Order not found', 'status': 'error'}, status=status.HTTP_404_NOT_FOUND)
+
+        od = await OrderDriver.objects.filter(
+            order_id=order_id,
+            driver_id=request.user.id,
+            status=OrderDriver.DriverRequestStatus.ACCEPTED,
+        ).afirst()
+
+        if not od:
+            return Response(
+                {'message': 'You are not the accepted driver for this order', 'status': 'error'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        def _pin_ok():
+            return PinVerificationForUser.objects.filter(
+                user_id=order.user_id,
+                pin=pin,
+            ).exists()
+
+        if not await sync_to_async(_pin_ok)():
+            return Response(
+                {'message': 'Invalid PIN or PIN does not match the rider for this order', 'status': 'error'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        rider = order.user
+        out = UserDetailSerializer(rider, context={'request': request})
+        serializer_data = await sync_to_async(lambda: out.data)()
+        return Response(
+            {
+                'message': 'Rider PIN verified successfully',
+                'status': 'success',
+                'data': {'verified': True, 'rider': serializer_data},
+            },
+            status=status.HTTP_200_OK,
+        )

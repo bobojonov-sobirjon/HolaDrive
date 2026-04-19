@@ -6,6 +6,8 @@ import logging
 from decimal import Decimal
 
 from asgiref.sync import async_to_sync
+from channels.db import database_sync_to_async
+from channels.layers import get_channel_layer
 from django.conf import settings
 from django.db.models import Avg
 from django.utils import timezone
@@ -453,8 +455,6 @@ def get_rider_active_orders(rider_user):
 
 def _send_to_rider_group(rider_user_id: int, message: dict):
     try:
-        from channels.layers import get_channel_layer
-
         channel_layer = get_channel_layer()
         if not channel_layer:
             return
@@ -464,23 +464,18 @@ def _send_to_rider_group(rider_user_id: int, message: dict):
         logger.warning('rider ws group_send failed: %s', e)
 
 
-def notify_rider_order_updated(
+def _build_rider_order_updated_event(
     order_id: int,
     change: str,
     message: str,
     *,
     rejected_driver_id: int | None = None,
     reassigned: bool | None = None,
-):
-    """
-    Universal rider WS snapshot on lifecycle changes.
-
-    ``change`` (for clients): accepted | driver_rejected | in_progress | completed
-    | cancelled_driver | cancelled_rider
-    """
+) -> tuple[int, dict] | None:
+    """Returns (rider_user_id, channel_layer message dict) or None if order missing."""
     order_full = _fetch_order_for_rider_ws(order_id)
     if not order_full:
-        return
+        return None
     payload = build_rider_order_payload(order_full)
     event = {
         'type': 'rider_order_updated',
@@ -492,11 +487,95 @@ def notify_rider_order_updated(
         event['rejected_driver_id'] = rejected_driver_id
     if reassigned is not None:
         event['reassigned'] = reassigned
-    _send_to_rider_group(order_full.user_id, event)
+    return order_full.user_id, event
+
+
+@database_sync_to_async
+def _load_rider_order_updated_event(
+    order_id: int,
+    change: str,
+    message: str,
+    rejected_driver_id: int | None,
+    reassigned: bool | None,
+) -> tuple[int, dict] | None:
+    return _build_rider_order_updated_event(
+        order_id,
+        change,
+        message,
+        rejected_driver_id=rejected_driver_id,
+        reassigned=reassigned,
+    )
+
+
+async def async_notify_rider_order_updated(
+    order_id: int,
+    change: str,
+    message: str,
+    *,
+    rejected_driver_id: int | None = None,
+    reassigned: bool | None = None,
+) -> None:
+    """
+    Same as notify_rider_order_updated but safe from AsyncAPIView / Daphne:
+    DB work runs via database_sync_to_async; group_send is awaited on the ASGI loop
+    (avoids sync_to_async → async_to_sync nesting that can drop rider_order_updated).
+    """
+    built = await _load_rider_order_updated_event(
+        order_id, change, message, rejected_driver_id, reassigned
+    )
+    if not built:
+        return
+    rider_id, event = built
+    channel_layer = get_channel_layer()
+    if not channel_layer:
+        logger.warning(
+            'rider ws: channel_layer None — rider_order_updated skipped | order_id=%s change=%s',
+            order_id,
+            change,
+        )
+        return
+    try:
+        await channel_layer.group_send(f'rider_orders_{rider_id}', event)
+    except Exception as e:
+        logger.warning('rider ws async group_send failed: %s', e)
+        return
     logger.info(
         'rider ws: rider_order_updated order=%s rider=%s change=%s',
         order_id,
-        order_full.user_id,
+        rider_id,
+        change,
+    )
+
+
+def notify_rider_order_updated(
+    order_id: int,
+    change: str,
+    message: str,
+    *,
+    rejected_driver_id: int | None = None,
+    reassigned: bool | None = None,
+):
+    """
+    Universal rider WS snapshot on lifecycle changes (sync callers / Celery).
+
+    ``change`` (for clients): accepted | driver_rejected | in_progress | completed
+    | cancelled_driver | cancelled_rider
+    """
+    built = _build_rider_order_updated_event(
+        order_id,
+        change,
+        message,
+        rejected_driver_id=rejected_driver_id,
+        reassigned=reassigned,
+    )
+    if not built:
+        return
+    rider_id, event = built
+    _send_to_rider_group(rider_id, event)
+    logger.info(
+        'rider ws: rider_order_updated order=%s rider=%s change=%s',
+        order_id,
+        rider_id,
         change,
     )
 

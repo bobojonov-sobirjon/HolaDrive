@@ -36,10 +36,14 @@ from .views import (
     RatingFeedbackTagsListView,
     OrderChatDetailView,
     OrderChatMessagesView,
+    OrderPinVerifyDriverView,
+    OrderPinVerifyRiderView,
 )
 
 urlpatterns = [
     path('create/', OrderCreateView.as_view(), name='order-create'),
+    path('pin/verify-driver/', OrderPinVerifyDriverView.as_view(), name='order-pin-verify-driver'),
+    path('pin/verify-rider/', OrderPinVerifyRiderView.as_view(), name='order-pin-verify-rider'),
     path('my-orders/', MyOrderListView.as_view(), name='my-orders'),
     path('rider/ride-history/', RiderRideHistoryView.as_view(), name='rider-ride-history'),
     path('rider/active-ride/', RiderActiveRideView.as_view(), name='rider-active-ride'),

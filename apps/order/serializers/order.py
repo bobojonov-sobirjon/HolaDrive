@@ -347,6 +347,32 @@ class PriceEstimateSerializer(serializers.Serializer):
         coerce_to_string=False
     )
 
+    def validate(self, data):
+        """
+        Reject invalid GPS (often intermittent from device); avoids odd distance/price edge cases.
+        """
+        lat_from = float(data['latitude_from'])
+        lon_from = float(data['longitude_from'])
+        lat_to = float(data['latitude_to'])
+        lon_to = float(data['longitude_to'])
+        if not (-90.0 <= lat_from <= 90.0):
+            raise serializers.ValidationError(
+                {'latitude_from': 'Latitude must be between -90 and 90.'}
+            )
+        if not (-90.0 <= lat_to <= 90.0):
+            raise serializers.ValidationError(
+                {'latitude_to': 'Latitude must be between -90 and 90.'}
+            )
+        if not (-180.0 <= lon_from <= 180.0):
+            raise serializers.ValidationError(
+                {'longitude_from': 'Longitude must be between -180 and 180.'}
+            )
+        if not (-180.0 <= lon_to <= 180.0):
+            raise serializers.ValidationError(
+                {'longitude_to': 'Longitude must be between -180 and 180.'}
+            )
+        return data
+
 
 class PriceEstimateManagePriceSerializer(PriceEstimateSerializer):
     """
