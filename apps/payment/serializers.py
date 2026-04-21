@@ -27,6 +27,12 @@ class SavedCardCreateSerializer(serializers.Serializer):
         max_length=255,
         help_text='Stripe PaymentMethod id (pm_…) from mobile SDK after card confirmation.',
     )
+    stripe_customer_id = serializers.CharField(
+        max_length=255,
+        required=False,
+        allow_blank=True,
+        help_text='Optional Stripe Customer id (cus_…). If provided, backend will bind it to the user and avoid creating a second customer.',
+    )
 
 
 class SavedCardUpdateSerializer(serializers.Serializer):

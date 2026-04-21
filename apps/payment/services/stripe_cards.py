@@ -27,6 +27,12 @@ def _configure_stripe() -> None:
 
 
 def get_existing_stripe_customer_id(user: 'CustomUser') -> str | None:
+    # Prefer the canonical value on the user row (avoids accidental multiple customers).
+    direct = (getattr(user, 'stripe_customer_id', '') or '').strip()
+    if direct:
+        return direct
+
+    # Fallback: older DBs may have customer stored only on SavedCard rows.
     from apps.payment.models import SavedCard
 
     cid = (
@@ -35,7 +41,7 @@ def get_existing_stripe_customer_id(user: 'CustomUser') -> str | None:
         .values_list('stripe_customer_id', flat=True)
         .first()
     )
-    return cid or None
+    return (cid or '').strip() or None
 
 
 def get_or_create_stripe_customer_id(user: 'CustomUser') -> str:
@@ -47,6 +53,14 @@ def get_or_create_stripe_customer_id(user: 'CustomUser') -> str:
         email=(user.email or None) if getattr(user, 'email', None) else None,
         metadata={'django_user_id': str(user.pk)},
     )
+    # Persist on user row (canonical).
+    try:
+        from apps.accounts.models import CustomUser
+
+        CustomUser.objects.filter(pk=user.pk).update(stripe_customer_id=customer.id)
+    except Exception:
+        # Don't break card flow if DB update fails; SavedCard rows will still store it.
+        pass
     return customer.id
 
 
@@ -108,7 +122,24 @@ def save_card_for_user(
 ) -> Any:
     from apps.payment.models import SavedCard
 
-    customer_id = get_or_create_stripe_customer_id(user)
+    # IMPORTANT:
+    # Mobile SDK may create/confirm a PaymentMethod already attached to a Stripe Customer
+    # (e.g. via SetupIntent with ephemeral key). If our DB has no record yet, creating a new
+    # customer here would cause "pm_… does not belong to cus_…" errors when attaching/charging.
+    # So we adopt the PaymentMethod's existing customer when appropriate.
+    pm = retrieve_payment_method(payment_method_id)
+    pm_customer = getattr(pm, 'customer', None) or None
+
+    existing_customer_id = get_existing_stripe_customer_id(user)
+    if pm_customer:
+        if existing_customer_id and existing_customer_id != pm_customer:
+            raise ValueError(
+                'This payment method is attached to a different Stripe customer for this account. '
+                'Please re-add the card.'
+            )
+        customer_id = pm_customer
+    else:
+        customer_id = get_or_create_stripe_customer_id(user)
 
     existing = SavedCard.objects.filter(
         stripe_payment_method_id=payment_method_id
@@ -118,7 +149,6 @@ def save_card_for_user(
     if existing and existing.user_id == user.id and existing.is_active:
         raise ValueError('This card is already saved.')
 
-    pm = retrieve_payment_method(payment_method_id)
     card_fields = card_fields_from_pm(pm)
     attach_payment_method(customer_id, payment_method_id)
     pm = retrieve_payment_method(payment_method_id)

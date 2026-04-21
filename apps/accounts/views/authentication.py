@@ -49,6 +49,23 @@ class RegistrationView(AsyncAPIView):
             # Save user (invitation_code is processed here, device token handled in serializer)
             user = await sync_to_async(serializer.save)()
             logger.info(f"REGISTRATION DEBUG: User created - ID: {user.id}, Email: {user.email}")
+
+            # Best-effort Stripe customer init (prevents multiple customers when saving cards).
+            # Must never fail registration.
+            try:
+                if getattr(settings, 'STRIPE_SECRET_KEY', ''):
+                    def _ensure_customer():
+                        from apps.payment.services.stripe_cards import get_or_create_stripe_customer_id
+                        from apps.accounts.models import CustomUser
+
+                        u = CustomUser.objects.get(pk=user.pk)
+                        cid = get_or_create_stripe_customer_id(u)
+                        if not (u.stripe_customer_id or '').strip():
+                            u.stripe_customer_id = cid
+                            u.save(update_fields=['stripe_customer_id'])
+                    await sync_to_async(_ensure_customer)()
+            except Exception as e:
+                logger.warning("REGISTRATION DEBUG: Stripe customer init skipped: %s", e)
             
             # Process invitation code if provided
             invitation_message = None

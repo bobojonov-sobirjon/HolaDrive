@@ -29,6 +29,7 @@ from .invitations import (
     InvitedUsersView
 )
 from .pin_verification import PinVerificationForUserView
+from .stripe_customer import StripeCustomerMeView
 from .registration_terms import (
     RegistrationTermsListView,
     RegistrationTermsAcceptView,
@@ -70,6 +71,7 @@ __all__ = [
     'InvitationGetView',
     'InvitedUsersView',
     'PinVerificationForUserView',
+    'StripeCustomerMeView',
     'RegistrationTermsListView',
     'RegistrationTermsAcceptView',
     'RegistrationTermsDeclineView',

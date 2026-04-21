@@ -105,6 +105,12 @@ class CustomUser(AbstractUser):
         verbose_name="Stripe Connect account",
         help_text="Connected account id (acct_…) for trip payouts; optional until Connect onboarding.",
     )
+    stripe_customer_id = models.CharField(
+        max_length=255,
+        blank=True,
+        verbose_name="Stripe Customer id",
+        help_text="Stripe Customer id (cus_…) used for saving cards / charging rider trips.",
+    )
     created_at = models.DateTimeField(
         auto_now_add=True,
         verbose_name="Created At"

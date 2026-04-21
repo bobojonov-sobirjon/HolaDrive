@@ -21,6 +21,7 @@ from .views import (
     DriverIdentificationLegalDeclineView,
     DriverIdentificationTermsAcceptView,
     DriverIdentificationTermsDeclineView,
+    StripeCustomerMeView,
 )
 
 app_name = 'accounts'
@@ -111,4 +112,5 @@ urlpatterns = [
     path('invitations/users/', InvitedUsersView.as_view(), name='invited-users'),
 
     path('pin-verification/', PinVerificationForUserView.as_view(), name='pin-verification'),
+    path('stripe-customer/', StripeCustomerMeView.as_view(), name='stripe-customer-me'),
 ]
