@@ -3119,8 +3119,34 @@ class OrderPinVerifyDriverView(AsyncAPIView):
         request=OrderPinVerifySerializer,
     )
     async def post(self, request):
+        def _notify_driver(*, driver_id: int | None, order_id: int | None, verified: bool | None, reason: str):
+            if not driver_id or not order_id:
+                return
+            try:
+                from apps.notification.services import enqueue_push_to_user_id
+
+                enqueue_push_to_user_id(
+                    driver_id,
+                    title="PIN verification",
+                    body=(
+                        "Rider verified your PIN successfully."
+                        if verified is True
+                        else "Rider PIN verification failed."
+                    ),
+                    data={
+                        "type": "pin_verify_driver",
+                        "order_id": order_id,
+                        "verified": str(bool(verified)).lower() if verified is not None else "false",
+                        "reason": reason,
+                        "actor_user_id": request.user.id,
+                    },
+                )
+            except Exception:
+                pass
+
         serializer = OrderPinVerifySerializer(data=request.data)
         if not await sync_to_async(lambda: serializer.is_valid())():
+            _notify_driver(driver_id=None, order_id=None, verified=False, reason="validation_error")
             return Response(
                 {'message': 'Validation error', 'status': 'error', 'errors': serializer.errors},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -3133,9 +3159,11 @@ class OrderPinVerifyDriverView(AsyncAPIView):
         try:
             order = await Order.objects.select_related('user').aget(id=order_id)
         except Order.DoesNotExist:
+            _notify_driver(driver_id=None, order_id=order_id, verified=False, reason="order_not_found")
             return Response({'message': 'Order not found', 'status': 'error'}, status=status.HTTP_404_NOT_FOUND)
 
         if order.user_id != request.user.id:
+            _notify_driver(driver_id=None, order_id=order_id, verified=False, reason="not_order_owner")
             return Response(
                 {'message': 'This order does not belong to you', 'status': 'error'},
                 status=status.HTTP_403_FORBIDDEN,
@@ -3147,6 +3175,7 @@ class OrderPinVerifyDriverView(AsyncAPIView):
         ).select_related('driver').afirst()
 
         if not od:
+            _notify_driver(driver_id=None, order_id=order_id, verified=False, reason="no_accepted_driver")
             return Response(
                 {'message': 'No accepted driver for this order yet', 'status': 'error'},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -3159,10 +3188,13 @@ class OrderPinVerifyDriverView(AsyncAPIView):
             ).exists()
 
         if not await sync_to_async(_pin_ok)():
+            _notify_driver(driver_id=od.driver_id, order_id=order_id, verified=False, reason="pin_mismatch")
             return Response(
                 {'message': 'Invalid PIN or PIN does not match the assigned driver', 'status': 'error'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+        _notify_driver(driver_id=od.driver_id, order_id=order_id, verified=True, reason="ok")
 
         driver = od.driver
         out = UserDetailSerializer(driver, context={'request': request})
@@ -3198,7 +3230,33 @@ class OrderPinVerifyRiderView(AsyncAPIView):
         request=OrderPinVerifySerializer,
     )
     async def post(self, request):
+        def _notify_rider(*, rider_id: int | None, order_id: int | None, verified: bool | None, reason: str):
+            if not rider_id or not order_id:
+                return
+            try:
+                from apps.notification.services import enqueue_push_to_user_id
+
+                enqueue_push_to_user_id(
+                    rider_id,
+                    title="PIN verification",
+                    body=(
+                        "Driver verified your PIN successfully."
+                        if verified is True
+                        else "Driver PIN verification failed."
+                    ),
+                    data={
+                        "type": "pin_verify_rider",
+                        "order_id": order_id,
+                        "verified": str(bool(verified)).lower() if verified is not None else "false",
+                        "reason": reason,
+                        "actor_user_id": request.user.id,
+                    },
+                )
+            except Exception:
+                pass
+
         if not await self._is_driver(request.user):
+            _notify_rider(rider_id=None, order_id=None, verified=False, reason="not_driver_role")
             return Response(
                 {'message': 'Only drivers can use this endpoint', 'status': 'error'},
                 status=status.HTTP_403_FORBIDDEN,
@@ -3206,6 +3264,7 @@ class OrderPinVerifyRiderView(AsyncAPIView):
 
         serializer = OrderPinVerifySerializer(data=request.data)
         if not await sync_to_async(lambda: serializer.is_valid())():
+            _notify_rider(rider_id=None, order_id=None, verified=False, reason="validation_error")
             return Response(
                 {'message': 'Validation error', 'status': 'error', 'errors': serializer.errors},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -3218,6 +3277,7 @@ class OrderPinVerifyRiderView(AsyncAPIView):
         try:
             order = await Order.objects.select_related('user').aget(id=order_id)
         except Order.DoesNotExist:
+            _notify_rider(rider_id=None, order_id=order_id, verified=False, reason="order_not_found")
             return Response({'message': 'Order not found', 'status': 'error'}, status=status.HTTP_404_NOT_FOUND)
 
         od = await OrderDriver.objects.filter(
@@ -3227,6 +3287,7 @@ class OrderPinVerifyRiderView(AsyncAPIView):
         ).afirst()
 
         if not od:
+            _notify_rider(rider_id=order.user_id, order_id=order_id, verified=False, reason="not_accepted_driver")
             return Response(
                 {'message': 'You are not the accepted driver for this order', 'status': 'error'},
                 status=status.HTTP_403_FORBIDDEN,
@@ -3239,10 +3300,13 @@ class OrderPinVerifyRiderView(AsyncAPIView):
             ).exists()
 
         if not await sync_to_async(_pin_ok)():
+            _notify_rider(rider_id=order.user_id, order_id=order_id, verified=False, reason="pin_mismatch")
             return Response(
                 {'message': 'Invalid PIN or PIN does not match the rider for this order', 'status': 'error'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+        _notify_rider(rider_id=order.user_id, order_id=order_id, verified=True, reason="ok")
 
         rider = order.user
         out = UserDetailSerializer(rider, context={'request': request})
