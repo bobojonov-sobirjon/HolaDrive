@@ -152,10 +152,10 @@ class OrderItem(models.Model):
     order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name='order_items')
     address_from = models.CharField(max_length=255, verbose_name='Address From', null=True, blank=True)
     address_to = models.CharField(max_length=255, verbose_name='Address To', null=True, blank=True)
-    latitude_from = models.DecimalField(max_digits=10, decimal_places=7, verbose_name='Latitude From', null=True, blank=True)
-    longitude_from = models.DecimalField(max_digits=10, decimal_places=7, verbose_name='Longitude From', null=True, blank=True)
-    latitude_to = models.DecimalField(max_digits=10, decimal_places=7, verbose_name='Latitude To', null=True, blank=True)
-    longitude_to = models.DecimalField(max_digits=10, decimal_places=7, verbose_name='Longitude To', null=True, blank=True)
+    latitude_from = models.DecimalField(max_digits=22, decimal_places=14, verbose_name='Latitude From', null=True, blank=True)
+    longitude_from = models.DecimalField(max_digits=22, decimal_places=14, verbose_name='Longitude From', null=True, blank=True)
+    latitude_to = models.DecimalField(max_digits=22, decimal_places=14, verbose_name='Latitude To', null=True, blank=True)
+    longitude_to = models.DecimalField(max_digits=22, decimal_places=14, verbose_name='Longitude To', null=True, blank=True)
     stop_sequence = models.IntegerField(
     default=1,
     verbose_name='Stop Sequence',

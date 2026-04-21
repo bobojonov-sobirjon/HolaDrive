@@ -19,25 +19,25 @@ class OrderCreateSerializer(serializers.Serializer):
     address_to = serializers.CharField(max_length=255, required=True)
     latitude_from = serializers.DecimalField(
         max_digits=22,
-        decimal_places=10,
+        decimal_places=14,
         required=True,
         coerce_to_string=False
     )
     longitude_from = serializers.DecimalField(
         max_digits=22,
-        decimal_places=10,
+        decimal_places=14,
         required=True,
         coerce_to_string=False
     )
     latitude_to = serializers.DecimalField(
         max_digits=22,
-        decimal_places=10,
+        decimal_places=14,
         required=True,
         coerce_to_string=False
     )
     longitude_to = serializers.DecimalField(
         max_digits=22,
-        decimal_places=10,
+        decimal_places=14,
         required=True,
         coerce_to_string=False
     )
@@ -324,25 +324,25 @@ class PriceEstimateSerializer(serializers.Serializer):
     """
     latitude_from = serializers.DecimalField(
         max_digits=22,
-        decimal_places=10,
+        decimal_places=14,
         required=True,
         coerce_to_string=False
     )
     longitude_from = serializers.DecimalField(
         max_digits=22,
-        decimal_places=10,
+        decimal_places=14,
         required=True,
         coerce_to_string=False
     )
     latitude_to = serializers.DecimalField(
         max_digits=22,
-        decimal_places=10,
+        decimal_places=14,
         required=True,
         coerce_to_string=False
     )
     longitude_to = serializers.DecimalField(
         max_digits=22,
-        decimal_places=10,
+        decimal_places=14,
         required=True,
         coerce_to_string=False
     )

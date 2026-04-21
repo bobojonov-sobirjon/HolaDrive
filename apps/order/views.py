@@ -1504,6 +1504,7 @@ class PriceEstimateView(AsyncAPIView):
                         'base_price': float(ride_type.base_price) if ride_type.base_price else None,
                         'price_per_km': float(ride_type.price_per_km) if ride_type.price_per_km else None,
                         'distance_km': round(distance_km, 2),
+                        'distance_miles': round(distance_km * 0.621371, 2),
                         'surge_multiplier': float(surge_multiplier),
                         'estimated_price': price_f,
                         'capacity': ride_type.capacity,
@@ -1518,6 +1519,7 @@ class PriceEstimateView(AsyncAPIView):
 
             payload = {
                 'distance_km': round(distance_km, 2),
+                'distance_miles': round(distance_km * 0.621371, 2),
                 'surge_multiplier': float(surge_multiplier),
                 'estimates': estimates,
             }
