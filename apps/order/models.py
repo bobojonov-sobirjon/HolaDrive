@@ -765,8 +765,8 @@ class SurgePricing(models.Model):
     days_of_week = models.JSONField(default=list, verbose_name='Days of Week', help_text="[0,1,2,3,4] - Monday to Friday")
     
     zone_name = models.CharField(max_length=100, null=True, blank=True, verbose_name='Zone Name')
-    latitude = models.DecimalField(max_digits=10, decimal_places=7, null=True, blank=True, verbose_name='Latitude')
-    longitude = models.DecimalField(max_digits=10, decimal_places=7, null=True, blank=True, verbose_name='Longitude')
+    latitude = models.DecimalField(max_digits=22, decimal_places=14, null=True, blank=True, verbose_name='Latitude')
+    longitude = models.DecimalField(max_digits=22, decimal_places=14, null=True, blank=True, verbose_name='Longitude')
     radius_km = models.DecimalField(max_digits=5, decimal_places=2, default=5.0, verbose_name='Radius (KM)')
     
     min_available_drivers = models.IntegerField(null=True, blank=True, verbose_name='Min Available Drivers')

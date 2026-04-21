@@ -113,8 +113,8 @@ class DriverLocationUpdateSerializer(serializers.Serializer):
     We store it on CustomUser.latitude/longitude.
     """
 
-    latitude = serializers.DecimalField(max_digits=10, decimal_places=7)
-    longitude = serializers.DecimalField(max_digits=10, decimal_places=7)
+    latitude = serializers.DecimalField(max_digits=22, decimal_places=14)
+    longitude = serializers.DecimalField(max_digits=22, decimal_places=14)
 
 
 class DriverLocationSerializer(serializers.Serializer):
@@ -123,8 +123,8 @@ class DriverLocationSerializer(serializers.Serializer):
     """
 
     driver_id = serializers.IntegerField()
-    latitude = serializers.DecimalField(max_digits=10, decimal_places=7)
-    longitude = serializers.DecimalField(max_digits=10, decimal_places=7)
+    latitude = serializers.DecimalField(max_digits=22, decimal_places=14)
+    longitude = serializers.DecimalField(max_digits=22, decimal_places=14)
     updated_at = serializers.DateTimeField()
 
 
