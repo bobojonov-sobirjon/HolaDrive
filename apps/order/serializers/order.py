@@ -18,26 +18,26 @@ class OrderCreateSerializer(serializers.Serializer):
     address_from = serializers.CharField(max_length=255, required=True)
     address_to = serializers.CharField(max_length=255, required=True)
     latitude_from = serializers.DecimalField(
-        max_digits=10, 
-        decimal_places=7, 
+        max_digits=22,
+        decimal_places=10,
         required=True,
         coerce_to_string=False
     )
     longitude_from = serializers.DecimalField(
-        max_digits=10, 
-        decimal_places=7, 
+        max_digits=22,
+        decimal_places=10,
         required=True,
         coerce_to_string=False
     )
     latitude_to = serializers.DecimalField(
-        max_digits=10, 
-        decimal_places=7, 
+        max_digits=22,
+        decimal_places=10,
         required=True,
         coerce_to_string=False
     )
     longitude_to = serializers.DecimalField(
-        max_digits=10, 
-        decimal_places=7, 
+        max_digits=22,
+        decimal_places=10,
         required=True,
         coerce_to_string=False
     )
@@ -323,26 +323,26 @@ class PriceEstimateSerializer(serializers.Serializer):
     Serializer for price estimation
     """
     latitude_from = serializers.DecimalField(
-        max_digits=10, 
-        decimal_places=7, 
+        max_digits=22,
+        decimal_places=10,
         required=True,
         coerce_to_string=False
     )
     longitude_from = serializers.DecimalField(
-        max_digits=10, 
-        decimal_places=7, 
+        max_digits=22,
+        decimal_places=10,
         required=True,
         coerce_to_string=False
     )
     latitude_to = serializers.DecimalField(
-        max_digits=10, 
-        decimal_places=7, 
+        max_digits=22,
+        decimal_places=10,
         required=True,
         coerce_to_string=False
     )
     longitude_to = serializers.DecimalField(
-        max_digits=10, 
-        decimal_places=7, 
+        max_digits=22,
+        decimal_places=10,
         required=True,
         coerce_to_string=False
     )
