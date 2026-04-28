@@ -254,12 +254,13 @@ CSRF_TRUSTED_ORIGINS = [
     "https://localhost:5173",
     "https://127.0.0.1:5173",
     "https://127.0.0.1:5174",
+    "https://hola-admin-nu.vercel.app",
 ]
 
 _cors_origins = os.getenv(
     'CORS_ALLOWED_ORIGINS',
     'http://localhost:3000,http://localhost:8000,http://localhost:5173,http://127.0.0.1:5173,http://127.0.0.1:5174,'
-    'https://localhost:3000,https://localhost:5173,https://127.0.0.1:5173,https://127.0.0.1:5174'
+    'https://localhost:3000,https://localhost:5173,https://127.0.0.1:5173,https://127.0.0.1:5174,https://hola-admin-nu.vercel.app'
 )
 CORS_ALLOWED_ORIGINS = [origin.strip() for origin in _cors_origins.split(',') if origin.strip()]
 
