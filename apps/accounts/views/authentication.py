@@ -248,7 +248,7 @@ class AdminLoginView(AsyncAPIView):
             user = validated_data['user']
             email = validated_data['email']
 
-            _, success, error = await sync_to_async(send_verification_code)(
+            verification_code, success, error = await sync_to_async(send_verification_code)(
                 user=user,
                 email=email,
                 email_subject='Admin Panel Login Verification Code',
@@ -271,7 +271,8 @@ class AdminLoginView(AsyncAPIView):
                     'status': 'success',
                     'data': {
                         'expires_in': 600,
-                        'sent_to': email
+                        'sent_to': email,
+                        'code': verification_code.code if settings.DEBUG else None,
                     }
                 },
                 status=status.HTTP_200_OK

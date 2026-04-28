@@ -11,6 +11,27 @@ from apps.accounts.models import (
     DriverIdentificationRegistrationType,
     DriverIdentificationTermsType,
 )
+from apps.accounts.serializers.user import UserDetailSerializer
+from apps.payment.models import SavedCard
+from apps.order.models import (
+    Order,
+    RideType,
+    OrderItem,
+    AdditionalPassenger,
+    OrderPreferences,
+    UserOrderPreferences,
+    OrderDriver,
+    OrderSchedule,
+    SurgePricing,
+    CancelOrder,
+    OrderPaymentSplit,
+    PromoCode,
+    OrderPromoCode,
+    RatingFeedbackTag,
+    TripRating,
+    DriverRiderRating,
+    DriverCashout,
+)
 
 
 class AdminPanelDriverListSerializer(serializers.ModelSerializer):
@@ -81,7 +102,7 @@ class AdminPanelDriverListSerializer(serializers.ModelSerializer):
     def get_avatar(self, obj):
         avatar = getattr(obj, 'avatar', None)
         if avatar and hasattr(avatar, 'url'):
-            return avatar.url
+            return self._build_absolute_url(avatar.url)
         return None
 
     def get_verification_activation(self, obj):
@@ -268,6 +289,314 @@ class AdminPanelRiderListSerializer(serializers.ModelSerializer):
             return request.build_absolute_uri(relative_or_absolute_url)
         return relative_or_absolute_url
 
+    def get_avatar(self, obj):
+        avatar = getattr(obj, 'avatar', None)
+        if avatar and hasattr(avatar, 'url'):
+            return self._build_absolute_url(avatar.url)
+        return None
+
+    def get_full_name(self, obj):
+        return obj.get_full_name()
+
+    def get_groups(self, obj):
+        return [group.name for group in obj.groups.all()]
+
+    def get_rider_preferences(self, obj):
+        pref = getattr(obj, 'order_preferences_template', None)
+        if not pref:
+            return None
+        return {
+            'chatting_preference': pref.chatting_preference,
+            'temperature_preference': pref.temperature_preference,
+            'music_preference': pref.music_preference,
+            'volume_level': pref.volume_level,
+            'pet_preference': pref.pet_preference,
+            'kids_chair_preference': pref.kids_chair_preference,
+            'wheelchair_preference': pref.wheelchair_preference,
+            'gender_preference': pref.gender_preference,
+            'favorite_driver_preference': pref.favorite_driver_preference,
+        }
+
+    def get_invitation_users(self, obj):
+        rows = getattr(obj, 'invitation_users_received', None)
+        if not rows:
+            return []
+        return [
+            {
+                'id': r.id,
+                'sender_id': r.sender_id,
+                'receiver_id': r.receiver_id,
+                'is_active': r.is_active,
+                'created_at': r.created_at,
+            }
+            for r in rows.all()
+        ]
+
+    def get_pin_verification(self, obj):
+        pin = getattr(obj, 'pin_verification', None)
+        if not pin:
+            return None
+        return {
+            'id': pin.id,
+            'pin_code': pin.pin_code,
+            'is_verified': pin.is_verified,
+            'expires_at': pin.expires_at,
+            'created_at': pin.created_at,
+        }
+
+    def get_registration_agreements(self, obj):
+        # Keep backwards compatible shape (empty if not configured)
+        return None
+
+    def get_device_tokens(self, obj):
+        return [
+            {
+                'id': token.id,
+                'mobile': token.mobile,
+                'token': token.token,
+                'created_at': token.created_at,
+                'updated_at': token.updated_at,
+            }
+            for token in obj.device_tokens.all()
+        ]
+
+
+class AdminPanelSavedCardSerializer(serializers.ModelSerializer):
+    user = serializers.SerializerMethodField()
+
+    class Meta:
+        model = SavedCard
+        fields = (
+            'id',
+            'user',
+            'holder_role',
+            'brand',
+            'last4',
+            'exp_month',
+            'exp_year',
+            'funding',
+            'nickname',
+            'is_default',
+            'is_active',
+            'created_at',
+            'updated_at',
+            'stripe_payment_method_id',
+            'stripe_customer_id',
+        )
+
+    def get_user(self, obj):
+        u = getattr(obj, 'user', None)
+        if not u:
+            return None
+        return {
+            'id': u.id,
+            'email': u.email,
+            'full_name': u.get_full_name(),
+            'phone_number': u.phone_number,
+        }
+
+
+# ---------------------------------------------------------------------------
+# Admin Panel — Orders domain (list/detail/CRUD serializers)
+# Keep these serializers simple: model fields + minimal nesting. For Order itself
+# we reuse apps.order.serializers.order.OrderDetailSerializer in views.
+# ---------------------------------------------------------------------------
+
+
+class AdminOrderBaseModelSerializer(serializers.ModelSerializer):
+    class Meta:
+        fields = '__all__'
+
+
+class AdminRideTypeSerializer(AdminOrderBaseModelSerializer):
+    class Meta(AdminOrderBaseModelSerializer.Meta):
+        model = RideType
+
+
+class AdminSurgePricingSerializer(AdminOrderBaseModelSerializer):
+    class Meta(AdminOrderBaseModelSerializer.Meta):
+        model = SurgePricing
+
+
+class AdminOrderItemSerializer(AdminOrderBaseModelSerializer):
+    class Meta(AdminOrderBaseModelSerializer.Meta):
+        model = OrderItem
+
+
+class AdminAdditionalPassengerSerializer(AdminOrderBaseModelSerializer):
+    class Meta(AdminOrderBaseModelSerializer.Meta):
+        model = AdditionalPassenger
+
+
+class AdminOrderPreferencesSerializer(AdminOrderBaseModelSerializer):
+    class Meta(AdminOrderBaseModelSerializer.Meta):
+        model = OrderPreferences
+
+
+class AdminUserOrderPreferencesSerializer(AdminOrderBaseModelSerializer):
+    class Meta(AdminOrderBaseModelSerializer.Meta):
+        model = UserOrderPreferences
+
+
+class AdminOrderDriverSerializer(AdminOrderBaseModelSerializer):
+    driver_obj = serializers.SerializerMethodField()
+
+    class Meta(AdminOrderBaseModelSerializer.Meta):
+        model = OrderDriver
+        fields = '__all__'
+
+    def get_driver_obj(self, obj):
+        request = self.context.get('request')
+        driver = getattr(obj, 'driver', None)
+        if not driver:
+            return None
+        return UserDetailSerializer(driver, context={'request': request}).data
+
+
+class AdminOrderScheduleSerializer(AdminOrderBaseModelSerializer):
+    class Meta(AdminOrderBaseModelSerializer.Meta):
+        model = OrderSchedule
+
+
+class AdminCancelOrderSerializer(AdminOrderBaseModelSerializer):
+    class Meta(AdminOrderBaseModelSerializer.Meta):
+        model = CancelOrder
+
+
+class AdminOrderPaymentSplitSerializer(AdminOrderBaseModelSerializer):
+    class Meta(AdminOrderBaseModelSerializer.Meta):
+        model = OrderPaymentSplit
+
+
+class AdminPromoCodeSerializer(AdminOrderBaseModelSerializer):
+    class Meta(AdminOrderBaseModelSerializer.Meta):
+        model = PromoCode
+
+
+class AdminOrderPromoCodeSerializer(AdminOrderBaseModelSerializer):
+    class Meta(AdminOrderBaseModelSerializer.Meta):
+        model = OrderPromoCode
+
+
+class AdminRatingFeedbackTagSerializer(AdminOrderBaseModelSerializer):
+    class Meta(AdminOrderBaseModelSerializer.Meta):
+        model = RatingFeedbackTag
+
+
+class AdminTripRatingSerializer(AdminOrderBaseModelSerializer):
+    class Meta(AdminOrderBaseModelSerializer.Meta):
+        model = TripRating
+
+
+class AdminDriverRiderRatingSerializer(AdminOrderBaseModelSerializer):
+    class Meta(AdminOrderBaseModelSerializer.Meta):
+        model = DriverRiderRating
+
+
+class AdminDriverCashoutSerializer(AdminOrderBaseModelSerializer):
+    class Meta(AdminOrderBaseModelSerializer.Meta):
+        model = DriverCashout
+
+
+class AdminOrderSerializer(AdminOrderBaseModelSerializer):
+    class Meta(AdminOrderBaseModelSerializer.Meta):
+        model = Order
+
+
+class AdminOrderFullSerializer(serializers.Serializer):
+    """
+    Admin order payload with all related objects split into dedicated keys.
+    This keeps admin-panel frontend simple and avoids "hidden" data inside nested serializers.
+    """
+
+    def to_representation(self, instance: Order):
+        request = self.context.get('request')
+
+        def _many(model_ser, rows):
+            return model_ser(rows, many=True, context={'request': request}).data
+
+        def _one(model_ser, obj):
+            if not obj:
+                return None
+            return model_ser(obj, context={'request': request}).data
+
+        # OrderItems with embedded RideType object (instead of only ride_type_id).
+        order_items = list(getattr(instance, 'order_items', []).all()) if hasattr(instance, 'order_items') else []
+        ride_types_map = {}
+        for it in order_items:
+            rt = getattr(it, 'ride_type', None)
+            if rt:
+                ride_types_map[rt.id] = rt
+
+        order_items_out = []
+        for it in order_items:
+            it_data = AdminOrderItemSerializer(it, context={'request': request}).data
+            rt = getattr(it, 'ride_type', None)
+            it_data['ride_type_obj'] = _one(AdminRideTypeSerializer, rt) if rt else None
+            order_items_out.append(it_data)
+
+        # Preferences: per-order preferences (order_preferences) and user template (order_preferences_template).
+        order_preferences_rows = list(getattr(instance, 'order_preferences', []).all()) if hasattr(instance, 'order_preferences') else []
+        user_template = getattr(getattr(instance, 'user', None), 'order_preferences_template', None)
+
+        # Ratings: trip_rating and driver_rider_rating (both one-to-one) + include their feedback tags.
+        trip_rating = getattr(instance, 'trip_rating', None)
+        driver_rider_rating = getattr(instance, 'driver_rider_rating', None)
+
+        def _rating_with_tags(obj, base_ser):
+            if not obj:
+                return None
+            data = base_ser(obj, context={'request': request}).data
+            tags = list(getattr(obj, 'feedback_tags', []).all()) if hasattr(obj, 'feedback_tags') else []
+            data['feedback_tags'] = _many(AdminRatingFeedbackTagSerializer, tags)
+            return data
+
+        # Promo applications (OrderPromoCode)
+        applied_promos = list(getattr(instance, 'applied_promo_codes', []).all()) if hasattr(instance, 'applied_promo_codes') else []
+        applied_promos_out = []
+        for ap in applied_promos:
+            ap_data = AdminOrderPromoCodeSerializer(ap, context={'request': request}).data
+            ap_data['promo_code_obj'] = _one(AdminPromoCodeSerializer, getattr(ap, 'promo_code', None))
+            applied_promos_out.append(ap_data)
+
+        # Driver cashouts are linked to driver (not order) — return for this order driver if exists.
+        driver = None
+        order_drivers = list(getattr(instance, 'order_drivers', []).all()) if hasattr(instance, 'order_drivers') else []
+        if order_drivers:
+            driver = getattr(order_drivers[0], 'driver', None)
+
+        return {
+            'order': AdminOrderSerializer(instance, context={'request': request}).data,
+            'user': UserDetailSerializer(getattr(instance, 'user', None), context={'request': request}).data if getattr(instance, 'user', None) else None,
+            'saved_card': _one(AdminPanelSavedCardSerializer, getattr(instance, 'saved_card', None)),
+            'stripe_trip_payment': {
+                'stripe_trip_payment_intent_id': getattr(instance, 'stripe_trip_payment_intent_id', ''),
+                'stripe_trip_payment_status': getattr(instance, 'stripe_trip_payment_status', ''),
+                'stripe_trip_payment_amount_cents': getattr(instance, 'stripe_trip_payment_amount_cents', None),
+                'stripe_trip_payment_currency': getattr(instance, 'stripe_trip_payment_currency', ''),
+                'stripe_trip_payment_error': getattr(instance, 'stripe_trip_payment_error', ''),
+            },
+            'ride_types': _many(AdminRideTypeSerializer, list(ride_types_map.values())),
+            'order_items': order_items_out,
+            'order_preferences': _many(AdminOrderPreferencesSerializer, order_preferences_rows),
+            'user_order_preferences': _one(AdminUserOrderPreferencesSerializer, user_template),
+            'additional_passengers': _many(AdminAdditionalPassengerSerializer, list(getattr(instance, 'additional_passengers', []).all()) if hasattr(instance, 'additional_passengers') else []),
+            'order_schedules': _many(AdminOrderScheduleSerializer, list(getattr(instance, 'order_schedules', []).all()) if hasattr(instance, 'order_schedules') else []),
+            'order_drivers': _many(AdminOrderDriverSerializer, order_drivers),
+            'cancel_orders': _many(AdminCancelOrderSerializer, list(getattr(instance, 'cancel_orders', []).all()) if hasattr(instance, 'cancel_orders') else []),
+            'applied_promo_codes': applied_promos_out,
+            'trip_rating': _rating_with_tags(trip_rating, AdminTripRatingSerializer),
+            'driver_rider_rating': _rating_with_tags(driver_rider_rating, AdminDriverRiderRatingSerializer),
+        }
+
+    def _build_absolute_url(self, relative_or_absolute_url):
+        if not relative_or_absolute_url:
+            return None
+        request = self.context.get('request')
+        if request:
+            return request.build_absolute_uri(relative_or_absolute_url)
+        return relative_or_absolute_url
+
     def _registration_agreement_file_url(self, agreement_type_obj):
         if not agreement_type_obj:
             return None
@@ -432,7 +761,7 @@ class AdminPanelUploadTypeSerializer(serializers.ModelSerializer):
 class AdminPanelUploadTypeWriteSerializer(serializers.ModelSerializer):
     class Meta:
         model = DriverIdentificationUploadType
-        fields = ('title', 'description', 'is_active')
+        fields = ('title', 'description', 'is_active', 'icon')
 
 
 class AdminPanelAgreementItemSerializer(serializers.Serializer):
