@@ -338,9 +338,7 @@ class AdminPanelRiderListSerializer(serializers.ModelSerializer):
             return None
         return {
             'id': pin.id,
-            'pin_code': pin.pin_code,
-            'is_verified': pin.is_verified,
-            'expires_at': pin.expires_at,
+            'pin': pin.pin,
             'created_at': pin.created_at,
         }
 
