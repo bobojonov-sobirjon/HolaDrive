@@ -37,6 +37,7 @@ from .serializers import (
     DriverRiderRatingSerializer,
     RatingFeedbackTagSerializer,
 )
+from .serializers.driver import DriverCashoutSerializer, DriverCashoutCreateRequestSerializer
 from .serializers.cancel_order import OrderCancelSerializer, DriverCancelSerializer
 from .serializers.pin_verify import OrderPinVerifySerializer
 from .models import (
@@ -54,7 +55,7 @@ from apps.accounts.serializers.user import UserDetailSerializer
 from apps.payment.models import SavedCard
 from .services.surge_pricing_service import calculate_distance
 from .services.driver_assignment_service import DriverAssignmentService
-from .services.driver_dashboard import get_driver_dashboard, get_cash_history, get_ride_history, get_driver_earnings
+from .services.driver_dashboard import get_driver_dashboard, get_ride_history, get_driver_earnings
 
 class OrderCreateView(AsyncAPIView):
     permission_classes = [IsAuthenticated]
@@ -1076,6 +1077,28 @@ class DriverCompleteView(AsyncAPIView):
                 'updated_at',
             ]
         )
+
+        # Wallet/ledger: record driver earnings per completed trip.
+        try:
+            from apps.payment.services.trip_charge import order_trip_total_money
+            from apps.order.services.wallet import apply_trip_earning
+
+            trip_total = order_trip_total_money(order)
+            await sync_to_async(apply_trip_earning)(
+                driver=user,
+                order=order,
+                amount=trip_total,
+                payment_type=order.payment_type or Order.PaymentType.CARD,
+            )
+        except Exception as e:
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "Failed to write wallet earning for order %s (driver %s): %s",
+                order.id,
+                user.id,
+                e,
+            )
         try:
             from apps.chat.models import ChatRoom
             await sync_to_async(lambda: ChatRoom.objects.filter(order=order).update(status=ChatRoom.RoomStatus.COMPLETED))()
@@ -1085,12 +1108,80 @@ class DriverCompleteView(AsyncAPIView):
         try:
             from apps.notification.services import enqueue_push_to_user_id
 
-            enqueue_push_to_user_id(
-                order.user_id,
-                title="Ride completed",
-                body="Thank you for riding with us. Your ride has been completed.",
-                data={"order_id": order.id, "order_code": order.order_code, "type": "ride_completed"},
-            )
+            if order.payment_type == Order.PaymentType.CARD and stripe_cents:
+                from decimal import Decimal
+
+                currency = (stripe_currency or 'usd').upper()
+                charged = (Decimal(stripe_cents) / Decimal('100')).quantize(Decimal('0.01'))
+                if currency == 'USD':
+                    charged_label = f'${charged}'
+                else:
+                    charged_label = f'{charged} {currency}'
+
+                enqueue_push_to_user_id(
+                    order.user_id,
+                    title='Payment successful',
+                    body=(
+                        f'Your card was charged {charged_label} for trip '
+                        f'{order.order_code or order.id}. Thank you for riding with us.'
+                    ),
+                    data={
+                        'type': 'trip_payment_charged',
+                        'order_id': order.id,
+                        'order_code': order.order_code or '',
+                        'amount_cents': stripe_cents,
+                        'currency': stripe_currency or '',
+                        'stripe_payment_intent_id': stripe_pi or None,
+                    },
+                )
+
+                from apps.payment.services.checkout_fees import compute_checkout_preview
+
+                preview = await sync_to_async(compute_checkout_preview)(order)
+                payout = preview.get('driver_payout_estimate') or '0.00'
+                payout_currency = (preview.get('currency') or stripe_currency or 'usd').upper()
+                if payout_currency == 'USD':
+                    payout_label = f'${payout}'
+                else:
+                    payout_label = f'{payout} {payout_currency}'
+
+                enqueue_push_to_user_id(
+                    user.id,
+                    title='Trip completed',
+                    body=(
+                        f'Ride completed successfully. {payout_label} was credited to '
+                        'your Stripe account.'
+                    ),
+                    data={
+                        'type': 'trip_completed_driver',
+                        'order_id': order.id,
+                        'order_code': order.order_code or '',
+                        'driver_payout': payout,
+                        'currency': payout_currency,
+                        'stripe_payment_intent_id': stripe_pi or None,
+                    },
+                )
+            else:
+                enqueue_push_to_user_id(
+                    order.user_id,
+                    title='Ride completed',
+                    body='Thank you for riding with us. Your ride has been completed.',
+                    data={
+                        'order_id': order.id,
+                        'order_code': order.order_code or '',
+                        'type': 'ride_completed',
+                    },
+                )
+                enqueue_push_to_user_id(
+                    user.id,
+                    title='Trip completed',
+                    body='Ride completed successfully.',
+                    data={
+                        'type': 'trip_completed_driver',
+                        'order_id': order.id,
+                        'order_code': order.order_code or '',
+                    },
+                )
         except Exception as e:
             import logging
             logging.getLogger(__name__).error(
@@ -1429,12 +1520,11 @@ class PriceEstimateView(AsyncAPIView):
         tags=['Rider: Pricing'],
         summary='Price estimate',
         description=(
-            'Barcha aktiv ride type lar uchun narx. Har bir ``estimates`` elementida '
-            '``id`` = ``ride_type_id`` (reja bosqichi; buyurtma hali yo‘q). '
-            'Buyurtma yaratilgach narxni o‘zgartirish uchun ``order_items[].id`` bilan '
-            '``PATCH .../order-item/{id}/manage-price/`` ishlating. '
-            '``ride_type_icon`` qisqa matn bo‘lishi mumkin — mijozda ``substring(0, 10)`` '
-            'kabi qat’iy uzunlik ishlatmang.'
+            'Estimated price for each active ride type. Each ``estimates`` item uses '
+            '``id`` = ``ride_type_id`` (planning phase; no order yet). After the order is '
+            'created, change price via ``order_items[].id`` and '
+            '``PATCH .../order-item/{id}/manage-price/``. '
+            '``ride_type_icon`` may be short text — do not hard-truncate on the client (e.g. substring).'
         ),
         request=PriceEstimateSerializer,
     )
@@ -1550,21 +1640,15 @@ class PriceEstimateView(AsyncAPIView):
 
 
 class PriceEstimateManagePriceView(AsyncAPIView):
-    """
-    Reja (order create oldin): bir ride_type va yo‘nalish uchun tanlangan narxni
-    min/max oralig‘ida tekshirish. DB ga yozmaydi.
-    """
-
     permission_classes = [IsAuthenticated]
 
     @extend_schema(
         tags=['Rider: Pricing'],
         summary='Plan: validate adjusted price (pre-order)',
         description=(
-            '``price-estimate`` dagi ``id`` / ``ride_type_id`` va xuddi shu koordinatalar bilan '
-            'yuboring. Muvaffaqiyatli javobda ``valid``: true va min/max/calculated qaytadi. '
-            'Buyurtma yaratishda shu narxni ``POST /order/create/`` bodyda ``adjusted_price`` '
-            'sifatida yuborishingiz mumkin.'
+            'Send the same ``ride_type_id`` and coordinates as ``price-estimate``. '
+            'On success, ``valid`` is true and min/max/calculated bounds are returned. '
+            'Use that price as ``adjusted_price`` in ``POST /order/create/``.'
         ),
         request=PriceEstimateManagePriceSerializer,
     )
@@ -1703,11 +1787,10 @@ class OrderItemManagePriceView(AsyncAPIView):
         tags=['Rider: Order items'],
         summary='Manage order item price',
         description=(
-            'URL dagi ``order_item_id`` — **OrderItem** jadvalidagi primary key '
-            '(``POST /order/create/`` yoki buyurtma detalidagi ``order_items[].id``). '
-            '``GET/POST price-estimate`` dagi ``id`` bu yerda **emas** (u reja uchun '
-            '``ride_type_id`` bilan bir xil). Buyurtma ``pending`` bo‘lsa ham '
-            '(masalan, haydovchi kutish) ishlaydi — faqat buyurtma egasi.'
+            '``order_item_id`` is the **OrderItem** primary key from '
+            '``POST /order/create/`` or order detail ``order_items[].id``. '
+            'This is **not** the ``id`` from ``price-estimate`` (that is ``ride_type_id``). '
+            'Works while the order is ``pending`` (e.g. waiting for a driver). Rider owner only.'
         ),
         request=OrderItemManagePriceSerializer,
     )
@@ -2242,6 +2325,49 @@ class OrderDetailView(AsyncAPIView):
         )
 
 
+class OrderCheckoutPreviewView(AsyncAPIView):
+    """Fee breakdown before trip complete (rider owner or assigned driver)."""
+
+    permission_classes = [IsAuthenticated]
+
+    async def _check_driver_role(self, user):
+        groups = await sync_to_async(list)(user.groups.all())
+        names = [g.name for g in groups]
+        return 'Driver' in names
+
+    async def _can_access_order(self, user, order):
+        if order.user_id == user.id:
+            return True
+        if not await self._check_driver_role(user):
+            return False
+        return await OrderDriver.objects.filter(order=order, driver=user).aexists()
+
+    @extend_schema(
+        tags=['Rider: Orders'],
+        summary='Checkout preview (fee breakdown)',
+        description='Returns job total, rider fees, customer_total, driver payout estimate for this order.',
+    )
+    async def get(self, request, order_id: int):
+        try:
+            order = await Order.objects.prefetch_related('order_items').aget(id=order_id)
+        except Order.DoesNotExist:
+            return Response({'message': 'Order not found', 'status': 'error'}, status=status.HTTP_404_NOT_FOUND)
+
+        if not await self._can_access_order(request.user, order):
+            return Response(
+                {'message': 'You do not have permission to view this order', 'status': 'error'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        from apps.payment.services.checkout_fees import compute_checkout_preview
+
+        data = await sync_to_async(compute_checkout_preview)(order)
+        return Response(
+            {'message': 'Checkout preview retrieved', 'status': 'success', 'data': data},
+            status=status.HTTP_200_OK,
+        )
+
+
 class OrderPaymentCardView(AsyncAPIView):
     """
     Rider: attach a saved card to an order (card payment). Sets payment_type to card.
@@ -2444,7 +2570,7 @@ class DriverDashboardView(AsyncAPIView):
     @extend_schema(
         tags=['Driver: Earnings & wallet'],
         summary='Driver dashboard',
-        description='Overview, cashout history, ride history. Filters: filter=day|week|last_30|range, start_date, end_date (for range).',
+        description='Overview, Stripe Connect balance, automatic bank payout history, ride history. Filters: filter=day|week|last_30|range, start_date, end_date (for range).',
         parameters=[
             OpenApiParameter('ride_limit', OpenApiTypes.INT, OpenApiParameter.QUERY, required=False, description='Ride history limit (default 10)'),
             OpenApiParameter('filter', OpenApiTypes.STR, OpenApiParameter.QUERY, description='day, week, last_30, range'),
@@ -2466,10 +2592,44 @@ class DriverDashboardView(AsyncAPIView):
             user.id, ride_limit, filter_type, start_date, end_date
         )
 
+        # Wallet: available balance (withdrawable = card + hola_wallet_cash; cash is not withdrawable)
+        wallet_summary = None
+        cash_out_available = "0.00"
+        try:
+            from decimal import Decimal
+            from apps.order.models import DriverWalletBalance
+            from apps.order.serializers.driver import DriverWalletBalanceSerializer
+
+            bal = await sync_to_async(lambda: DriverWalletBalance.objects.filter(driver=user).first())()
+            if not bal:
+                bal = await sync_to_async(DriverWalletBalance.objects.create)(driver=user)
+
+            wallet_summary = await sync_to_async(lambda: DriverWalletBalanceSerializer(bal).data)()
+            withdrawable = (Decimal(str(bal.available_card or 0)) + Decimal(str(bal.available_hola_wallet_cash or 0))).quantize(
+                Decimal('0.01')
+            )
+            cash_out_available = str(withdrawable)
+        except Exception:
+            # Never fail dashboard due to wallet issues.
+            wallet_summary = None
+            cash_out_available = "0.00"
+
+        # Stripe Connect balance (pending / available) — automatic weekly bank payouts
+        stripe_balance = None
+        try:
+            from apps.payment.services.connect_balance import fetch_connect_balance_and_payouts
+
+            stripe_balance = await sync_to_async(fetch_connect_balance_and_payouts)(user, payout_limit=5)
+        except Exception:
+            stripe_balance = None
+
         return Response({
             'message': 'Dashboard retrieved successfully',
             'status': 'success',
             'data': {
+                'cash_out_available': cash_out_available,
+                'wallet_summary': wallet_summary,
+                'stripe_balance': stripe_balance,
                 'overview': overview,
                 'cash_history': cash_history,
                 'ride_history': ride_history,
@@ -2538,18 +2698,19 @@ class DriverEarningsView(AsyncAPIView):
         )
 
 
+
 class DriverCashoutHistoryView(AsyncAPIView):
-    """See all cash history. Paginated, same filters as dashboard."""
+    """Automatic Stripe Connect bank payout history (weekly deposits)."""
     permission_classes = [IsAuthenticated]
 
     @extend_schema(
         tags=['Driver: Earnings & wallet'],
-        summary='Cash history (See all)',
-        description='Paginated cashout history. Filters: filter=day|week|last_30|range, start_date, end_date. Pagination: page, page_size.',
+        summary='Cash history — automatic bank deposits',
+        description=(
+            'Paginated history of automatic Stripe Connect bank payouts (weekly schedule). '
+            'Includes pending/available balance snapshot. Manual cash-out is not used for card earnings.'
+        ),
         parameters=[
-            OpenApiParameter('filter', OpenApiTypes.STR, OpenApiParameter.QUERY, description='day, week, last_30, range'),
-            OpenApiParameter('start_date', OpenApiTypes.DATE, OpenApiParameter.QUERY, description='YYYY-MM-DD (for range)'),
-            OpenApiParameter('end_date', OpenApiTypes.DATE, OpenApiParameter.QUERY, description='YYYY-MM-DD (for range)'),
             OpenApiParameter('page', OpenApiTypes.INT, OpenApiParameter.QUERY, description='Page number (default 1)'),
             OpenApiParameter('page_size', OpenApiTypes.INT, OpenApiParameter.QUERY, description='Page size (default 20)'),
         ],
@@ -2560,22 +2721,16 @@ class DriverCashoutHistoryView(AsyncAPIView):
         if not is_driver:
             return Response({'message': 'Only drivers can access this endpoint', 'status': 'error'}, status=status.HTTP_403_FORBIDDEN)
 
-        filter_type = request.query_params.get('filter', 'last_30')
-        start_date = request.query_params.get('start_date')
-        end_date = request.query_params.get('end_date')
         page = int(request.query_params.get('page', 1))
         page_size = int(request.query_params.get('page_size', 20))
 
-        data, total = await sync_to_async(get_cash_history)(
-            user.id, filter_type, start_date, end_date, page, page_size
-        )
+        from apps.payment.services.driver_cash_history import build_driver_cash_history
+
+        data = await sync_to_async(build_driver_cash_history)(user, page=page, page_size=page_size)
         return Response({
             'message': 'Cash history retrieved successfully',
             'status': 'success',
             'data': data,
-            'count': total,
-            'page': page,
-            'page_size': page_size,
         }, status=status.HTTP_200_OK)
 
     async def _check_driver_role(self, user):
@@ -2589,9 +2744,17 @@ class DriverCashoutCreateView(AsyncAPIView):
     permission_classes = [IsAuthenticated]
 
     @extend_schema(
+        exclude=True,
+        deprecated=True,
         tags=['Driver: Earnings & wallet'],
-        summary='Cash out',
-        description='Create a driver cashout request. Body: amount and payment_type (card|cash|hola_wallet_cash). Returns the created withdrawal row.',
+        summary='Cash out (deprecated)',
+        description=(
+            'Deprecated. Use POST /api/v1/order/driver/cashouts/ instead.\n\n'
+            'Create a driver cashout request. Body: amount and payment_type (card|cash|hola_wallet_cash). '
+            'Returns the created withdrawal row.'
+        ),
+        request=DriverCashoutCreateRequestSerializer,
+        responses={201: DriverCashoutSerializer},
     )
     async def post(self, request):
         user = request.user
@@ -2611,12 +2774,109 @@ class DriverCashoutCreateView(AsyncAPIView):
         payment_type = request.data.get('payment_type', 'card')
         if payment_type not in ('card', 'cash', 'hola_wallet_cash'):
             payment_type = 'card'
+        # Withdrawals are only allowed from card + hola_wallet_cash (cash is already in-hand).
+        if payment_type == Order.PaymentType.CASH:
+            return Response(
+                {
+                    'message': 'Cash balance is not withdrawable',
+                    'status': 'error',
+                    'errors': {'payment_type': ['Withdrawals are only allowed for card and hola_wallet_cash.']},
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            from apps.order.services.wallet import get_withdrawable_amounts
+
+            withdrawable = await sync_to_async(get_withdrawable_amounts)(user)
+            max_amount = withdrawable.get(payment_type)
+            if max_amount is not None and amount > max_amount:
+                return Response(
+                    {
+                        'message': 'Insufficient available balance',
+                        'status': 'error',
+                        'errors': {
+                            'amount': [
+                                f'Max withdrawable for {payment_type} is {max_amount}.',
+                            ]
+                        },
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        except Exception:
+            # If wallet table is missing (not migrated yet) or other errors, do not block.
+            pass
         cashout = await sync_to_async(DriverCashout.objects.create)(
             driver=user, amount=amount, payment_type=payment_type, status=DriverCashout.Status.PENDING
         )
-        from .serializers.driver import DriverCashoutSerializer
+        # Real-time: notify all superusers (admin panel) via /ws/notifications/
+        try:
+            from channels.layers import get_channel_layer
+            from asgiref.sync import async_to_sync
+            from apps.accounts.models import CustomUser
+
+            channel_layer = get_channel_layer()
+            if channel_layer:
+                admins = await sync_to_async(list)(CustomUser.objects.filter(is_superuser=True).only('id'))
+                payload = {
+                    'type': 'notification',
+                    'notification': {
+                        'user_id': None,  # admin clients ignore user_id mismatch if None
+                        'notification_type': 'cashout_created',
+                        'title': 'New cashout request',
+                        'message': f'New cashout request from driver {user.id} for {amount}',
+                        'data': {
+                            'cashout_id': cashout.id,
+                            'driver_id': user.id,
+                            'amount': str(amount),
+                            'payment_type': payment_type,
+                            'status': cashout.status,
+                            'created_at': cashout.created_at.isoformat(),
+                        },
+                        'created_at': cashout.created_at.isoformat(),
+                        'status': 'unread',
+                    },
+                }
+                for a in admins:
+                    async_to_sync(channel_layer.group_send)(f'notifications_{a.id}', payload)
+        except Exception:
+            pass
         data = await sync_to_async(lambda: DriverCashoutSerializer(cashout).data)()
         return Response({'message': 'Cashout request submitted successfully', 'status': 'success', 'data': data}, status=status.HTTP_201_CREATED)
+
+    async def _check_driver_role(self, user):
+        groups = await sync_to_async(list)(user.groups.all())
+        names = [g.name for g in groups]
+        return 'Driver' in names
+
+
+class DriverCashoutsListCreateView(AsyncAPIView):
+    """
+    GET/POST driver cashouts (manual withdrawal requests).
+    - GET: list driver's cashout requests (newest first)
+    - POST: create cashout request (status=pending)
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    async def get(self, request):
+        # Keep only POST on this endpoint (history is provided by /driver/cash-history/).
+        return Response(
+            {'message': 'Method not allowed. Use /driver/cash-history/ for history.', 'status': 'error'},
+            status=status.HTTP_405_METHOD_NOT_ALLOWED,
+        )
+
+    @extend_schema(
+        tags=['Driver: Earnings & wallet'],
+        summary='Cashouts (create)',
+        description='Create a driver cashout request. Body: amount and payment_type (card|cash|hola_wallet_cash).',
+        request=DriverCashoutCreateRequestSerializer,
+        responses={201: DriverCashoutSerializer},
+    )
+    async def post(self, request):
+        # Reuse existing create logic for consistency
+        view = DriverCashoutCreateView()
+        return await view.post(request)
 
     async def _check_driver_role(self, user):
         groups = await sync_to_async(list)(user.groups.all())

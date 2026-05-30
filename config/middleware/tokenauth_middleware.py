@@ -12,18 +12,6 @@ from urllib.parse import parse_qs, unquote
 logger = logging.getLogger(__name__)
 
 
-def _is_ws_orders_path(path: str) -> bool:
-    """Driver/rider order WebSocket paths (plural + driver singular alias)."""
-    if path.startswith("/ws/rider/orders"):
-        return True
-    if path.startswith("/ws/driver/orders"):
-        return True
-    return path == "/ws/driver/order" or path.startswith((
-        "/ws/driver/order/",
-        "/ws/driver/order/token=",
-    ))
-
-
 @database_sync_to_async
 def get_user_from_jwt(token_key):
     if not token_key:
@@ -79,7 +67,6 @@ class TokenAuthMiddleware(BaseMiddleware):
         # First, try to get token from query string
         query_string = parse_qs(scope.get("query_string", b"").decode())
         token_key = query_string.get("token", [None])[0]
-        token_source = "query" if token_key else None
 
         # If not in query string, try to extract from URL path
         # Decode path so token= and JWT work when URL-encoded (e.g. token%3D, %2F in token)
@@ -99,23 +86,6 @@ class TokenAuthMiddleware(BaseMiddleware):
                         token_key = suffix[6:].strip()
                     elif "." in suffix and len(suffix) > 50:
                         token_key = suffix
-                    token_source = "path"
-                    if ws_prefix == "/ws/driver/order/":
-                        label = "driver/order"
-                    elif "rider" in ws_prefix:
-                        label = "rider/orders"
-                    else:
-                        label = "driver/orders"
-                    logger.debug(
-                        "[WS %s] path=%r suffix_len=%s token_found=%s token_preview=%s",
-                        label,
-                        path[:80],
-                        len(suffix),
-                        bool(token_key),
-                        f"{token_key[:20]}...{token_key[-20:]}"
-                        if token_key and len(token_key) > 45
-                        else (token_key or ""),
-                    )
                     break
 
             # Check if path has format: /ws/chat/1/TOKEN or /ws/chat/1/token=TOKEN
@@ -153,28 +123,9 @@ class TokenAuthMiddleware(BaseMiddleware):
                 elif "." in potential_token and len(potential_token) > 50:
                     token_key = potential_token
 
-        if _is_ws_orders_path(path):
-            logger.debug(
-                "[WS orders] token_source=%s token_found=%s path_prefix=%s",
-                token_source,
-                bool(token_key),
-                path[:40],
-            )
-
         if token_key:
             scope["user"] = await get_user_from_jwt(token_key)
-            if _is_ws_orders_path(path):
-                user = scope["user"]
-                logger.info(
-                    "[WS orders] after_jwt user_id=%s is_anonymous=%s",
-                    getattr(user, "id", None),
-                    getattr(user, "is_anonymous", True),
-                )
-        else:
-            # For admin panel, AuthMiddlewareStack has already set user from session
-            if "user" not in scope:
-                scope["user"] = AnonymousUser()
-            if _is_ws_orders_path(path):
-                logger.info("[WS orders] No token in query or path")
+        elif "user" not in scope:
+            scope["user"] = AnonymousUser()
 
         return await super().__call__(scope, receive, send)

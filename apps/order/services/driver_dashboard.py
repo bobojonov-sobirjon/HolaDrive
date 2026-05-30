@@ -6,7 +6,7 @@ from django.db.models import Sum
 from django.utils import timezone
 
 from apps.accounts.models import CustomUser
-from ..models import Order, OrderDriver, DriverCashout, TripRating
+from ..models import Order, OrderDriver, TripRating
 
 
 def _parse_filter(filter_type, start_date, end_date):
@@ -73,11 +73,13 @@ def get_driver_dashboard(user_id, ride_limit=10, filter_type='last_30', start_da
         'promotion': 0.0,
     }
 
-    cashouts = list(DriverCashout.objects.filter(
-        driver=user, created_at__gte=dt_start, created_at__lte=dt_end
-    ).order_by('-created_at')[:20])
-    from ..serializers.driver import DriverCashoutSerializer
-    cash_history = DriverCashoutSerializer(cashouts, many=True).data
+    cash_history = []
+    try:
+        from apps.payment.services.driver_cash_history import recent_cash_history_for_dashboard
+
+        cash_history = recent_cash_history_for_dashboard(user, limit=20)
+    except Exception:
+        cash_history = []
 
     ride_orders = list(base.filter(
         updated_at__gte=dt_start, updated_at__lte=dt_end
@@ -89,19 +91,12 @@ def get_driver_dashboard(user_id, ride_limit=10, filter_type='last_30', start_da
 
 
 def get_cash_history(user_id, filter_type='last_30', start_date=None, end_date=None, page=1, page_size=20):
-    """Paginated cash history for See all. Returns (list, total_count)."""
+    """Paginated automatic Stripe bank payout history (weekly Connect deposits)."""
     user = CustomUser.objects.get(id=user_id)
-    dt_start, dt_end = _parse_filter(filter_type, start_date, end_date)
+    from apps.payment.services.driver_cash_history import build_driver_cash_history
 
-    qs = DriverCashout.objects.filter(
-        driver=user, created_at__gte=dt_start, created_at__lte=dt_end
-    ).order_by('-created_at')
-    total = qs.count()
-    start = (page - 1) * page_size
-    items = list(qs[start : start + page_size])
-    from ..serializers.driver import DriverCashoutSerializer
-    data = DriverCashoutSerializer(items, many=True).data
-    return data, total
+    data = build_driver_cash_history(user, page=page, page_size=page_size)
+    return data['results'], data['count']
 
 
 def _completed_orders_for_driver(user):

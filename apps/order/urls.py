@@ -9,6 +9,7 @@ from .views import (
     MyOrderListView,
     RiderRideHistoryView,
     OrderDetailView,
+    OrderCheckoutPreviewView,
     OrderPaymentCardView,
     RiderActiveRideView,
     DriverActiveRideView,
@@ -29,6 +30,7 @@ from .views import (
     DriverEarningsView,
     DriverCashoutHistoryView,
     DriverCashoutCreateView,
+    DriverCashoutsListCreateView,
     DriverRideHistoryView,
     DriverOnlineStatusView,
     TripRatingCreateView,
@@ -49,6 +51,7 @@ urlpatterns = [
     path('rider/active-ride/', RiderActiveRideView.as_view(), name='rider-active-ride'),
     path('driver/active-ride/', DriverActiveRideView.as_view(), name='driver-active-ride'),
     path('<int:order_id>/', OrderDetailView.as_view(), name='order-detail'),
+    path('<int:order_id>/checkout-preview/', OrderCheckoutPreviewView.as_view(), name='order-checkout-preview'),
     path('<int:order_id>/payment-card/', OrderPaymentCardView.as_view(), name='order-payment-card'),
     path('price-estimate/', PriceEstimateView.as_view(), name='price-estimate'),
     path(
@@ -83,6 +86,7 @@ urlpatterns = [
     path('driver/earnings/', DriverEarningsView.as_view(), name='driver-earnings'),
     path('driver/cash-history/', DriverCashoutHistoryView.as_view(), name='driver-cash-history'),
     path('driver/cashout/', DriverCashoutCreateView.as_view(), name='driver-cashout-create'),
+    path('driver/cashouts/', DriverCashoutsListCreateView.as_view(), name='driver-cashouts-list-create'),
     path('driver/ride-history/', DriverRideHistoryView.as_view(), name='driver-ride-history'),
     path('driver/online-status/', DriverOnlineStatusView.as_view(), name='driver-online-status'),
 

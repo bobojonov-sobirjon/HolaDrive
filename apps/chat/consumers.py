@@ -1,10 +1,14 @@
 import json
+import logging
+
 from channels.generic.websocket import AsyncWebsocketConsumer
 from channels.db import database_sync_to_async
 from django.contrib.auth import get_user_model
 from .models import ChatRoom, ChatMessage
+from apps.notification.models import Notification
 
 User = get_user_model()
+logger = logging.getLogger(__name__)
 
 
 class ChatConsumer(AsyncWebsocketConsumer):
@@ -42,8 +46,8 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 'message': 'Connected to chat',
                 'room_id': self.room_id
             }))
-        except Exception as e:
-            print(f"WebSocket connection error: {e}")
+        except Exception:
+            logger.exception('Chat WebSocket connect failed')
             await self.close()
     
     async def disconnect(self, close_code):
@@ -57,52 +61,24 @@ class ChatConsumer(AsyncWebsocketConsumer):
             )
     
     async def receive(self, text_data):
-        """
-        Receive message from WebSocket
-        """
-        print(f"📨 WebSocket receive called with data: {text_data}")
-        print(f"📨 Room ID: {getattr(self, 'room_id', 'NOT SET')}")
-        print(f"📨 Room group: {getattr(self, 'room_group_name', 'NOT SET')}")
-        print(f"📨 User: {getattr(self, 'user', 'NOT SET')}")
-        
         try:
             try:
                 text_data_json = json.loads(text_data)
-                print(f"📨 Parsed JSON: {text_data_json}")
                 message_type = text_data_json.get('type', 'chat_message')
-                print(f"📨 Message type: {message_type}")
-                
+
                 if message_type == 'chat_message':
                     message = text_data_json.get('message', '')
-                    file_base64 = text_data_json.get('file_base64', None)
-                    file_name = text_data_json.get('file_name', None)
-                    file_type = text_data_json.get('file_type', None)
-                    
-                    print(f"📨 Chat message received: message='{message}', has_file={bool(file_base64)}")
-                    
                     if message:
-                        print(f"📨 Saving text message...")
                         await self.save_message(message)
-                    else:
-                        print(f"⚠️ Empty message, not saving")
                 elif message_type == 'typing':
-                    print(f"📨 Typing indicator received")
                     await self.handle_typing(text_data_json)
                 elif message_type == 'read_message':
-                    message_id = text_data_json.get('message_id')
-                    print(f"📨 Read message request for ID: {message_id}")
-                    await self.mark_message_as_read(message_id)
-                else:
-                    print(f"⚠️ Unknown message type: {message_type}")
-            except json.JSONDecodeError as e:
-                print(f"⚠️ JSON decode error: {e}, treating as plain text")
+                    await self.mark_message_as_read(text_data_json.get('message_id'))
+            except json.JSONDecodeError:
                 if text_data and text_data.strip():
-                    print(f"📨 Saving as plain text message...")
                     await self.save_message(text_data.strip())
-        except Exception as e:
-            print(f"❌ Error in receive: {e}")
-            import traceback
-            traceback.print_exc()
+        except Exception:
+            logger.exception('Chat WebSocket receive failed')
     
     async def chat_message(self, event):
         """
@@ -124,10 +100,8 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 },
             }
             await self.send(text_data=json.dumps(message_payload))
-        except Exception as e:
-            print(f"❌ Error sending message to WebSocket: {e}")
-            import traceback
-            traceback.print_exc()
+        except Exception:
+            logger.exception('Chat WebSocket send failed')
     
     async def typing_indicator(self, event):
         """
@@ -187,10 +161,8 @@ class ChatConsumer(AsyncWebsocketConsumer):
                     'file_name': message_data.get('file_name')
                 }
                 await self.channel_layer.group_send(self.room_group_name, event_data)
-        except Exception as e:
-            print(f"❌ Error saving message: {e}")
-            import traceback
-            traceback.print_exc()
+        except Exception:
+            logger.exception('Chat save_message failed')
     
     async def save_message_with_file(self, message_text, file_base64, file_name, file_type):
         """
@@ -200,8 +172,6 @@ class ChatConsumer(AsyncWebsocketConsumer):
             message_data = await self._save_message_with_file_to_db(message_text, file_base64, file_name, file_type)
             
             if message_data:
-                print(f"Sending message with file to room group: {self.room_group_name}")
-                print(f"Message data: {message_data}")
                 try:
                     await self.channel_layer.group_send(
                         self.room_group_name,
@@ -220,21 +190,14 @@ class ChatConsumer(AsyncWebsocketConsumer):
                             'file_name': message_data.get('file_name')
                         }
                     )
-                    print(f"Message with file sent to room group successfully")
-                    
                     if '_pending_notification' in message_data and message_data['_pending_notification']:
                         notification = message_data['_pending_notification']
                         user_id = notification.user.id
                         await self.send_notification_via_websocket(user_id, notification)
-                        print(f"Notification sent via WebSocket to user {user_id}")
-                except Exception as e:
-                    print(f"Error sending to room group: {e}")
-                    import traceback
-                    traceback.print_exc()
-        except Exception as e:
-            print(f"Error saving message with file: {e}")
-            import traceback
-            traceback.print_exc()
+                except Exception:
+                    logger.exception('Chat group_send (file message) failed')
+        except Exception:
+            logger.exception('Chat save_message_with_file failed')
     
     @database_sync_to_async
     def _save_message_to_db(self, message_text):
@@ -258,9 +221,8 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 'file_type': None,
                 'file_name': None,
             }
-        except Exception as e:
-            import traceback
-            traceback.print_exc()
+        except Exception:
+            logger.exception('Chat _save_message_to_db failed')
             return None
     
     @database_sync_to_async
@@ -315,11 +277,9 @@ class ChatConsumer(AsyncWebsocketConsumer):
                         'notification': notification_data
                     }
                 )
-                print(f"Notification sent to group 'notifications_{user_id}' successfully")
-            except Exception as e:
-                print(f"Error sending notification to WebSocket: {e}")
-                import traceback
-                traceback.print_exc()
+                pass
+            except Exception:
+                logger.exception('Chat notification group_send failed')
     
     @database_sync_to_async
     def handle_typing(self, data):
@@ -357,7 +317,6 @@ class NotificationConsumer(AsyncWebsocketConsumer):
         self.user = self.scope['user']
         
         if self.user.is_anonymous:
-            print(f"WebSocket REJECT: User is anonymous for notifications")
             await self.close()
             return
         
@@ -416,7 +375,6 @@ class NotificationConsumer(AsyncWebsocketConsumer):
             try:
                 notification_user_id = int(notification_user_id)
                 if notification_user_id != self.user_id:
-                    print(f"⚠️ NotificationConsumer: Skipping notification {notification_data.get('id')} - not for user {self.user_id} (notification is for user {notification_user_id})")
                     return
             except (ValueError, TypeError):
                 pass

@@ -7,8 +7,9 @@ from .authentication import (
     VerifyCodeView,
     ResetPasswordRequestView,
     VerifyResetCodeView,
-    ResetPasswordConfirmView
+    ResetPasswordConfirmView,
 )
+from .social_auth import GoogleSignInView, AppleSignInView, FacebookSignInView
 from .user import (
     UserDetailView,
     UserAvatarUpdateView,
@@ -57,6 +58,9 @@ __all__ = [
     'ResetPasswordRequestView',
     'VerifyResetCodeView',
     'ResetPasswordConfirmView',
+    'GoogleSignInView',
+    'AppleSignInView',
+    'FacebookSignInView',
     'UserDetailView',
     'UserAvatarUpdateView',
     'UserPreferencesView',

@@ -45,10 +45,7 @@ def get_support_user():
         # Cache the user
         _support_user_cache = support_user
         return support_user
-    except Exception as e:
-        print(f"❌ Error getting support user: {e}")
-        import traceback
-        traceback.print_exc()
+    except Exception:
         return None
 
 

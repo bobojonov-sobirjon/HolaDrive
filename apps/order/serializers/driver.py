@@ -1,7 +1,15 @@
 from rest_framework import serializers
 
 from apps.accounts.models import CustomUser, DriverPreferences
-from ..models import Order, OrderItem, OrderDriver, DriverCashout, TripRating
+from ..models import (
+    Order,
+    OrderItem,
+    OrderDriver,
+    DriverCashout,
+    TripRating,
+    DriverWalletBalance,
+    DriverWalletTransaction,
+)
 from ..services.surge_pricing_service import calculate_distance
 
 
@@ -187,4 +195,40 @@ class DriverCashoutSerializer(serializers.ModelSerializer):
         model = DriverCashout
         fields = ['id', 'amount', 'payment_type', 'status', 'created_at']
 
+
+class DriverCashoutCreateRequestSerializer(serializers.Serializer):
+    amount = serializers.DecimalField(max_digits=12, decimal_places=2)
+    payment_type = serializers.ChoiceField(
+        choices=[c[0] for c in DriverCashout.PaymentType.choices],
+        required=False,
+        default='card',
+    )
+
+
+class DriverWalletBalanceSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = DriverWalletBalance
+        fields = [
+            'available_card',
+            'available_hola_wallet_cash',
+            'lifetime_card',
+            'lifetime_cash',
+            'lifetime_hola_wallet_cash',
+            'updated_at',
+        ]
+
+
+class DriverWalletTransactionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = DriverWalletTransaction
+        fields = [
+            'id',
+            'kind',
+            'payment_type',
+            'amount',
+            'note',
+            'order',
+            'cashout',
+            'created_at',
+        ]
 

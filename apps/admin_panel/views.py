@@ -71,6 +71,7 @@ from .serializers import (
     AdminPanelTermsTypeWriteSerializer,
 )
 from apps.payment.models import SavedCard
+from apps.accounts.services import send_sms
 
 
 class AdminPanelDriversListView(AsyncAPIView):
@@ -1134,13 +1135,39 @@ class AdminDriverCashoutsListView(_AdminPanelCRUDBaseView):
     model = DriverCashout
     serializer_class = AdminDriverCashoutSerializer
 
-    @extend_schema(tags=['Admin Panel'], summary='Admin Driver Cashouts: list', responses=AdminDriverCashoutSerializer(many=True))
+    @extend_schema(tags=['Admin: Cashouts'], summary='Admin Driver Cashouts: list', responses=AdminDriverCashoutSerializer(many=True))
     async def get(self, request):
         if not request.user.is_superuser:
             return self._forbidden_response()
-        return await self._list(request)
+        # Filters:
+        # - status: pending|completed|failed
+        # - driver_id
+        # - driver_name: matches first_name/last_name/email (icontains)
+        status_q = (request.query_params.get('status') or '').strip().lower()
+        driver_id = (request.query_params.get('driver_id') or '').strip()
+        driver_name = (request.query_params.get('driver_name') or '').strip()
 
-    @extend_schema(tags=['Admin Panel'], summary='Admin Driver Cashouts: create', request=AdminDriverCashoutSerializer, responses=AdminDriverCashoutSerializer)
+        qs = self.model.objects.select_related('driver').order_by('-created_at')
+        if status_q in ('pending', 'completed', 'failed'):
+            qs = qs.filter(status=status_q)
+        if driver_id.isdigit():
+            qs = qs.filter(driver_id=int(driver_id))
+        if driver_name:
+            qs = qs.filter(
+                Q(driver__first_name__icontains=driver_name)
+                | Q(driver__last_name__icontains=driver_name)
+                | Q(driver__email__icontains=driver_name)
+            )
+
+        rows = await sync_to_async(list)(qs)
+        ser = self.serializer_class(rows, many=True, context={'request': request})
+        data = await sync_to_async(lambda: ser.data)()
+        return Response(
+            {'message': 'Driver cashouts retrieved successfully', 'status': 'success', 'count': len(data), 'data': data},
+            status=status.HTTP_200_OK,
+        )
+
+    @extend_schema(tags=['Admin: Cashouts'], summary='Admin Driver Cashouts: create', request=AdminDriverCashoutSerializer, responses=AdminDriverCashoutSerializer)
     async def post(self, request):
         if not request.user.is_superuser:
             return self._forbidden_response()
@@ -1152,19 +1179,98 @@ class AdminDriverCashoutsDetailView(_AdminPanelCRUDBaseView):
     serializer_class = AdminDriverCashoutSerializer
     not_found_message = 'Driver cashout not found.'
 
-    @extend_schema(tags=['Admin Panel'], summary='Admin Driver Cashouts: detail', responses=AdminDriverCashoutSerializer)
+    @extend_schema(tags=['Admin: Cashouts'], summary='Admin Driver Cashouts: detail', responses=AdminDriverCashoutSerializer)
     async def get(self, request, driver_cashout_id):
         if not request.user.is_superuser:
             return self._forbidden_response()
         return await self._detail(request, driver_cashout_id)
 
-    @extend_schema(tags=['Admin Panel'], summary='Admin Driver Cashouts: update', request=AdminDriverCashoutSerializer, responses=AdminDriverCashoutSerializer)
+    @extend_schema(tags=['Admin: Cashouts'], summary='Admin Driver Cashouts: update', request=AdminDriverCashoutSerializer, responses=AdminDriverCashoutSerializer)
     async def patch(self, request, driver_cashout_id):
         if not request.user.is_superuser:
             return self._forbidden_response()
-        return await self._update(request, driver_cashout_id)
+        # Detect status changes to notify driver via SMS (manual payouts flow).
+        row = await sync_to_async(lambda: self.model.objects.select_related('driver').filter(id=driver_cashout_id).first())()
+        if not row:
+            return Response({'message': self.not_found_message, 'status': 'error'}, status=status.HTTP_404_NOT_FOUND)
 
-    @extend_schema(tags=['Admin Panel'], summary='Admin Driver Cashouts: delete')
+        old_status = row.status
+
+        # If admin is completing the cashout, validate available balance BEFORE persisting.
+        desired_status = (request.data.get('status') or '').strip().lower()
+        if desired_status == DriverCashout.Status.COMPLETED and old_status != DriverCashout.Status.COMPLETED:
+            try:
+                from apps.order.models import Order
+                from apps.order.services.wallet import get_withdrawable_amounts
+
+                if row.payment_type == Order.PaymentType.CASH:
+                    return Response(
+                        {
+                            'message': 'Cash is not withdrawable',
+                            'status': 'error',
+                            'errors': {'payment_type': ['Withdrawals are only allowed for card and hola_wallet_cash.']},
+                        },
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                withdrawable = await sync_to_async(get_withdrawable_amounts)(row.driver)
+                max_amount = withdrawable.get(row.payment_type)
+                if max_amount is not None and row.amount > max_amount:
+                    return Response(
+                        {
+                            'message': 'Insufficient available balance',
+                            'status': 'error',
+                            'errors': {'amount': [f'Max withdrawable for {row.payment_type} is {max_amount}.']},
+                        },
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+            except Exception:
+                # Do not block status update if wallet tables are not migrated yet.
+                pass
+
+        result = await self._update(request, driver_cashout_id)
+
+        try:
+            # Re-fetch to confirm persisted value
+            new_row = await sync_to_async(lambda: self.model.objects.select_related('driver').filter(id=driver_cashout_id).first())()
+            if not new_row:
+                return result
+            new_status = new_row.status
+
+            if new_status != old_status:
+                # Apply wallet debit when admin completes a cashout.
+                if new_status == DriverCashout.Status.COMPLETED:
+                    try:
+                        from apps.order.services.wallet import apply_cashout_withdrawal
+
+                        await sync_to_async(apply_cashout_withdrawal)(cashout=new_row)
+                    except Exception:
+                        # Never fail admin update due to wallet errors (but keep data consistent when possible).
+                        pass
+
+                phone = getattr(new_row.driver, 'phone_number', None)
+                amount = getattr(new_row, 'amount', None)
+                msg = None
+                if new_status == DriverCashout.Status.PENDING:
+                    msg = f'Your cashout request of {amount} is pending review.'
+                elif new_status == DriverCashout.Status.COMPLETED:
+                    msg = f'Your cashout request of {amount} has been paid.'
+                elif new_status == DriverCashout.Status.FAILED:
+                    msg = f'Your cashout request of {amount} failed. Please contact support.'
+
+                if msg and phone:
+                    await sync_to_async(send_sms)(phone, msg)
+        except Exception:
+            # Never fail admin update due to SMS errors.
+            pass
+
+        return result
+
+    @extend_schema(tags=['Admin: Cashouts'], summary='Admin Driver Cashouts: update (PUT alias)', request=AdminDriverCashoutSerializer, responses=AdminDriverCashoutSerializer)
+    async def put(self, request, driver_cashout_id):
+        # Frontend may use PUT; treat it same as PATCH (partial update is OK for status updates).
+        return await self.patch(request, driver_cashout_id)
+
+    @extend_schema(tags=['Admin: Cashouts'], summary='Admin Driver Cashouts: delete')
     async def delete(self, request, driver_cashout_id):
         if not request.user.is_superuser:
             return self._forbidden_response()
@@ -1180,7 +1286,7 @@ class AdminAnalyticsDashboardView(AsyncAPIView):
     permission_classes = [IsAuthenticated, IsAdminUser]
 
     @extend_schema(
-        tags=['Admin Panel'],
+        tags=['Admin: Analytics'],
         summary='Admin analytics dashboard',
         description=(
             'Query params:\n'

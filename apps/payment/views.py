@@ -154,6 +154,28 @@ class SavedCardListCreateView(AsyncAPIView):
 
         out = SavedCardSerializer(obj)
         data = await sync_to_async(lambda: out.data)()
+
+        try:
+            from apps.notification.services import enqueue_push_to_user_id
+
+            last4 = (data.get('last4') or '').strip()
+            brand = (data.get('brand') or 'Card').strip()
+            card_label = f'{brand} •••• {last4}' if last4 else brand
+            enqueue_push_to_user_id(
+                request.user.id,
+                title='Card added',
+                body=f'Your payment card ({card_label}) was added successfully.',
+                data={
+                    'type': 'saved_card_added',
+                    'saved_card_id': obj.id,
+                    'last4': last4 or None,
+                    'brand': brand,
+                    'holder_role': holder_role,
+                },
+            )
+        except Exception:
+            pass
+
         return Response(
             {
                 'message': 'Card saved successfully',

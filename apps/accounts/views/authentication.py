@@ -31,24 +31,17 @@ class RegistrationView(AsyncAPIView):
         """
         import logging
         logger = logging.getLogger(__name__)
-        
-        logger.info("=" * 80)
-        logger.info("REGISTRATION DEBUG: Starting registration process")
-        logger.info(f"REGISTRATION DEBUG: Request data: {request.data}")
-        
+
         serializer = RegistrationSerializer(data=request.data)
-        
+
         is_valid = await sync_to_async(lambda: serializer.is_valid())()
-        
+
         if is_valid:
-            logger.info("REGISTRATION DEBUG: Serializer is valid")
-            
             # Get invitation_code from request data (before saving user)
             invitation_code = request.data.get('invitation_code', '').strip() if request.data.get('invitation_code') else ''
             
             # Save user (invitation_code is processed here, device token handled in serializer)
             user = await sync_to_async(serializer.save)()
-            logger.info(f"REGISTRATION DEBUG: User created - ID: {user.id}, Email: {user.email}")
 
             # Best-effort Stripe customer init (prevents multiple customers when saving cards).
             # Must never fail registration.
@@ -65,7 +58,7 @@ class RegistrationView(AsyncAPIView):
                             u.save(update_fields=['stripe_customer_id'])
                     await sync_to_async(_ensure_customer)()
             except Exception as e:
-                logger.warning("REGISTRATION DEBUG: Stripe customer init skipped: %s", e)
+                logger.warning("Stripe customer init skipped during registration: %s", e)
             
             # Process invitation code if provided
             invitation_message = None
@@ -75,7 +68,7 @@ class RegistrationView(AsyncAPIView):
                 
                 if already_invited:
                     # User has already been invited before, cannot use invitation code again
-                    invitation_message = "Bu invitation code bilan kirib bo'lmaydi, oldin kirgansiz"
+                    invitation_message = "This invitation code cannot be used; you have already been invited."
                 else:
                     # User hasn't been invited before, can use invitation code
                     try:
@@ -86,54 +79,35 @@ class RegistrationView(AsyncAPIView):
                         
                         # Don't allow user to invite themselves
                         if sender.id == user.id:
-                            invitation_message = "O'zingizni taklif qila olmaysiz"
+                            invitation_message = "You cannot use your own invitation code."
                         else:
                             await sync_to_async(InvitationUsers.objects.create)(
                                 sender=sender,
                                 receiver=user,
                                 is_active=True
                             )
-                            invitation_message = "Invitation code muvaffaqiyatli qo'llanildi"
+                            invitation_message = "Invitation code applied successfully."
                     except InvitationGenerate.DoesNotExist:
-                        invitation_message = "Noto'g'ri invitation code"
+                        invitation_message = "Invalid invitation code."
             
             # Send verification code to email (sync function)
             email = user.email
+            success = False
+            error = None
             if email:
-                logger.info(f"REGISTRATION DEBUG: Attempting to send verification code to: {email}")
-                logger.info(f"REGISTRATION DEBUG: Email settings - HOST: {settings.EMAIL_HOST}, PORT: {settings.EMAIL_PORT}")
-                logger.info(f"REGISTRATION DEBUG: Email settings - FROM: {settings.DEFAULT_FROM_EMAIL}")
-                logger.info(f"REGISTRATION DEBUG: Email settings - BACKEND: {settings.EMAIL_BACKEND}")
-                
-                verification_code, success, error = await sync_to_async(send_verification_code)(
+                _, success, error = await sync_to_async(send_verification_code)(
                     user=user,
                     email=email
                 )
-                
-                logger.info(f"REGISTRATION DEBUG: Verification code created - Code: {verification_code.code}, ID: {verification_code.id}")
-                logger.info(f"REGISTRATION DEBUG: Email send result - Success: {success}, Error: {error}")
-                
                 if not success:
-                    logger.error(f"REGISTRATION DEBUG: Failed to send verification code to {email}: {error}")
-                else:
-                    logger.info(f"REGISTRATION DEBUG: Verification code sent successfully to {email}")
-            else:
-                logger.warning("REGISTRATION DEBUG: No email provided for user")
-            
-            logger.info("REGISTRATION DEBUG: Registration completed successfully")
-            logger.info("=" * 80)
-            
+                    logger.error("Failed to send verification code to %s: %s", email, error)
+
             user_data = await sync_to_async(serializer.to_representation)(user)
             
             response_data = {
                 'message': 'User registered successfully. Please check your email for verification code.',
                 'status': 'success',
                 'data': user_data,
-                'debug': {
-                    'verification_code_sent': success if email else False,
-                    'verification_code': verification_code.code if email and success else None,
-                    'error': error if email and not success else None
-                } if settings.DEBUG else None
             }
             
             # Add invitation message if there is one
@@ -184,15 +158,11 @@ class LoginView(AsyncAPIView):
             )
             
             if not success:
-                show_code = phone_number or contact_phone or settings.DEBUG
                 return Response(
                     {
                         'message': 'Failed to send verification code',
                         'status': 'error',
                         'errors': {'verification': [error] if error else ['Failed to send verification code']},
-                        'data': {
-                            'code': verification_code.code if show_code else None,
-                        }
                     },
                     status=status.HTTP_500_INTERNAL_SERVER_ERROR
                 )
@@ -264,7 +234,7 @@ class AdminLoginView(AsyncAPIView):
                     },
                     status=status.HTTP_500_INTERNAL_SERVER_ERROR
                 )
-
+            
             return Response(
                 {
                     'message': 'Admin verification code sent successfully',
@@ -272,7 +242,6 @@ class AdminLoginView(AsyncAPIView):
                     'data': {
                         'expires_in': 600,
                         'sent_to': email,
-                        'code': verification_code.code if settings.DEBUG else None,
                     }
                 },
                 status=status.HTTP_200_OK
@@ -317,15 +286,11 @@ class SendVerificationCodeView(AsyncAPIView):
             )
             
             if not success:
-                show_code = phone_number or settings.DEBUG
                 return Response(
                     {
                         'message': 'Failed to send verification code',
                         'status': 'error',
                         'errors': {'verification': [error] if error else ['Failed to send verification code']},
-                        'data': {
-                            'code': verification_code.code if show_code else None,
-                        }
                     },
                     status=status.HTTP_500_INTERNAL_SERVER_ERROR
                 )
@@ -504,15 +469,11 @@ class ResetPasswordRequestView(AsyncAPIView):
             )
             
             if not success:
-                show_code = phone_number or contact_phone or settings.DEBUG
                 return Response(
                     {
                         'message': 'Failed to send verification code',
                         'status': 'error',
                         'errors': {'verification': [error] if error else ['Failed to send verification code']},
-                        'data': {
-                            'code': verification_code.code if show_code else None,
-                        }
                     },
                     status=status.HTTP_500_INTERNAL_SERVER_ERROR
                 )

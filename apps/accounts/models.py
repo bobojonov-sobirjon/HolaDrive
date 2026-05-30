@@ -111,6 +111,14 @@ class CustomUser(AbstractUser):
         verbose_name="Stripe Customer id",
         help_text="Stripe Customer id (cus_…) used for saving cards / charging rider trips.",
     )
+    firebase_uid = models.CharField(
+        max_length=128,
+        unique=True,
+        blank=True,
+        null=True,
+        verbose_name="Firebase UID",
+        help_text="Firebase Authentication user id (Google / Apple / Facebook via Firebase).",
+    )
     created_at = models.DateTimeField(
         auto_now_add=True,
         verbose_name="Created At"
@@ -135,6 +143,7 @@ class CustomUser(AbstractUser):
             models.Index(fields=['is_active'], name='user_active_idx'),
             models.Index(fields=['created_at'], name='user_created_idx'),
             models.Index(fields=['email', 'is_active'], name='user_email_act_idx'),
+            models.Index(fields=['firebase_uid'], name='user_firebase_uid_idx'),
         ]
 
     def __str__(self):
@@ -1453,11 +1462,8 @@ class DriverVerification(models.Model):
         """
         Override save to detect status changes and create Notification.
         """
-        import logging
         from apps.notification.models import Notification
         from apps.notification.services import send_push_to_user
-
-        logger = logging.getLogger(__name__)
 
         old_status = None
         if self.pk:
@@ -1471,22 +1477,10 @@ class DriverVerification(models.Model):
         if self.status in {self.Status.APPROVED, self.Status.REJECTED} and self.reviewed_at is None:
             self.reviewed_at = timezone.now()
 
-        logger.info(
-            "DriverVerification.save() called for user=%s old_status=%s new_status=%s",
-            self.user_id,
-            old_status,
-            self.status,
-        )
-
         super().save(*args, **kwargs)
 
         # Create notification on create or status change
         if old_status != self.status:
-            logger.info(
-                "DriverVerification status changed – creating Notification for user=%s status=%s",
-                self.user_id,
-                self.status,
-            )
             notification = Notification.objects.create(
                 user=self.user,
                 notification_type=Notification.NotificationType.SYSTEM,
@@ -1497,23 +1491,11 @@ class DriverVerification(models.Model):
                 data={"status": self.status},
             )
             # Try to send push notification (best-effort, non-blocking for main flow)
-            success, error = send_push_to_user(
+            send_push_to_user(
                 user=self.user,
                 title=notification.title,
                 body=notification.message,
                 data=notification.data or {},
-            )
-            logger.info(
-                "DriverVerification push result user=%s success=%s error=%s",
-                self.user_id,
-                success,
-                error,
-            )
-        else:
-            logger.info(
-                "DriverVerification status not changed – no Notification created (user=%s, status=%s)",
-                self.user_id,
-                self.status,
             )
 
 

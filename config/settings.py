@@ -47,11 +47,9 @@ THIRD_PARTY_APPS = [
 ]
 
 INSTALLED_APPS = [
-    'nested_admin',
-    'jazzmin',
     "daphne",
-    'django.contrib.sites',
     'django.contrib.admin',
+    'django.contrib.sites',
     'django.contrib.auth',
     'django.contrib.contenttypes',
     'django.contrib.sessions',
@@ -209,31 +207,33 @@ REST_FRAMEWORK = {
 }
 
 SPECTACULAR_SETTINGS = {
-    'TITLE': 'Hola Drive and Hola Driver APIs',
-    'DESCRIPTION': 'Hola Drive and Hola Driver APIs - JWT Authentication Required',
+    'TITLE': 'Hola Drive API',
+    'DESCRIPTION': (
+        'REST API for Hola Drive (rider) and Hola Driver mobile apps, plus the React admin panel. '
+        'Authenticate with JWT (Bearer). WebSocket paths are documented in endpoint descriptions where relevant.'
+    ),
     'VERSION': '1.0.0',
     'SERVE_INCLUDE_SCHEMA': False,
     'SCHEMA_PATH_PREFIX': r'/api/v1',
     'COMPONENT_SPLIT_REQUEST': True,
-    # Swagger UI: guruhlar tartibi va qisqa tushuntirish (tags alfavit emas, shu ro‘yxat bo‘yicha).
     'TAGS': [
-        {'name': 'Rider: Orders', 'description': 'Buyurtma yaratish, ro‘yxat, bitta order, bekor qilish, qo‘shimcha yo‘lovchi, jadval.'},
-        {'name': 'Rider: Preferences', 'description': 'Buyurtma oldidan saqlanadigan rider sozlamalari (pre-order).'},
-        {'name': 'Rider: Pricing', 'description': 'Narx baholash va reja bosqichida narxni tekshirish.'},
-        {'name': 'Rider: Order items', 'description': 'Buyurtma ichidagi stop/narx/ride type tahriri.'},
-        {'name': 'Rider: Active ride', 'description': 'Aktiv safarni qayta yuklash (resume) uchun bitta GET.'},
-        {'name': 'Rider: Live tracking', 'description': 'Rider: tayinlangan haydovchi lokatsiyasi (HTTP). WebSocket: ws/order/{id}/tracking/.'},
-        {'name': 'Driver: Orders & trips', 'description': 'Takliflar, qabul/rad, pickup, tugatish, haydovchi bekor, aktiv safar.'},
-        {'name': 'Driver: Location', 'description': 'Haydovchi GPS yangilashi (real-time tracking uchun).'},
-        {'name': 'Driver: Earnings & wallet', 'description': 'Dashboard, daromad, tarix, naqd chiqarish.'},
-        {'name': 'Driver: Availability', 'description': 'Onlayn / oflayn holat.'},
-        {'name': 'Admin Panel', 'description': 'Admin panel frontend endpoints (drivers, riders, and management lists).'},
-        {'name': 'Trip ratings', 'description': 'Safar tugagach baholash va feedback teglari.'},
-        {'name': 'Trip chat', 'description': 'Buyurtma bo‘yicha rider va haydovchi chat (HTTP).'},
-        {'name': 'Payment: Saved cards', 'description': 'Stripe: saqlangan kartalar (rider/driver), GET/POST/PUT/DELETE.'},
+        {'name': 'Rider: Orders', 'description': 'Create, list, detail, cancel, extra passengers, and scheduling.'},
+        {'name': 'Rider: Preferences', 'description': 'Pre-order rider preference profile.'},
+        {'name': 'Rider: Pricing', 'description': 'Price estimates and pre-order price validation.'},
+        {'name': 'Rider: Order items', 'description': 'Stops, price, and ride type updates on an order.'},
+        {'name': 'Rider: Active ride', 'description': 'Resume the rider’s current in-progress trip.'},
+        {'name': 'Rider: Live tracking', 'description': 'Assigned driver location (HTTP). WebSocket: ws/order/{id}/tracking/.'},
+        {'name': 'Driver: Orders & trips', 'description': 'Offers, accept/reject, pickup, complete, cancel, active trip.'},
+        {'name': 'Driver: Location', 'description': 'Driver GPS updates for live tracking.'},
+        {'name': 'Driver: Earnings & wallet', 'description': 'Dashboard, earnings, history, and cash-out requests.'},
+        {'name': 'Driver: Availability', 'description': 'Online / offline status.'},
+        {'name': 'Admin Panel', 'description': 'React admin panel: drivers, riders, orders, cash-outs, analytics.'},
+        {'name': 'Trip ratings', 'description': 'Post-trip ratings and feedback tags.'},
+        {'name': 'Trip chat', 'description': 'Order-scoped rider–driver chat (HTTP).'},
+        {'name': 'Payment: Saved cards', 'description': 'Stripe saved cards (rider/driver): GET/POST/PUT/DELETE.'},
+        {'name': 'Payment: Stripe', 'description': 'Stripe Customer id (cus_) for riders.'},
+        {'name': 'Stripe — Driver', 'description': 'Stripe Connect: bank account, balance, checkout history.'},
     ],
-    # Test uchun: Authorize qilingan JWT Swagger sahifasini yangilaganda saqlanadi (browser localStorage).
-    # O‘chirish: SWAGGER_UI_SETTINGS blokini olib tashlang yoki brauzerda localStorage tozalang.
     'SWAGGER_UI_SETTINGS': {
         'persistAuthorization': True,
     },
@@ -275,155 +275,6 @@ AUTH_USER_MODEL = 'accounts.CustomUser'
 
 SITE_ID = 1
 
-# -----------------------------------------------------------------------------
-# Django Jazzmin — admin UI (https://github.com/farridav/django-jazzmin)
-# Branding aligns with Hola Drive / Hola Driver (dark + warm accent).
-# -----------------------------------------------------------------------------
-JAZZMIN_SETTINGS = {
-    'site_title': 'Hola Drive Admin',
-    'site_header': 'Hola Drive',
-    'site_brand': 'Hola Drive',
-    'welcome_sign': 'Sign in to manage riders, drivers, orders, and content.',
-    'copyright': 'Hola Drive',
-    'search_model': [
-        'accounts.RiderUser',
-        'accounts.DriverUser',
-        'order.Order',
-    ],
-    'user_avatar': None,
-    'topmenu_links': [
-        {'name': 'Dashboard', 'url': 'admin:index', 'permissions': ['auth.view_user']},
-        {
-            'name': 'Swagger',
-            'url': '/swagger/',
-            'new_window': True,
-            'icon': 'fas fa-book',
-            'permissions': ['auth.view_user'],
-        },
-        {
-            'name': 'API schema',
-            'url': '/api/schema/',
-            'new_window': True,
-            'icon': 'fas fa-code',
-            'permissions': ['auth.view_user'],
-        },
-    ],
-    'usermenu_links': [
-        {'model': 'accounts.rideruser'},
-        {'model': 'accounts.driveruser'},
-    ],
-    'show_sidebar': True,
-    'navigation_expanded': False,
-    'hide_apps': [],
-    'hide_models': [
-        'sites.site',
-    ],
-    'order_with_respect_to': [
-        'accounts',
-        'order',
-        'chat',
-        'notification',
-        'auth',
-        'sites',
-    ],
-    'custom_links': {
-        'order': [
-            {
-                'name': 'Order preferences API',
-                'url': '/api/v1/order/preferences/',
-                'icon': 'fas fa-sliders-h',
-                'new_window': True,
-            }
-        ],
-    },
-    'icons': {
-        'auth': 'fas fa-key',
-        'auth.group': 'fas fa-users-cog',
-        'accounts.rideruser': 'fas fa-user',
-        'accounts.driveruser': 'fas fa-id-badge',
-        'accounts.verificationcode': 'fas fa-shield-alt',
-        'accounts.userpreferences': 'fas fa-cog',
-        'accounts.driverpreferences': 'fas fa-taxi',
-        'accounts.vehicledetails': 'fas fa-car-side',
-        'accounts.vehicleimages': 'fas fa-images',
-        'accounts.driververification': 'fas fa-clipboard-check',
-        'accounts.driveridentificationuploadtype': 'fas fa-cloud-upload-alt',
-        'accounts.driveridentificationlegaltype': 'fas fa-balance-scale',
-        'accounts.driveridentificationregistrationtype': 'fas fa-clipboard-list',
-        'accounts.driveridentificationtermstype': 'fas fa-file-contract',
-        'accounts.userdevicetoken': 'fas fa-mobile-alt',
-        'accounts.invitationgenerate': 'fas fa-paper-plane',
-        'accounts.invitationusers': 'fas fa-user-plus',
-        'accounts.pinverificationforuser': 'fas fa-lock',
-        'order.order': 'fas fa-route',
-        'order.orderitem': 'fas fa-list-ul',
-        'order.orderpreferences': 'fas fa-sliders-h',
-        'order.additionalpassenger': 'fas fa-user-friends',
-        'order.orderdriver': 'fas fa-car',
-        'order.cancelorder': 'fas fa-ban',
-        'order.ridetype': 'fas fa-tag',
-        'order.surgepricing': 'fas fa-chart-line',
-        'order.orderpaymentsplit': 'fas fa-money-bill-wave',
-        'order.promocode': 'fas fa-percent',
-        'order.orderpromocode': 'fas fa-ticket-alt',
-        'order.ratingfeedbacktag': 'fas fa-comment-dots',
-        'order.triprating': 'fas fa-star',
-        'order.driverriderrating': 'fas fa-star-half-alt',
-        'order.drivercashout': 'fas fa-wallet',
-        'chat.chatroom': 'fas fa-comments',
-        'chat.chatmessage': 'fas fa-comment',
-        'notification.notification': 'fas fa-bell',
-    },
-    'default_icon_parents': 'fas fa-folder',
-    'default_icon_children': 'fas fa-circle',
-    'related_modal_active': True,
-    'custom_css': 'admin/css/jazzmin_sidebar_multiline.css',
-    'custom_js': None,
-    'use_google_fonts_cdn': True,
-    'show_ui_builder': False,
-    'show_theme_chooser': True,
-    'changeform_format': 'horizontal_tabs',
-    'changeform_format_overrides': {
-        'accounts.driveruser': 'collapsible',
-        'accounts.rideruser': 'collapsible',
-        'order.order': 'horizontal_tabs',
-    },
-    'language_chooser': False,
-}
-
-JAZZMIN_UI_TWEAKS = {
-    'navbar_small_text': False,
-    'footer_small_text': False,
-    'body_small_text': False,
-    'brand_small_text': False,
-    'brand_colour': 'navbar-orange',
-    'accent': 'accent-warning',
-    'navbar': 'navbar-dark',
-    'no_navbar_border': False,
-    'navbar_fixed': True,
-    'layout_boxed': False,
-    'footer_fixed': False,
-    'sidebar_fixed': True,
-    'sidebar': 'sidebar-dark-primary',
-    'sidebar_nav_small_text': False,
-    'sidebar_disable_expand': False,
-    'sidebar_nav_child_indent': True,
-    'sidebar_nav_compact_style': False,
-    'sidebar_nav_legacy_style': False,
-    'sidebar_nav_flat_style': False,
-    'theme': 'darkly',
-    'default_theme_mode': 'dark',
-    'button_classes': {
-        'primary': 'btn-warning',
-        'secondary': 'btn-secondary',
-        'info': 'btn-info',
-        'warning': 'btn-warning',
-        'danger': 'btn-danger',
-        'success': 'btn-success',
-    },
-    'actions_sticky_top': True,
-}
-
 EMAIL_BACKEND = os.getenv('EMAIL_BACKEND', 'django.core.mail.backends.smtp.EmailBackend')
 EMAIL_HOST = os.getenv('EMAIL_HOST', 'smtp.gmail.com')
 EMAIL_PORT = int(os.getenv('EMAIL_PORT', '587'))
@@ -446,15 +297,33 @@ STRIPE_PUBLISHABLE_KEY = os.getenv('STRIPE_PUBLISHABLE_KEY', '')
 STRIPE_CHARGE_CURRENCY = os.getenv('STRIPE_CHARGE_CURRENCY', 'cad').strip().lower() or 'cad'
 STRIPE_APPLICATION_FEE_PERCENT = os.getenv('STRIPE_APPLICATION_FEE_PERCENT', '0').strip() or '0'
 
+# Stripe Connect (driver payouts) — see docs/STRIPE_HolaDrive_INTEGRATION.md
+STRIPE_CONNECT_ACCOUNT_TYPE = os.getenv('STRIPE_CONNECT_ACCOUNT_TYPE', 'custom').strip().lower() or 'custom'
+STRIPE_CONNECT_COUNTRY = os.getenv('STRIPE_CONNECT_COUNTRY', 'US').strip().upper() or 'US'
+STRIPE_CONNECT_PAYOUT_INTERVAL = os.getenv('STRIPE_CONNECT_PAYOUT_INTERVAL', 'weekly').strip().lower() or 'weekly'
+STRIPE_CONNECT_PAYOUT_WEEKLY_ANCHOR = os.getenv('STRIPE_CONNECT_PAYOUT_WEEKLY_ANCHOR', 'monday').strip().lower() or 'monday'
+STRIPE_CONNECT_PAYOUT_DELAY_DAYS = os.getenv('STRIPE_CONNECT_PAYOUT_DELAY_DAYS', '').strip()
+STRIPE_CONNECT_APPLY_PAYOUT_SCHEDULE = os.getenv('STRIPE_CONNECT_APPLY_PAYOUT_SCHEDULE', 'true').lower() == 'true'
+STRIPE_PLATFORM_MCC = os.getenv('STRIPE_PLATFORM_MCC', '4121').strip() or '4121'
+STRIPE_PLATFORM_STATEMENT_DESCRIPTOR = os.getenv('STRIPE_PLATFORM_STATEMENT_DESCRIPTOR', 'HolaDrive').strip()[:22]
+STRIPE_PLATFORM_PRODUCT_DESCRIPTION = os.getenv(
+    'STRIPE_PLATFORM_PRODUCT_DESCRIPTION', 'Ride-hailing and on-demand transport'
+).strip()
+STRIPE_CONNECTED_ACCOUNT_AGREEMENT_URL = (
+    'https://stripe.com/legal/connect-account'
+)
+# Optional marketplace fee lines (checkout-preview)
+CUSTOMER_PLATFORM_FEE_PERCENT = os.getenv('CUSTOMER_PLATFORM_FEE_PERCENT', '0').strip() or '0'
+CUSTOMER_SERVICE_FEE_PERCENT = os.getenv('CUSTOMER_SERVICE_FEE_PERCENT', '0').strip() or '0'
+PROVIDER_PLATFORM_FEE_PERCENT = os.getenv(
+    'PROVIDER_PLATFORM_FEE_PERCENT',
+    os.getenv('STRIPE_APPLICATION_FEE_PERCENT', '0'),
+).strip() or '0'
+
 
 # Django Channels Configuration
 ASGI_APPLICATION = 'config.asgi.application'
 
-# Channel Layers Configuration
-# InMemoryChannelLayer - Redis o'rnatilmagan bo'lsa ishlatiladi
-# Real-time new_order/order_timeout (Celery dan) uchun Redis kerak: pip install channels-redis
-# Redis o'rnatilgan bo'lsa default=true. O'chirish uchun CHANNEL_LAYERS_REDIS=false
-# Redis 5.0 dan eski bo'lsa RedisChannelLayer "BZPOPMIN" xatosi beradi — RedisPubSubChannelLayer ishlatamiz
 _use_redis = os.getenv('CHANNEL_LAYERS_REDIS', 'true').lower() == 'true'
 _channel_backend = (
     'channels_redis.pubsub.RedisPubSubChannelLayer'  # Redis 4.x ham ishlaydi (BZPOPMIN kerak emas)

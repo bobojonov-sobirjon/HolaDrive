@@ -2,7 +2,9 @@ from django.urls import path
 from .views import (
     RegistrationView, LoginView, AdminLoginView, TokenRefreshView, SendVerificationCodeView,
     VerifyCodeView, ResetPasswordRequestView, VerifyResetCodeView,
-    ResetPasswordConfirmView, UserDetailView, UserAvatarUpdateView,
+    ResetPasswordConfirmView,
+    GoogleSignInView, AppleSignInView, FacebookSignInView,
+    UserDetailView, UserAvatarUpdateView,
     UserPreferencesView, UserPreferencesDeleteView,
     DriverPreferencesView, VehicleDetailsView, VehicleDetailView, VehicleImageView,
     DriverVerificationCompletedIdentificationDetailView,
@@ -29,6 +31,9 @@ app_name = 'accounts'
 urlpatterns = [
     path('register/', RegistrationView.as_view(), name='register'),
     path('login/', LoginView.as_view(), name='login'),
+    path('auth/google/', GoogleSignInView.as_view(), name='auth-google'),
+    path('auth/apple/', AppleSignInView.as_view(), name='auth-apple'),
+    path('auth/facebook/', FacebookSignInView.as_view(), name='auth-facebook'),
     path('admin/login/', AdminLoginView.as_view(), name='admin-login'),
     path('token/refresh/', TokenRefreshView.as_view(), name='token-refresh'),
     path('send-verification-code/', SendVerificationCodeView.as_view(), name='send-verification-code'),

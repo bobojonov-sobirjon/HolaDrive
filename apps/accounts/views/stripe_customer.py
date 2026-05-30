@@ -33,9 +33,17 @@ class StripeCustomerMeView(AsyncAPIView):
     )
     async def get(self, request):
         cid = (getattr(request.user, 'stripe_customer_id', '') or '').strip()
+        pk = getattr(settings, 'STRIPE_PUBLISHABLE_KEY', '') or ''
         if cid:
             return Response(
-                {'status': 'success', 'data': {'stripe_customer_id': cid, 'created': False}},
+                {
+                    'status': 'success',
+                    'data': {
+                        'stripe_customer_id': cid,
+                        'created': False,
+                        'stripe_publishable_key': pk,
+                    },
+                },
                 status=status.HTTP_200_OK,
             )
 
@@ -66,7 +74,14 @@ class StripeCustomerMeView(AsyncAPIView):
             )
 
         return Response(
-            {'status': 'success', 'data': {'stripe_customer_id': created_id, 'created': True}},
+            {
+                'status': 'success',
+                'data': {
+                    'stripe_customer_id': created_id,
+                    'created': True,
+                    'stripe_publishable_key': getattr(settings, 'STRIPE_PUBLISHABLE_KEY', '') or '',
+                },
+            },
             status=status.HTTP_200_OK,
         )
 

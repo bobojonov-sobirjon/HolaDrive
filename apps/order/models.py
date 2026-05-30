@@ -1499,6 +1499,113 @@ class DriverCashout(models.Model):
         ]
 
 
+class DriverWalletBalance(models.Model):
+    """
+    Driver wallet summary (cached totals).
+
+    - available_*: withdrawable amounts (cash is NOT withdrawable)
+    - lifetime_*: total earned amounts (includes cash for reporting)
+    """
+
+    driver = models.OneToOneField(
+        CustomUser,
+        on_delete=models.CASCADE,
+        related_name='wallet_balance',
+        verbose_name='Driver',
+    )
+
+    available_card = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    available_hola_wallet_cash = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+
+    lifetime_card = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    lifetime_cash = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    lifetime_hola_wallet_cash = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+
+    updated_at = models.DateTimeField(auto_now=True)
+
+    objects = models.Manager()
+
+    class Meta:
+        verbose_name = 'Driver Wallet Balance'
+        verbose_name_plural = '16 Driver Wallet Balances'
+        indexes = [
+            models.Index(fields=['updated_at'], name='dr_wallet_updated_idx'),
+        ]
+
+
+class DriverWalletTransaction(models.Model):
+    """Immutable driver wallet ledger entry (earning/withdrawal/adjustment)."""
+
+    class Kind(models.TextChoices):
+        EARNING = 'earning', 'Earning'
+        WITHDRAWAL = 'withdrawal', 'Withdrawal'
+        ADJUSTMENT = 'adjustment', 'Adjustment'
+
+    driver = models.ForeignKey(
+        CustomUser,
+        on_delete=models.CASCADE,
+        related_name='wallet_transactions',
+        verbose_name='Driver',
+    )
+    order = models.ForeignKey(
+        Order,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='wallet_transactions',
+        verbose_name='Order',
+    )
+    cashout = models.ForeignKey(
+        'order.DriverCashout',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='wallet_transactions',
+        verbose_name='Cashout',
+    )
+
+    kind = models.CharField(max_length=20, choices=Kind.choices)
+    payment_type = models.CharField(
+        max_length=30,
+        choices=Order.PaymentType.choices,
+        verbose_name='Payment Type',
+        help_text='card|cash|hola_wallet_cash',
+    )
+    amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        verbose_name='Signed Amount',
+        help_text='Positive for earnings, negative for withdrawals.',
+    )
+    note = models.CharField(max_length=255, blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    objects = models.Manager()
+
+    class Meta:
+        verbose_name = 'Driver Wallet Transaction'
+        verbose_name_plural = '17 Driver Wallet Transactions'
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['driver'], name='dr_wallet_tx_driver_idx'),
+            models.Index(fields=['kind'], name='dr_wallet_tx_kind_idx'),
+            models.Index(fields=['payment_type'], name='dr_wallet_tx_paytype_idx'),
+            models.Index(fields=['created_at'], name='dr_wallet_tx_created_idx'),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=['order', 'kind'],
+                name='uniq_wallet_tx_order_kind',
+                condition=models.Q(order__isnull=False),
+            ),
+            models.UniqueConstraint(
+                fields=['cashout', 'kind'],
+                name='uniq_wallet_tx_cashout_kind',
+                condition=models.Q(cashout__isnull=False),
+            ),
+        ]
+
+
 class OrderChat(models.Model):
     """
     Chat between Rider and Driver for a specific order.
