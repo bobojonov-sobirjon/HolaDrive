@@ -45,6 +45,19 @@ class UserDetailSerializer(serializers.ModelSerializer):
             representation['avatar'] = None
         return representation
 
+    def update(self, instance, validated_data):
+        """
+        Support updating full_name from API payload by splitting it into
+        first_name/last_name on the CustomUser model.
+        """
+        full_name = (self.initial_data.get('full_name') or '').strip()
+        if full_name:
+            name_parts = full_name.split(None, 1)
+            instance.first_name = name_parts[0]
+            instance.last_name = name_parts[1] if len(name_parts) > 1 else ''
+
+        return super().update(instance, validated_data)
+
 
 class AvatarUpdateRequestSerializer(serializers.Serializer):
     """Request body for avatar update (multipart/form-data)."""
