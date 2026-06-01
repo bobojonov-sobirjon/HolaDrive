@@ -51,6 +51,16 @@ class DriverStripeConnectBankAccountView(AsyncAPIView):
     @extend_schema(
         tags=['Stripe — Driver'],
         summary='Direct deposit — save bank (routing + account)',
+        description=(
+            'Creates or updates the driver Stripe Connect account, links a US bank account, '
+            'and submits identity + profile data to Stripe.\n\n'
+            '**Live mode (`sk_live_…`) — required in body:**\n'
+            '- Bank: `routing_number`, `account_number`, `accept_agreement`\n'
+            '- Identity: `dob_year`, `dob_month`, `dob_day`, `ssn_last4` (9-digit US SSN)\n'
+            '- Profile: `phone` (or profile `phone_number`), `address_line1`, `city`, `state` (2-letter), `postal_code`, `country` (default US)\n\n'
+            '**Test mode:** minimal bank is enough; address/phone defaults are applied if omitted.\n\n'
+            'Use example **Live mode — bank + identity + address + phone (required)**.'
+        ),
         request=StripeConnectBankWriteSerializer,
         examples=[
             OpenApiExample(
@@ -63,7 +73,7 @@ class DriverStripeConnectBankAccountView(AsyncAPIView):
                 request_only=True,
             ),
             OpenApiExample(
-                'Live mode — bank + DOB + SSN (required)',
+                'Live mode — bank + identity + address + phone (required)',
                 value={
                     'routing_number': '121000358',
                     'account_number': 'XXXXXXXX',
@@ -74,6 +84,13 @@ class DriverStripeConnectBankAccountView(AsyncAPIView):
                     'dob_month': 3,
                     'dob_day': 2,
                     'ssn_last4': '123456789',
+                    'phone': '+14155552671',
+                    'address_line1': '123 Main Street',
+                    'address_line2': 'Apt 4',
+                    'city': 'San Francisco',
+                    'state': 'CA',
+                    'postal_code': '94111',
+                    'country': 'US',
                 },
                 request_only=True,
             ),
@@ -85,7 +102,10 @@ class DriverStripeConnectBankAccountView(AsyncAPIView):
         if not _stripe_ok():
             return Response({'message': 'Stripe is not configured.', 'status': 'error'}, status=503)
 
-        ser = StripeConnectBankWriteSerializer(data=request.data)
+        ser = StripeConnectBankWriteSerializer(
+            data=request.data,
+            context={'user': request.user},
+        )
         if not await sync_to_async(lambda: ser.is_valid())():
             return Response({'message': 'Validation error', 'status': 'error', 'errors': ser.errors}, status=400)
 
@@ -96,7 +116,7 @@ class DriverStripeConnectBankAccountView(AsyncAPIView):
                 status=400,
             )
 
-        from .services.stripe_connect_bank import ensure_connect_and_add_bank
+        from .services.stripe_connect_bank import connect_profile_from_dict, ensure_connect_and_add_bank
 
         def _run():
             u = CustomUser.objects.get(pk=request.user.pk)
@@ -111,6 +131,7 @@ class DriverStripeConnectBankAccountView(AsyncAPIView):
                 dob_month=vd.get('dob_month'),
                 dob_day=vd.get('dob_day'),
                 ssn_last4=vd.get('ssn_last4') or None,
+                profile=connect_profile_from_dict(vd),
             )
 
         try:
@@ -157,16 +178,27 @@ class DriverStripeConnectCompleteSetupView(AsyncAPIView):
     @extend_schema(
         tags=['Stripe — Driver'],
         summary='Stripe Connect — complete setup (enable account)',
+        description=(
+            'Use when bank is already linked but Connect account is still **Restricted**. '
+            'Same profile fields as bank-account POST: DOB, SSN (live), phone, US address.\n\n'
+            'See example **Live mode — identity + address + phone (required)**.'
+        ),
         request=StripeConnectCompleteSetupSerializer,
         examples=[
             OpenApiExample(
-                'Live mode — DOB + SSN (required)',
+                'Live mode — identity + address + phone (required)',
                 value={
                     'accept_agreement': True,
                     'dob_year': 1987,
                     'dob_month': 3,
                     'dob_day': 2,
                     'ssn_last4': '123456789',
+                    'phone': '+14155552671',
+                    'address_line1': '123 Main Street',
+                    'city': 'San Francisco',
+                    'state': 'CA',
+                    'postal_code': '94111',
+                    'country': 'US',
                 },
                 request_only=True,
             ),
@@ -178,7 +210,10 @@ class DriverStripeConnectCompleteSetupView(AsyncAPIView):
         if not _stripe_ok():
             return Response({'message': 'Stripe is not configured.', 'status': 'error'}, status=503)
 
-        ser = StripeConnectCompleteSetupSerializer(data=request.data)
+        ser = StripeConnectCompleteSetupSerializer(
+            data=request.data,
+            context={'user': request.user},
+        )
         if not await sync_to_async(lambda: ser.is_valid())():
             return Response({'message': 'Validation error', 'status': 'error', 'errors': ser.errors}, status=400)
         vd = ser.validated_data
@@ -191,7 +226,7 @@ class DriverStripeConnectCompleteSetupView(AsyncAPIView):
             )
 
         from .services.stripe_connect_setup import complete_connect_account_setup
-        from .services.stripe_connect_bank import build_driver_payout_profile
+        from .services.stripe_connect_bank import build_driver_payout_profile, connect_profile_from_dict
 
         def _run():
             u = CustomUser.objects.get(pk=request.user.pk)
@@ -203,6 +238,7 @@ class DriverStripeConnectCompleteSetupView(AsyncAPIView):
                 dob_month=vd.get('dob_month'),
                 dob_day=vd.get('dob_day'),
                 ssn_last4=vd.get('ssn_last4') or None,
+                profile=connect_profile_from_dict(vd),
             )
             return build_driver_payout_profile(u)
 

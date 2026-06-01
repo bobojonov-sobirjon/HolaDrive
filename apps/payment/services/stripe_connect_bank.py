@@ -14,7 +14,23 @@ from .stripe_connect_common import (
     create_connect_account,
     retrieve_connect_account,
 )
-from .stripe_connect_setup import complete_connect_account_setup
+from .stripe_connect_setup import (
+    ConnectProfileInput,
+    complete_connect_account_setup,
+    resolve_connect_profile,
+)
+
+
+def connect_profile_from_dict(data: dict) -> ConnectProfileInput:
+    return ConnectProfileInput(
+        phone=data.get('phone'),
+        address_line1=data.get('address_line1'),
+        address_line2=data.get('address_line2'),
+        city=data.get('city'),
+        state=data.get('state'),
+        postal_code=data.get('postal_code'),
+        country=data.get('country') or 'US',
+    )
 
 
 def _mask_bank(acct: Any) -> dict[str, Any] | None:
@@ -89,6 +105,7 @@ def ensure_connect_and_add_bank(
     dob_month: int | None = None,
     dob_day: int | None = None,
     ssn_last4: str | None = None,
+    profile: ConnectProfileInput | None = None,
 ) -> dict[str, Any]:
     configure_stripe()
     acct_id = (user.stripe_connect_account_id or '').strip()
@@ -121,7 +138,16 @@ def ensure_connect_and_add_bank(
         dob_month=dob_month,
         dob_day=dob_day,
         ssn_last4=ssn_last4,
+        profile=profile,
     )
+
+    resolved = resolve_connect_profile(user, profile or ConnectProfileInput())
+    update_fields: list[str] = []
+    if resolved.phone and not (user.phone_number or '').strip():
+        user.phone_number = resolved.phone[:20]
+        update_fields.append('phone_number')
+    if update_fields:
+        user.save(update_fields=update_fields)
 
     user.refresh_from_db()
     return build_driver_payout_profile(user)
