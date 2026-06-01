@@ -12,6 +12,7 @@ from .stripe_connect_common import (
     account_status_payload,
     configure_stripe,
     create_connect_account,
+    is_stripe_live_mode,
     retrieve_connect_account,
 )
 from .stripe_connect_setup import complete_connect_account_setup
@@ -85,10 +86,6 @@ def ensure_connect_and_add_bank(
     account_holder_name: str,
     account_holder_type: str,
     accept_agreement: bool,
-    dob_year: int | None = None,
-    dob_month: int | None = None,
-    dob_day: int | None = None,
-    ssn_last4: str | None = None,
 ) -> dict[str, Any]:
     configure_stripe()
     acct_id = (user.stripe_connect_account_id or '').strip()
@@ -113,15 +110,14 @@ def ensure_connect_and_add_bank(
         },
     )
 
-    complete_connect_account_setup(
-        acct_id,
-        user=user,
-        accept_agreement=accept_agreement,
-        dob_year=dob_year,
-        dob_month=dob_month,
-        dob_day=dob_day,
-        ssn_last4=ssn_last4,
-    )
+    # Test: auto-enable with server-side DOB/SSN defaults.
+    # Live: bank only here — call POST complete-setup for DOB/SSN + agreement.
+    if not is_stripe_live_mode():
+        complete_connect_account_setup(
+            acct_id,
+            user=user,
+            accept_agreement=accept_agreement,
+        )
 
     user.refresh_from_db()
     return build_driver_payout_profile(user)

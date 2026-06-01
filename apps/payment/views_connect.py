@@ -52,35 +52,22 @@ class DriverStripeConnectBankAccountView(AsyncAPIView):
         tags=['Stripe — Driver'],
         summary='Direct deposit — save bank (routing + account)',
         description=(
-            'Creates Connect account (if needed), links US bank, and enables payouts.\n\n'
-            '**Test mode (`sk_test_…`):** only `routing_number`, `account_number`, `accept_agreement` — '
-            'DOB/SSN filled server-side.\n\n'
-            '**Live mode (`sk_live_…`):** also required: `dob_year`, `dob_month`, `dob_day`, '
-            '`ssn_last4` (9-digit US SSN). Sent to Stripe only — not stored in DB.'
+            'Creates Connect account (if needed) and links US bank.\n\n'
+            '**Body:** `routing_number`, `account_number`, `accept_agreement` (optional holder fields).\n'
+            '**No DOB/SSN here** — use `POST …/complete-setup/` for identity (live) or when account is Restricted.\n\n'
+            '**Test mode:** bank POST also auto-enables Connect (server-side test DOB/SSN).\n'
+            '**Live mode:** after bank, call **complete-setup** with DOB + SSN.'
         ),
         request=StripeConnectBankWriteSerializer,
         examples=[
             OpenApiExample(
-                'Test mode — minimal bank',
+                'Bank + agreement (test and live)',
                 value={
                     'routing_number': '110000000',
                     'account_number': '000123456789',
-                    'accept_agreement': True,
-                },
-                request_only=True,
-            ),
-            OpenApiExample(
-                'Live mode — bank + DOB + SSN (required)',
-                value={
-                    'routing_number': '121000358',
-                    'account_number': 'XXXXXXXX',
                     'account_holder_name': 'Jane Driver',
                     'account_holder_type': 'individual',
                     'accept_agreement': True,
-                    'dob_year': 1987,
-                    'dob_month': 3,
-                    'dob_day': 2,
-                    'ssn_last4': '123456789',
                 },
                 request_only=True,
             ),
@@ -114,10 +101,6 @@ class DriverStripeConnectBankAccountView(AsyncAPIView):
                 account_holder_name=vd.get('account_holder_name') or '',
                 account_holder_type=vd.get('account_holder_type') or 'individual',
                 accept_agreement=True,
-                dob_year=vd.get('dob_year'),
-                dob_month=vd.get('dob_month'),
-                dob_day=vd.get('dob_day'),
-                ssn_last4=vd.get('ssn_last4') or None,
             )
 
         try:
