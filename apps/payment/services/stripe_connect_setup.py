@@ -1,17 +1,41 @@
 """Complete Stripe Connect Custom account (identity, TOS) — AutoHandy-style."""
 from __future__ import annotations
 
+import re
 from datetime import date
 from typing import Any
 
 import stripe
 from django.conf import settings
 
+from apps.accounts.services import normalize_phone_number
+
 from .stripe_connect_common import configure_stripe, is_stripe_live_mode, retrieve_connect_account
+
+# Swagger / placeholder values sometimes saved on user.phone_number
+_INVALID_PHONE_LITERALS = frozenset(
+    {'string', 'null', 'none', 'undefined', 'phone', 'test', 'n/a', 'na', 'example'}
+)
 
 
 def _normalize_ssn(raw: str | None) -> str:
     return (raw or '').strip().replace('-', '')
+
+
+def _stripe_individual_phone(raw: str | None) -> str | None:
+    """Return E.164 phone for Stripe, or None if missing/invalid (do not send bad values)."""
+    phone = (raw or '').strip()
+    if not phone or phone.lower() in _INVALID_PHONE_LITERALS:
+        return None
+
+    digits = re.sub(r'\D', '', phone)
+    if len(digits) < 10:
+        return None
+
+    normalized = normalize_phone_number(phone)
+    if not normalized or not re.fullmatch(r'\+\d{10,15}', normalized):
+        return None
+    return normalized[:20]
 
 
 def validate_live_identity_fields(
@@ -107,9 +131,9 @@ def complete_connect_account_setup(
     }
     _apply_ssn_to_individual(individual, ssn_last4)
 
-    phone = (getattr(user, 'phone_number', None) or '').strip()
+    phone = _stripe_individual_phone(getattr(user, 'phone_number', None))
     if phone:
-        individual['phone'] = phone[:20]
+        individual['phone'] = phone
 
     descriptor = getattr(settings, 'STRIPE_PLATFORM_STATEMENT_DESCRIPTOR', 'HolaDrive').strip()[:22]
     params: dict[str, Any] = {
