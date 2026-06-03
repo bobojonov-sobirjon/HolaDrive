@@ -12,9 +12,16 @@ from apps.accounts.services import normalize_phone_number
 
 from .stripe_connect_common import configure_stripe, is_stripe_live_mode, retrieve_connect_account
 
-# Swagger / placeholder values sometimes saved on user.phone_number
-_INVALID_PHONE_LITERALS = frozenset(
-    {'string', 'null', 'none', 'undefined', 'phone', 'test', 'n/a', 'na', 'example'}
+# Swagger / placeholder values sometimes saved on user.phone_number or address
+_INVALID_PROFILE_LITERALS = frozenset(
+    {'string', 'null', 'none', 'undefined', 'phone', 'test', 'n/a', 'na', 'example', 'address'}
+)
+
+_US_STATE_ZIP_RE = re.compile(
+    r'^(?P<state>[A-Za-z]{2})\s+(?P<postal>\d{5}(?:-\d{4})?)$'
+)
+_CITY_STATE_ZIP_RE = re.compile(
+    r'^(?P<city>.+?)\s+(?P<state>[A-Za-z]{2})\s+(?P<postal>\d{5}(?:-\d{4})?)$'
 )
 
 
@@ -22,10 +29,17 @@ def _normalize_ssn(raw: str | None) -> str:
     return (raw or '').strip().replace('-', '')
 
 
+def _clean_profile_text(raw: str | None) -> str | None:
+    text = (raw or '').strip()
+    if not text or text.lower() in _INVALID_PROFILE_LITERALS:
+        return None
+    return text
+
+
 def _stripe_individual_phone(raw: str | None) -> str | None:
     """Return E.164 phone for Stripe, or None if missing/invalid (do not send bad values)."""
-    phone = (raw or '').strip()
-    if not phone or phone.lower() in _INVALID_PHONE_LITERALS:
+    phone = _clean_profile_text(raw)
+    if not phone:
         return None
 
     digits = re.sub(r'\D', '', phone)
@@ -38,19 +52,97 @@ def _stripe_individual_phone(raw: str | None) -> str | None:
     return normalized[:20]
 
 
+def _stripe_connect_country() -> str:
+    return (getattr(settings, 'STRIPE_CONNECT_COUNTRY', 'US') or 'US').upper()
+
+
+def _parse_us_address(raw: str, *, live: bool) -> dict[str, str]:
+    """
+    Parse CustomUser.address (free text) into Stripe individual.address.
+    Preferred format: "123 Main St, San Francisco, CA 94111"
+    """
+    parts = [p.strip() for p in re.split(r'[,\n]+', raw) if p.strip()]
+    if len(parts) >= 3:
+        line1 = parts[0]
+        city = parts[-2]
+        tail_match = _US_STATE_ZIP_RE.match(parts[-1])
+        if tail_match:
+            return {
+                'line1': line1[:200],
+                'city': city[:100],
+                'state': tail_match.group('state').upper(),
+                'postal_code': tail_match.group('postal'),
+                'country': 'US',
+            }
+
+    if len(parts) == 2:
+        line1 = parts[0]
+        tail_match = _CITY_STATE_ZIP_RE.match(parts[1])
+        if tail_match:
+            return {
+                'line1': line1[:200],
+                'city': tail_match.group('city').strip()[:100],
+                'state': tail_match.group('state').upper(),
+                'postal_code': tail_match.group('postal'),
+                'country': 'US',
+            }
+
+    if not live:
+        return {
+            'line1': raw[:200],
+            'city': 'San Francisco',
+            'state': 'CA',
+            'postal_code': '94111',
+            'country': 'US',
+        }
+
+    raise ValueError(
+        'Profile address must include street, city, state, and ZIP '
+        '(e.g. "123 Main St, San Francisco, CA 94111"). Update the user profile address.'
+    )
+
+
+def _stripe_individual_address_from_user(user) -> dict[str, str]:
+    """Build Stripe address from CustomUser.address (not request body)."""
+    raw = _clean_profile_text(getattr(user, 'address', None))
+    if not raw:
+        if is_stripe_live_mode():
+            raise ValueError(
+                'Profile address is required. Set address on the user account before Connect setup.'
+            )
+        return _parse_us_address('123 Test Street', live=False)
+
+    country = _stripe_connect_country()
+    if country == 'US':
+        return _parse_us_address(raw, live=is_stripe_live_mode())
+
+    # Non-US: send full text as line1; Stripe may accept with country only.
+    return {
+        'line1': raw[:200],
+        'country': country,
+    }
+
+
 def validate_live_identity_fields(
     *,
+    user=None,
     dob_year: int | None,
     dob_month: int | None,
     dob_day: int | None,
     ssn_last4: str | None,
 ) -> None:
-    """Live mode: DOB + full 9-digit SSN required (field name ssn_last4 for API compatibility)."""
+    """Live mode: DOB (profile or body) + full 9-digit SSN required."""
     if not is_stripe_live_mode():
         return
 
-    if dob_year is None or dob_month is None or dob_day is None:
-        raise ValueError('Date of birth (dob_year, dob_month, dob_day) is required in live mode.')
+    has_request_dob = (
+        dob_year is not None and dob_month is not None and dob_day is not None
+    )
+    has_profile_dob = bool(user is not None and getattr(user, 'date_of_birth', None))
+    if not has_request_dob and not has_profile_dob:
+        raise ValueError(
+            'Date of birth is required in live mode (profile date_of_birth or dob_year/month/day).'
+        )
 
     ssn = _normalize_ssn(ssn_last4)
     if not ssn:
@@ -83,21 +175,25 @@ def _apply_ssn_to_individual(individual: dict[str, Any], ssn_last4: str | None) 
 
 def _resolve_dob(
     *,
+    user=None,
     dob_year: int | None,
     dob_month: int | None,
     dob_day: int | None,
 ) -> tuple[int, int, int]:
-    if is_stripe_live_mode():
-        if dob_year is None or dob_month is None or dob_day is None:
-            raise ValueError('Date of birth (dob_year, dob_month, dob_day) is required in live mode.')
+    if dob_year is not None and dob_month is not None and dob_day is not None:
         return dob_year, dob_month, dob_day
 
+    profile_dob = getattr(user, 'date_of_birth', None) if user is not None else None
+    if profile_dob:
+        return profile_dob.year, profile_dob.month, profile_dob.day
+
+    if is_stripe_live_mode():
+        raise ValueError(
+            'Date of birth is required in live mode (profile date_of_birth or dob_year/month/day in request).'
+        )
+
     today = date.today()
-    return (
-        dob_year or today.year - 25,
-        dob_month or 1,
-        dob_day or 1,
-    )
+    return today.year - 25, 1, 1
 
 
 def complete_connect_account_setup(
@@ -114,6 +210,7 @@ def complete_connect_account_setup(
         raise ValueError('You must accept the Stripe Connected Account Agreement.')
 
     validate_live_identity_fields(
+        user=user,
         dob_year=dob_year,
         dob_month=dob_month,
         dob_day=dob_day,
@@ -121,19 +218,31 @@ def complete_connect_account_setup(
     )
 
     configure_stripe()
-    y, m, d = _resolve_dob(dob_year=dob_year, dob_month=dob_month, dob_day=dob_day)
+    y, m, d = _resolve_dob(
+        user=user,
+        dob_year=dob_year,
+        dob_month=dob_month,
+        dob_day=dob_day,
+    )
 
     individual: dict[str, Any] = {
         'email': getattr(user, 'email', None) or None,
         'first_name': (getattr(user, 'first_name', '') or 'Driver')[:100],
         'last_name': (getattr(user, 'last_name', '') or 'User')[:100],
         'dob': {'day': d, 'month': m, 'year': y},
+        'address': _stripe_individual_address_from_user(user),
     }
     _apply_ssn_to_individual(individual, ssn_last4)
 
     phone = _stripe_individual_phone(getattr(user, 'phone_number', None))
-    if phone:
-        individual['phone'] = phone
+    if not phone:
+        if is_stripe_live_mode():
+            raise ValueError(
+                'Profile phone_number is required (E.164, e.g. +14155552671). '
+                'Update the user account before Connect setup.'
+            )
+        phone = '+14085551234'
+    individual['phone'] = phone
 
     descriptor = getattr(settings, 'STRIPE_PLATFORM_STATEMENT_DESCRIPTOR', 'HolaDrive').strip()[:22]
     params: dict[str, Any] = {

@@ -26,7 +26,7 @@ class StripeConnectBankWriteSerializer(serializers.Serializer):
 
 
 class StripeConnectCompleteSetupSerializer(serializers.Serializer):
-    """Bank already linked — send agreement + identity to Stripe (not stored in DB)."""
+    """Bank linked — agreement + identity to Stripe. Phone/address from CustomUser profile."""
 
     accept_agreement = serializers.BooleanField()
     dob_year = serializers.IntegerField(required=False, min_value=1900, max_value=2100)
@@ -46,8 +46,13 @@ class StripeConnectCompleteSetupSerializer(serializers.Serializer):
         return digits
 
     def validate(self, attrs):
+        user = None
+        request = self.context.get('request')
+        if request and getattr(request, 'user', None) and request.user.is_authenticated:
+            user = request.user
         try:
             validate_live_identity_fields(
+                user=user,
                 dob_year=attrs.get('dob_year'),
                 dob_month=attrs.get('dob_month'),
                 dob_day=attrs.get('dob_day'),

@@ -54,9 +54,10 @@ class DriverStripeConnectBankAccountView(AsyncAPIView):
         description=(
             'Creates Connect account (if needed) and links US bank.\n\n'
             '**Body:** `routing_number`, `account_number`, `accept_agreement` (optional holder fields).\n'
-            '**No DOB/SSN here** — use `POST …/complete-setup/` for identity (live) or when account is Restricted.\n\n'
-            '**Test mode:** bank POST also auto-enables Connect (server-side test DOB/SSN).\n'
-            '**Live mode:** after bank, call **complete-setup** with DOB + SSN.'
+            '**No DOB/SSN here** — use `POST …/complete-setup/` for identity (live) or when account is Restricted. '
+            'Phone/address come from the user profile.\n\n'
+            '**Test mode:** bank POST also auto-enables Connect (profile phone/address + test DOB/SSN).\n'
+            '**Live mode:** after bank, call **complete-setup** with SSN (DOB from profile if set).'
         ),
         request=StripeConnectBankWriteSerializer,
         examples=[
@@ -149,9 +150,11 @@ class DriverStripeConnectCompleteSetupView(AsyncAPIView):
         summary='Stripe Connect — complete setup (enable account)',
         description=(
             'Use when bank is already linked but account is still **Restricted**. '
-            'Sends agreement + DOB + SSN to Stripe (not stored in DB).\n\n'
+            'Phone and address are read from the logged-in user profile (`phone_number`, `address`), '
+            'not from the request body. Identity document upload is not handled by this API.\n\n'
             '**Test:** only `accept_agreement: true`.\n'
-            '**Live:** `accept_agreement`, `dob_year`, `dob_month`, `dob_day`, `ssn_last4` (9 digits).'
+            '**Live:** `accept_agreement`, `ssn_last4` (9 digits); DOB from profile `date_of_birth` '
+            'or `dob_year` / `dob_month` / `dob_day` in body.'
         ),
         request=StripeConnectCompleteSetupSerializer,
         examples=[
@@ -179,7 +182,7 @@ class DriverStripeConnectCompleteSetupView(AsyncAPIView):
         if not _stripe_ok():
             return Response({'message': 'Stripe is not configured.', 'status': 'error'}, status=503)
 
-        ser = StripeConnectCompleteSetupSerializer(data=request.data)
+        ser = StripeConnectCompleteSetupSerializer(data=request.data, context={'request': request})
         if not await sync_to_async(lambda: ser.is_valid())():
             return Response({'message': 'Validation error', 'status': 'error', 'errors': ser.errors}, status=400)
         vd = ser.validated_data
