@@ -119,6 +119,10 @@ class DriverStripeConnectBankAccountView(AsyncAPIView):
     @extend_schema(
         tags=['Stripe — Driver'],
         summary='Direct deposit — remove bank',
+        description=(
+            'Removes the linked bank. If it is the only/default bank, the Stripe Connect account is '
+            'deleted and unlinked from the user; add bank again later to create a new Connect account.'
+        ),
         request=StripeConnectBankDeleteSerializer,
     )
     async def delete(self, request):

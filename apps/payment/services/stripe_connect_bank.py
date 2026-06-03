@@ -18,6 +18,19 @@ from .stripe_connect_common import (
 from .stripe_connect_setup import complete_connect_account_setup
 
 
+def _list_connect_bank_accounts(acct: Any) -> list[Any]:
+    external = getattr(acct, 'external_accounts', None)
+    data = getattr(external, 'data', None) if external else None
+    if not data:
+        return []
+    return [ext for ext in data if getattr(ext, 'object', '') == 'bank_account']
+
+
+def _clear_user_connect_account(user: CustomUser) -> None:
+    user.stripe_connect_account_id = ''
+    user.save(update_fields=['stripe_connect_account_id'])
+
+
 def _mask_bank(acct: Any) -> dict[str, Any] | None:
     default = None
     external = getattr(acct, 'external_accounts', None)
@@ -130,12 +143,46 @@ def remove_bank_account(user: CustomUser, bank_account_id: str | None = None) ->
 
     configure_stripe()
     acct = retrieve_connect_account(acct_id)
-    ext_id = bank_account_id
-    if not ext_id:
-        bank = _mask_bank(acct)
-        if not bank:
-            raise ValueError('No bank account to remove.')
-        ext_id = bank['bank_account_id']
+    banks = _list_connect_bank_accounts(acct)
+    if not banks:
+        raise ValueError('No bank account to remove.')
 
-    stripe.Account.delete_external_account(acct_id, ext_id)
+    ext_id = (bank_account_id or '').strip()
+    if not ext_id:
+        masked = _mask_bank(acct)
+        if not masked:
+            raise ValueError('No bank account to remove.')
+        ext_id = masked['bank_account_id']
+
+    target = next((b for b in banks if getattr(b, 'id', None) == ext_id), None)
+    if target is None:
+        raise ValueError('Bank account not found on this Connect account.')
+
+    # Stripe blocks deleting the sole default bank for the account currency.
+    if len(banks) == 1:
+        stripe.Account.delete(acct_id)
+        _clear_user_connect_account(user)
+        user.refresh_from_db()
+        return build_driver_payout_profile(user)
+
+    if getattr(target, 'default_for_currency', False):
+        replacement = next((b for b in banks if getattr(b, 'id', None) != ext_id), None)
+        if replacement is not None:
+            stripe.Account.modify_external_account(
+                acct_id,
+                getattr(replacement, 'id'),
+                default_for_currency=True,
+            )
+
+    try:
+        stripe.Account.delete_external_account(acct_id, ext_id)
+    except stripe.error.StripeError as exc:
+        message = str(exc)
+        if 'default external account' in message.lower():
+            stripe.Account.delete(acct_id)
+            _clear_user_connect_account(user)
+            user.refresh_from_db()
+            return build_driver_payout_profile(user)
+        raise
+
     return build_driver_payout_profile(user)
