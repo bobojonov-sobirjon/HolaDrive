@@ -29,6 +29,54 @@ def _normalize_ssn(raw: str | None) -> str:
     return (raw or '').strip().replace('-', '')
 
 
+def _business_display_name(user) -> str:
+    parts = [
+        (getattr(user, 'first_name', '') or '').strip(),
+        (getattr(user, 'last_name', '') or '').strip(),
+    ]
+    full = ' '.join(p for p in parts if p).strip()
+    if not full:
+        full = (user.get_full_name() or '').strip()
+    if full:
+        return full[:100]
+    email_local = (getattr(user, 'email', '') or '').split('@')[0].strip()
+    return (email_local or 'Driver')[:100]
+
+
+def _business_url_for_stripe() -> str | None:
+    """Stripe rejects example.com; prefer PUBLIC_BASE_URL from server .env."""
+    url = (getattr(settings, 'STRIPE_PLATFORM_BUSINESS_URL', '') or '').strip()
+    if not url or 'example.com' in url.lower():
+        url = (getattr(settings, 'PUBLIC_BASE_URL', '') or '').strip()
+    if not url:
+        return None
+    if not url.startswith(('http://', 'https://')):
+        url = f'https://{url}'
+    return url
+
+
+def _statement_descriptor_for_user(user) -> str:
+    """
+    Stripe validates that statement_descriptor matches business_profile.name / URL.
+    Never use platform brand alone when the driver has a name on file.
+    """
+    name = _business_display_name(user)
+    clean = re.sub(r'[^A-Za-z0-9 ]', ' ', name).strip()
+    clean = re.sub(r'\s+', ' ', clean).upper()
+    if len(clean) >= 5:
+        return clean[:22]
+
+    if len(clean) > 0:
+        padded = f'{clean} DRV'[:22]
+        if len(padded) >= 5:
+            return padded
+
+    raise ValueError(
+        'Driver profile must include first_name and last_name (or full name) so Stripe '
+        'can set a valid statement descriptor. Update the user profile, then complete-setup again.'
+    )
+
+
 def _clean_profile_text(raw: str | None) -> str | None:
     text = (raw or '').strip()
     if not text or text.lower() in _INVALID_PROFILE_LITERALS:
@@ -244,15 +292,28 @@ def complete_connect_account_setup(
         phone = '+14085551234'
     individual['phone'] = phone
 
-    descriptor = getattr(settings, 'STRIPE_PLATFORM_STATEMENT_DESCRIPTOR', 'HolaDrive').strip()[:22]
+    business_name = _business_display_name(user)
+    descriptor = _statement_descriptor_for_user(user)
+    business_url = _business_url_for_stripe()
+    if not business_url:
+        raise ValueError(
+            'Business website is required for Stripe Connect. '
+            'Set STRIPE_PLATFORM_BUSINESS_URL or PUBLIC_BASE_URL in server .env '
+            '(must be a real URL, not example.com).'
+        )
+
+    business_profile: dict[str, Any] = {
+        'name': business_name,
+        'url': business_url,
+        'mcc': getattr(settings, 'STRIPE_PLATFORM_MCC', '4121'),
+        'product_description': getattr(
+            settings, 'STRIPE_PLATFORM_PRODUCT_DESCRIPTION', 'Ride-hailing'
+        ),
+    }
+
     params: dict[str, Any] = {
         'individual': individual,
-        'business_profile': {
-            'mcc': getattr(settings, 'STRIPE_PLATFORM_MCC', '4121'),
-            'product_description': getattr(
-                settings, 'STRIPE_PLATFORM_PRODUCT_DESCRIPTION', 'Ride-hailing'
-            ),
-        },
+        'business_profile': business_profile,
         'settings': {
             'payments': {
                 'statement_descriptor': descriptor,
