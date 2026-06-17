@@ -247,7 +247,7 @@ SIMPLE_JWT = {
 CSRF_TRUSTED_ORIGINS = [
     "http://localhost:3000",
     "http://localhost:8000",
-    "http://localhost:5173", 
+    "http://localhost:5173",
     "http://127.0.0.1:5173",
     "http://127.0.0.1:5174",
     "https://localhost:3000",
@@ -255,12 +255,24 @@ CSRF_TRUSTED_ORIGINS = [
     "https://127.0.0.1:5173",
     "https://127.0.0.1:5174",
     "https://hola-admin-nu.vercel.app",
+    "https://apiss.firepole.ru",
 ]
+
+_public_base = (os.getenv('PUBLIC_BASE_URL') or '').strip().rstrip('/')
+if _public_base and _public_base not in CSRF_TRUSTED_ORIGINS:
+    CSRF_TRUSTED_ORIGINS.append(_public_base)
+
+_extra_csrf = os.getenv('CSRF_TRUSTED_ORIGINS', '')
+if _extra_csrf:
+    for origin in (o.strip().rstrip('/') for o in _extra_csrf.split(',') if o.strip()):
+        if origin and origin not in CSRF_TRUSTED_ORIGINS:
+            CSRF_TRUSTED_ORIGINS.append(origin)
 
 _cors_origins = os.getenv(
     'CORS_ALLOWED_ORIGINS',
     'http://localhost:3000,http://localhost:8000,http://localhost:5173,http://127.0.0.1:5173,http://127.0.0.1:5174,'
-    'https://localhost:3000,https://localhost:5173,https://127.0.0.1:5173,https://127.0.0.1:5174,https://hola-admin-nu.vercel.app'
+    'https://localhost:3000,https://localhost:5173,https://127.0.0.1:5173,https://127.0.0.1:5174,'
+    'https://hola-admin-nu.vercel.app,https://apiss.firepole.ru'
 )
 CORS_ALLOWED_ORIGINS = [origin.strip() for origin in _cors_origins.split(',') if origin.strip()]
 
