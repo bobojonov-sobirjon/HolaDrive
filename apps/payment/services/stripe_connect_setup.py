@@ -4,6 +4,7 @@ from __future__ import annotations
 import re
 from datetime import date
 from typing import Any
+from urllib.parse import urlparse
 
 import stripe
 from django.conf import settings
@@ -43,16 +44,47 @@ def _business_display_name(user) -> str:
     return (email_local or 'Driver')[:100]
 
 
-def _business_url_for_stripe() -> str | None:
-    """Stripe rejects example.com; prefer PUBLIC_BASE_URL from server .env."""
-    url = (getattr(settings, 'STRIPE_PLATFORM_BUSINESS_URL', '') or '').strip()
-    if not url or 'example.com' in url.lower():
-        url = (getattr(settings, 'PUBLIC_BASE_URL', '') or '').strip()
+_INVALID_BUSINESS_URL_HOSTS = frozenset(
+    {'example.com', 'www.example.com', 'localhost', '127.0.0.1', '0.0.0.0'}
+)
+
+
+def _normalize_http_url(raw: str) -> str:
+    url = (raw or '').strip()
     if not url:
-        return None
+        return ''
     if not url.startswith(('http://', 'https://')):
         url = f'https://{url}'
     return url
+
+
+def _is_stripe_acceptable_business_url(url: str) -> bool:
+    """Stripe rejects example.com, localhost, and bare IP URLs for business_profile.url."""
+    parsed = urlparse(url)
+    if parsed.scheme not in ('http', 'https'):
+        return False
+    host = (parsed.hostname or '').lower()
+    if not host or host in _INVALID_BUSINESS_URL_HOSTS:
+        return False
+    if re.fullmatch(r'\d{1,3}(?:\.\d{1,3}){3}', host):
+        return False
+    return bool(parsed.netloc)
+
+
+def _business_url_for_stripe() -> str | None:
+    """
+    Return a Stripe-accepted business URL, or None.
+    Skips example.com and PUBLIC_BASE_URL when it is only an IP (e.g. http://31.x.x.x:8040).
+    """
+    candidates = [
+        getattr(settings, 'STRIPE_PLATFORM_BUSINESS_URL', ''),
+        getattr(settings, 'PUBLIC_BASE_URL', ''),
+    ]
+    for raw in candidates:
+        url = _normalize_http_url(raw)
+        if url and _is_stripe_acceptable_business_url(url):
+            return url
+    return None
 
 
 def _statement_descriptor_for_user(user) -> str:
@@ -295,21 +327,21 @@ def complete_connect_account_setup(
     business_name = _business_display_name(user)
     descriptor = _statement_descriptor_for_user(user)
     business_url = _business_url_for_stripe()
-    if not business_url:
+    if not business_url and is_stripe_live_mode():
         raise ValueError(
-            'Business website is required for Stripe Connect. '
-            'Set STRIPE_PLATFORM_BUSINESS_URL or PUBLIC_BASE_URL in server .env '
-            '(must be a real URL, not example.com).'
+            'STRIPE_PLATFORM_BUSINESS_URL must be a valid https domain '
+            '(e.g. https://holadrive.com). Stripe does not accept example.com or IP URLs.'
         )
 
     business_profile: dict[str, Any] = {
         'name': business_name,
-        'url': business_url,
         'mcc': getattr(settings, 'STRIPE_PLATFORM_MCC', '4121'),
         'product_description': getattr(
             settings, 'STRIPE_PLATFORM_PRODUCT_DESCRIPTION', 'Ride-hailing'
         ),
     }
+    if business_url:
+        business_profile['url'] = business_url
 
     params: dict[str, Any] = {
         'individual': individual,

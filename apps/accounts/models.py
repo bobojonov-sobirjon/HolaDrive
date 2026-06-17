@@ -1458,6 +1458,34 @@ class DriverVerification(models.Model):
     def __str__(self):
         return f"{self.user.email} - {self.get_status_display()}"
 
+    def _verification_notification_copy(self) -> tuple[str, str]:
+        """User-facing push/in-app text (plain language, not internal status labels)."""
+        copies = {
+            self.Status.NOT_SUBMITTED: (
+                'Complete your driver verification',
+                'Please upload your ID and required documents in the app to start accepting rides.',
+            ),
+            self.Status.IN_REVIEW: (
+                'Documents received',
+                'We are reviewing your driver documents. You will get another notification when the review is finished.',
+            ),
+            self.Status.APPROVED: (
+                'Driver account verified',
+                'Your documents were approved. You can go online and accept rides.',
+            ),
+            self.Status.REJECTED: (
+                'Verification needs attention',
+                'Some documents were not approved. Open the app, check the details, and upload corrected documents.',
+            ),
+        }
+        return copies.get(
+            self.status,
+            (
+                'Driver verification update',
+                'Your driver verification status has changed. Open the app for details.',
+            ),
+        )
+
     def save(self, *args, **kwargs):
         """
         Override save to detect status changes and create Notification.
@@ -1481,11 +1509,12 @@ class DriverVerification(models.Model):
 
         # Create notification on create or status change
         if old_status != self.status:
+            title, message = self._verification_notification_copy()
             notification = Notification.objects.create(
                 user=self.user,
                 notification_type=Notification.NotificationType.SYSTEM,
-                title="Driver verification status updated",
-                message=f"Your driver verification status is now: {self.get_status_display()}",
+                title=title,
+                message=message,
                 related_object_type="driver_verification",
                 related_object_id=self.pk,
                 data={"status": self.status},

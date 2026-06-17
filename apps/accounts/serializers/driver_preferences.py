@@ -1,6 +1,17 @@
 from rest_framework import serializers
 from ..models import DriverPreferences
 
+# Mobile app may send legacy labels; backend stores canonical choice values.
+_TRIP_TYPE_ALIASES = {
+    'any_distance': DriverPreferences.TripTypePreference.ANY,
+    'any_trip_length': DriverPreferences.TripTypePreference.ANY,
+    'any_trip': DriverPreferences.TripTypePreference.ANY,
+}
+_WORKING_HOURS_ALIASES = {
+    'any_time': DriverPreferences.PreferredWorkingHours.ANY,
+    'anytime': DriverPreferences.PreferredWorkingHours.ANY,
+}
+
 
 class DriverPreferencesSerializer(serializers.ModelSerializer):
     """
@@ -14,7 +25,15 @@ class DriverPreferencesSerializer(serializers.ModelSerializer):
             'preferred_working_hours', 'notification_intensity', 'created_at', 'updated_at'
         )
         read_only_fields = ('id', 'user', 'created_at', 'updated_at')
-    
+
+    def validate_trip_type_preference(self, value):
+        raw = (value or '').strip().lower()
+        return _TRIP_TYPE_ALIASES.get(raw, value)
+
+    def validate_preferred_working_hours(self, value):
+        raw = (value or '').strip().lower()
+        return _WORKING_HOURS_ALIASES.get(raw, value)
+
     def create(self, validated_data):
         """
         Create preferences for the authenticated user.

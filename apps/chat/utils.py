@@ -1,5 +1,6 @@
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
+from django.db import models
 import base64
 import uuid
 from datetime import datetime
@@ -8,6 +9,31 @@ import os
 
 # Cache for support user to avoid repeated database queries
 _support_user_cache = None
+
+def get_support_admin_random():
+    """
+    Pick a random support admin from Django Group 'Admin'.
+    Falls back to get_support_user() if group is empty/not configured.
+    """
+    try:
+        from django.contrib.auth.models import Group
+        from apps.accounts.models import CustomUser
+
+        g = Group.objects.filter(name='Admin').first()
+        if g:
+            # Only active staff/superusers from the group
+            qs = (
+                CustomUser.objects.filter(groups=g, is_active=True)
+                .filter(models.Q(is_staff=True) | models.Q(is_superuser=True))
+                .order_by('?')
+            )
+            u = qs.first()
+            if u:
+                return u
+    except Exception:
+        pass
+    return get_support_user()
+
 
 def get_support_user():
     """

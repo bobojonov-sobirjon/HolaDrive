@@ -37,6 +37,40 @@ def _money_to_cents(amount: Decimal) -> int:
     return int((amount * 100).quantize(Decimal('1'), ROUND_HALF_UP))
 
 
+def _resolve_connect_destination(driver_user: 'CustomUser') -> str | None:
+    """
+    Return a valid Stripe Connect account id for destination charges, or None.
+    Clears stale ids from the user record when Stripe no longer has that account.
+    """
+    from apps.accounts.models import CustomUser
+
+    dest = (getattr(driver_user, 'stripe_connect_account_id', None) or '').strip()
+    if not dest or not dest.startswith('acct_'):
+        return None
+
+    _configure_stripe()
+    try:
+        acct = stripe.Account.retrieve(dest)
+    except stripe.error.InvalidRequestError as exc:
+        err = str(exc).lower()
+        if 'no such' in err or 'does not exist' in err:
+            CustomUser.objects.filter(pk=driver_user.pk, stripe_connect_account_id=dest).update(
+                stripe_connect_account_id=''
+            )
+            driver_user.stripe_connect_account_id = ''
+            return None
+        raise
+
+    if getattr(acct, 'deleted', False):
+        CustomUser.objects.filter(pk=driver_user.pk, stripe_connect_account_id=dest).update(
+            stripe_connect_account_id=''
+        )
+        driver_user.stripe_connect_account_id = ''
+        return None
+
+    return dest
+
+
 def charge_trip_card_payment(order: 'Order', driver_user: 'CustomUser') -> dict[str, Any]:
     """
     Confirm off-session PaymentIntent for the rider; optional destination charge to driver's Connect account.
@@ -71,7 +105,7 @@ def charge_trip_card_payment(order: 'Order', driver_user: 'CustomUser') -> dict[
         raise ValueError(f'Amount below Stripe minimum ({MIN_AMOUNT_CENTS} minor units).')
 
     currency = (getattr(settings, 'STRIPE_CHARGE_CURRENCY', None) or 'cad').strip().lower()
-    dest = (getattr(driver_user, 'stripe_connect_account_id', None) or '').strip()
+    dest = _resolve_connect_destination(driver_user)
 
     fee_percent = Decimal(str(getattr(settings, 'STRIPE_APPLICATION_FEE_PERCENT', '0') or '0'))
     if fee_percent < 0 or fee_percent > 100:
@@ -121,4 +155,5 @@ def charge_trip_card_payment(order: 'Order', driver_user: 'CustomUser') -> dict[
         'payment_intent_id': intent.id,
         'amount_cents': total_cents,
         'currency': currency,
+        'connect_destination_used': bool(dest),
     }

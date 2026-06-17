@@ -152,10 +152,10 @@ class OrderItem(models.Model):
     order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name='order_items')
     address_from = models.CharField(max_length=255, verbose_name='Address From', null=True, blank=True)
     address_to = models.CharField(max_length=255, verbose_name='Address To', null=True, blank=True)
-    latitude_from = models.DecimalField(max_digits=22, decimal_places=14, verbose_name='Latitude From', null=True, blank=True)
-    longitude_from = models.DecimalField(max_digits=22, decimal_places=14, verbose_name='Longitude From', null=True, blank=True)
-    latitude_to = models.DecimalField(max_digits=22, decimal_places=14, verbose_name='Latitude To', null=True, blank=True)
-    longitude_to = models.DecimalField(max_digits=22, decimal_places=14, verbose_name='Longitude To', null=True, blank=True)
+    latitude_from = models.DecimalField(max_digits=24, decimal_places=18, verbose_name='Latitude From', null=True, blank=True)
+    longitude_from = models.DecimalField(max_digits=24, decimal_places=18, verbose_name='Longitude From', null=True, blank=True)
+    latitude_to = models.DecimalField(max_digits=24, decimal_places=18, verbose_name='Latitude To', null=True, blank=True)
+    longitude_to = models.DecimalField(max_digits=24, decimal_places=18, verbose_name='Longitude To', null=True, blank=True)
     stop_sequence = models.IntegerField(
     default=1,
     verbose_name='Stop Sequence',
@@ -765,8 +765,8 @@ class SurgePricing(models.Model):
     days_of_week = models.JSONField(default=list, verbose_name='Days of Week', help_text="[0,1,2,3,4] - Monday to Friday")
     
     zone_name = models.CharField(max_length=100, null=True, blank=True, verbose_name='Zone Name')
-    latitude = models.DecimalField(max_digits=22, decimal_places=14, null=True, blank=True, verbose_name='Latitude')
-    longitude = models.DecimalField(max_digits=22, decimal_places=14, null=True, blank=True, verbose_name='Longitude')
+    latitude = models.DecimalField(max_digits=24, decimal_places=18, null=True, blank=True, verbose_name='Latitude')
+    longitude = models.DecimalField(max_digits=24, decimal_places=18, null=True, blank=True, verbose_name='Longitude')
     radius_km = models.DecimalField(max_digits=5, decimal_places=2, default=5.0, verbose_name='Radius (KM)')
     
     min_available_drivers = models.IntegerField(null=True, blank=True, verbose_name='Min Available Drivers')
