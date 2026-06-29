@@ -1,7 +1,8 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
+from django.core.exceptions import ValidationError
 
-from .models import CustomUser, DriverUser, RiderUser, UserDeviceToken
+from .models import CustomUser, DriverUser, RiderUser, UserDeviceToken, LoginLegalDocument
 
 
 @admin.register(CustomUser)
@@ -58,3 +59,46 @@ class UserDeviceTokenAdmin(admin.ModelAdmin):
     list_display = ('id', 'user', 'mobile', 'created_at')
     search_fields = ('user__email', 'token')
     raw_id_fields = ('user',)
+
+
+@admin.register(LoginLegalDocument)
+class LoginLegalDocumentAdmin(admin.ModelAdmin):
+    list_display = ('document_type', 'title', 'content_format', 'is_active', 'updated_at')
+    list_filter = ('document_type', 'content_format', 'is_active')
+    search_fields = ('title',)
+    readonly_fields = ('created_at', 'updated_at')
+    fieldsets = (
+        (
+            None,
+            {
+                'fields': (
+                    'document_type',
+                    'title',
+                    'content_format',
+                    'is_active',
+                )
+            },
+        ),
+        (
+            'HTML content',
+            {
+                'fields': ('html_content',),
+                'description': 'Fill when content format is HTML.',
+            },
+        ),
+        (
+            'PDF file',
+            {
+                'fields': ('pdf_file',),
+                'description': 'Upload when content format is PDF.',
+            },
+        ),
+        ('Timestamps', {'fields': ('created_at', 'updated_at')}),
+    )
+
+    def save_model(self, request, obj, form, change):
+        if obj.content_format == LoginLegalDocument.ContentFormat.PDF and not obj.pdf_file:
+            raise ValidationError('PDF file is required when content format is PDF.')
+        if obj.content_format == LoginLegalDocument.ContentFormat.HTML and not (obj.html_content or '').strip():
+            raise ValidationError('HTML content is required when content format is HTML.')
+        super().save_model(request, obj, form, change)

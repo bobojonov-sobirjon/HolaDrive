@@ -33,7 +33,7 @@ def _unique_username(base: str) -> str:
 
 
 def _placeholder_email(normalized_phone: str) -> str:
-    digits = re.sub(r'\D', '', normalized) or secrets.token_hex(6)
+    digits = re.sub(r'\D', '', normalized_phone) or secrets.token_hex(6)
     email = f'{digits}@{PHONE_EMAIL_DOMAIN}'
     while CustomUser.objects.filter(email__iexact=email).exists():
         email = f'{digits}{secrets.token_hex(2)}@{PHONE_EMAIL_DOMAIN}'
@@ -102,7 +102,8 @@ def get_or_create_user_for_phone(
         return existing, False
 
     email = _placeholder_email(normalized)
-    username = _unique_username(f'phone_{re.sub(r"\D", "", normalized)}')
+    phone_digits = re.sub(r'\D', '', normalized)
+    username = _unique_username(f'phone_{phone_digits}')
 
     user = CustomUser(
         username=username,

@@ -1600,6 +1600,59 @@ class UserDeviceToken(models.Model):
         return obj
 
 
+class LoginLegalDocument(models.Model):
+    """
+    Login screen legal info (read-only). No accept/decline.
+    One row per document type: Privacy Policy or Terms of Service.
+    """
+
+    class DocumentType(models.TextChoices):
+        PRIVACY_POLICY = 'privacy_policy', 'Privacy Policy'
+        TERMS_OF_SERVICE = 'terms_of_service', 'Terms of Service'
+
+    class ContentFormat(models.TextChoices):
+        HTML = 'html', 'HTML / Rich text'
+        PDF = 'pdf', 'PDF file'
+
+    document_type = models.CharField(
+        max_length=30,
+        choices=DocumentType.choices,
+        unique=True,
+        verbose_name='Document type',
+    )
+    title = models.CharField(max_length=255, verbose_name='Title')
+    content_format = models.CharField(
+        max_length=10,
+        choices=ContentFormat.choices,
+        default=ContentFormat.HTML,
+        verbose_name='Content format',
+    )
+    html_content = RichTextField(
+        blank=True,
+        default='',
+        verbose_name='HTML content',
+        help_text='Used when content format is HTML.',
+    )
+    pdf_file = models.FileField(
+        upload_to='legal/login/',
+        blank=True,
+        null=True,
+        verbose_name='PDF file',
+        help_text='Used when content format is PDF.',
+    )
+    is_active = models.BooleanField(default=True, verbose_name='Is active')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'Login legal document'
+        verbose_name_plural = 'Login legal documents'
+        ordering = ['document_type']
+
+    def __str__(self):
+        return f'{self.get_document_type_display()} — {self.title}'
+
+
 class RiderUser(CustomUser):
     """
     Proxy model for Riders in admin panel

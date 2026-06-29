@@ -36,6 +36,11 @@ from .registration_terms import (
     RegistrationTermsAcceptView,
     RegistrationTermsDeclineView,
 )
+from .login_legal import (
+    LoginLegalDocumentsListView,
+    LoginLegalDocumentDetailView,
+    LoginLegalDocumentViewPage,
+)
 from .driver_identification import (
     DriverIdentificationChecklistView,
     DriverIdentificationLegalAcceptView,
@@ -88,4 +93,7 @@ __all__ = [
     'DriverIdentificationLegalDeclineView',
     'DriverIdentificationTermsAcceptView',
     'DriverIdentificationTermsDeclineView',
+    'LoginLegalDocumentsListView',
+    'LoginLegalDocumentDetailView',
+    'LoginLegalDocumentViewPage',
 ]

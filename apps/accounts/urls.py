@@ -24,6 +24,9 @@ from .views import (
     DriverIdentificationTermsAcceptView,
     DriverIdentificationTermsDeclineView,
     StripeCustomerMeView,
+    LoginLegalDocumentsListView,
+    LoginLegalDocumentDetailView,
+    LoginLegalDocumentViewPage,
 )
 
 app_name = 'accounts'
@@ -41,6 +44,18 @@ urlpatterns = [
     path('reset-password/', ResetPasswordRequestView.as_view(), name='reset-password'),
     path('verify-reset-code/', VerifyResetCodeView.as_view(), name='verify-reset-code'),
     path('reset-password-confirm/', ResetPasswordConfirmView.as_view(), name='reset-password-confirm'),
+
+    path('legal-documents/', LoginLegalDocumentsListView.as_view(), name='login-legal-documents'),
+    path(
+        'legal-documents/<slug:slug>/',
+        LoginLegalDocumentDetailView.as_view(),
+        name='login-legal-document-detail',
+    ),
+    path(
+        'legal-documents/<slug:slug>/view/',
+        LoginLegalDocumentViewPage.as_view(),
+        name='login-legal-document-view',
+    ),
 
     path('me/', UserDetailView.as_view(), name='user-detail'),
     path('me/avatar/', UserAvatarUpdateView.as_view(), name='user-avatar-update'),
