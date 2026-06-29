@@ -298,9 +298,11 @@ DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', '')
 FCM_SERVER_KEY = os.getenv('FCM_SERVER_KEY', '')
 
 
-TWILIO_ACCOUNT_SID = os.getenv('TWILIO_ACCOUNT_SID')
-TWILIO_AUTH_TOKEN = os.getenv('TWILIO_AUTH_TOKEN')
-TWILIO_PHONE_NUMBER = os.getenv('TWILIO_PHONE_NUMBER')
+TWILIO_ACCOUNT_SID = (os.getenv('TWILIO_ACCOUNT_SID') or '').strip() or None
+TWILIO_AUTH_TOKEN = (os.getenv('TWILIO_AUTH_TOKEN') or '').strip() or None
+TWILIO_PHONE_NUMBER = (os.getenv('TWILIO_PHONE_NUMBER') or '').strip() or None
+# Dev/staging only: log OTP to server logs instead of Twilio SMS (never enable on production).
+SMS_OTP_LOG_ONLY = os.getenv('SMS_OTP_LOG_ONLY', 'False').lower() == 'true'
 
 # Stripe (saved cards, payments). Keys from https://dashboard.stripe.com/apikeys
 STRIPE_SECRET_KEY = os.getenv('STRIPE_SECRET_KEY', '')

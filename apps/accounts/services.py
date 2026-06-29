@@ -18,26 +18,42 @@ def normalize_phone_number(phone_number):
     return f'+{cleaned}'
 
 
+def _twilio_credentials():
+    account_sid = (os.getenv('TWILIO_ACCOUNT_SID') or getattr(settings, 'TWILIO_ACCOUNT_SID', None) or '').strip() or None
+    auth_token = (os.getenv('TWILIO_AUTH_TOKEN') or getattr(settings, 'TWILIO_AUTH_TOKEN', None) or '').strip() or None
+    from_number = (os.getenv('TWILIO_PHONE_NUMBER') or getattr(settings, 'TWILIO_PHONE_NUMBER', None) or '').strip() or None
+    return account_sid, auth_token, from_number
+
+
 def send_sms(phone_number, message):
     normalized_phone = normalize_phone_number(phone_number)
 
+    if getattr(settings, 'SMS_OTP_LOG_ONLY', False):
+        logger.warning(
+            '[SMS_OTP_LOG_ONLY] OTP SMS to %s (not sent via Twilio): %s',
+            normalized_phone,
+            message,
+        )
+        return True, 'log_only'
+
     try:
-        account_sid = os.getenv('TWILIO_ACCOUNT_SID', settings.TWILIO_ACCOUNT_SID if hasattr(settings, 'TWILIO_ACCOUNT_SID') else None)
-        auth_token = os.getenv('TWILIO_AUTH_TOKEN', settings.TWILIO_AUTH_TOKEN if hasattr(settings, 'TWILIO_AUTH_TOKEN') else None)
-        from_number = os.getenv('TWILIO_PHONE_NUMBER', settings.TWILIO_PHONE_NUMBER if hasattr(settings, 'TWILIO_PHONE_NUMBER') else None)
+        account_sid, auth_token, from_number = _twilio_credentials()
 
         if not all([account_sid, auth_token, from_number]):
-            return False, "Twilio credentials not configured"
+            logger.error(
+                'Twilio not configured. Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER in .env'
+            )
+            return False, 'Twilio credentials not configured'
 
         client = Client(account_sid, auth_token)
 
-        message = client.messages.create(
+        twilio_message = client.messages.create(
             body=message,
             from_=from_number,
-            to=normalized_phone
+            to=normalized_phone,
         )
 
-        return True, message.sid
+        return True, twilio_message.sid
     except Exception as e:
         error_message = str(e)
 
