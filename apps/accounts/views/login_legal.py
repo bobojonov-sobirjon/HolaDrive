@@ -34,6 +34,7 @@ async def _get_active_document(document_type: str) -> LoginLegalDocument | None:
 class LoginLegalDocumentsListView(AsyncAPIView):
     """Login page: Privacy Policy + Terms of Service URLs (read-only, no auth)."""
 
+    authentication_classes = []
     permission_classes = [AllowAny]
 
     @extend_schema(
@@ -67,6 +68,7 @@ class LoginLegalDocumentsListView(AsyncAPIView):
 
 
 class LoginLegalDocumentDetailView(AsyncAPIView):
+    authentication_classes = []
     permission_classes = [AllowAny]
 
     @extend_schema(
@@ -100,6 +102,7 @@ class LoginLegalDocumentDetailView(AsyncAPIView):
 class LoginLegalDocumentViewPage(AsyncAPIView):
     """Browser/WebView: render HTML document or redirect to PDF."""
 
+    authentication_classes = []
     permission_classes = [AllowAny]
 
     @extend_schema(
