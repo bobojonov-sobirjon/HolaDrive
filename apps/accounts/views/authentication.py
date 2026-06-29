@@ -148,6 +148,7 @@ class LoginView(AsyncAPIView):
             user = validated_data['user']
             email = validated_data.get('email')
             phone_number = validated_data.get('phone_number')
+            is_new_user = bool(validated_data.get('is_new_user'))
             
             contact_email = email or user.email
             contact_phone = phone_number or user.phone_number
@@ -178,11 +179,16 @@ class LoginView(AsyncAPIView):
                 )
 
             response_data = {
-                'message': 'Verification code sent successfully',
+                'message': (
+                    'Verification code sent. Complete sign-up with verify-code.'
+                    if is_new_user
+                    else 'Verification code sent successfully'
+                ),
                 'status': 'success',
                 'data': {
                     'expires_in': 600,
-                    'sent_to': contact_email if (email or (not phone_number and user.email)) else contact_phone
+                    'sent_to': contact_email if (email or (not phone_number and user.email)) else contact_phone,
+                    'is_new_user': is_new_user if phone_number else False,
                 }
             }
             
@@ -337,6 +343,10 @@ class VerifyCodeView(AsyncAPIView):
             validated_data = await sync_to_async(lambda: serializer.validated_data)()
             user = validated_data['user']
             verification_code = validated_data['verification_code']
+            phone_number = validated_data.get('phone_number')
+
+            from apps.accounts.phone_auth import is_phone_signup_user
+            is_new_user = bool(phone_number and is_phone_signup_user(user) and not user.is_verified)
             
             verification_code.is_used = True
             await sync_to_async(verification_code.save)()
@@ -350,14 +360,20 @@ class VerifyCodeView(AsyncAPIView):
             
             return Response(
                 {
-                    'message': 'Code verified successfully',
+                    'message': (
+                        'Account created and signed in'
+                        if is_new_user
+                        else 'Code verified successfully'
+                    ),
                     'status': 'success',
                     'data': {
                         'access_token': access_token,
                         'refresh_token': refresh_token,
+                        'is_new_user': is_new_user,
                         'user': {
                             'id': user.id,
                             'email': user.email,
+                            'phone_number': user.phone_number,
                             'full_name': await sync_to_async(user.get_full_name)(),
                             'username': user.username,
                             'is_verified': user.is_verified,

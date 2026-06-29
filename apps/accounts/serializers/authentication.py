@@ -153,6 +153,12 @@ class LoginSerializer(serializers.Serializer):
         choices=UserDeviceToken.DeviceType.choices,
         help_text="Device type for push notifications (android, ios, web)",
     )
+    role = serializers.ChoiceField(
+        write_only=True,
+        required=False,
+        choices=[('rider', 'Rider'), ('driver', 'Driver')],
+        help_text="For new phone sign-up only: assign Rider or Driver group (like Google sign-in).",
+    )
 
     def validate(self, attrs):
         email = (attrs.get('email') or '').strip()
@@ -165,15 +171,23 @@ class LoginSerializer(serializers.Serializer):
         if email and phone_number:
             raise serializers.ValidationError("Provide either email or phone number, not both.")
 
-        user = None
         if phone_number:
-            # Phone login: password is NOT required. Just check user exists.
+            from apps.accounts.phone_auth import get_or_create_user_for_phone
+            from apps.accounts.services import normalize_phone_number
+
+            normalized = normalize_phone_number(phone_number)
+            if not normalized:
+                raise serializers.ValidationError({"phone_number": ["Invalid phone number format."]})
+
+            role = (attrs.get('role') or '').strip() or None
             try:
-                user = CustomUser.objects.get(phone_number=phone_number)
-            except CustomUser.DoesNotExist:
-                raise serializers.ValidationError({"phone_number": ["User with this phone number does not exist."]})
+                user, is_new_user = get_or_create_user_for_phone(normalized, role=role)
+            except ValueError as exc:
+                raise serializers.ValidationError({"phone_number": [str(exc)]}) from exc
+
             attrs['user'] = user
-            attrs['phone_number'] = phone_number
+            attrs['phone_number'] = normalized
+            attrs['is_new_user'] = is_new_user
             return attrs
 
         # Email login: password IS required
@@ -229,6 +243,11 @@ class SendVerificationCodeSerializer(serializers.Serializer):
     """
     email = serializers.EmailField(required=False, help_text="Email address")
     phone_number = serializers.CharField(required=False, max_length=15, help_text="Phone number")
+    role = serializers.ChoiceField(
+        required=False,
+        choices=[('rider', 'Rider'), ('driver', 'Driver')],
+        help_text="For new phone sign-up only (when user does not exist yet).",
+    )
 
     def validate(self, attrs):
         email = attrs.get('email')
@@ -237,7 +256,6 @@ class SendVerificationCodeSerializer(serializers.Serializer):
         if not email and not phone_number:
             raise serializers.ValidationError("Either email or phone number is required.")
 
-        # Find user by email or phone number
         user = None
         if email:
             try:
@@ -245,10 +263,18 @@ class SendVerificationCodeSerializer(serializers.Serializer):
             except CustomUser.DoesNotExist:
                 raise serializers.ValidationError("User with this email does not exist.")
         elif phone_number:
-            try:
-                user = CustomUser.objects.get(phone_number=phone_number)
-            except CustomUser.DoesNotExist:
-                raise serializers.ValidationError("User with this phone number does not exist.")
+            from apps.accounts.phone_auth import find_user_by_phone, get_or_create_user_for_phone
+            from apps.accounts.services import normalize_phone_number
+
+            normalized = normalize_phone_number(phone_number)
+            if not normalized:
+                raise serializers.ValidationError({"phone_number": ["Invalid phone number format."]})
+
+            user = find_user_by_phone(normalized)
+            if not user:
+                role = (attrs.get('role') or '').strip() or None
+                user, _ = get_or_create_user_for_phone(normalized, role=role)
+            attrs['phone_number'] = user.phone_number or normalized
 
         attrs['user'] = user
         return attrs
@@ -283,10 +309,14 @@ class VerifyCodeSerializer(serializers.Serializer):
             except CustomUser.DoesNotExist:
                 raise serializers.ValidationError("User with this email does not exist.")
         elif phone_number:
-            try:
-                user = CustomUser.objects.get(phone_number=phone_number)
-            except CustomUser.DoesNotExist:
+            from apps.accounts.phone_auth import find_user_by_phone
+            from apps.accounts.services import normalize_phone_number
+
+            normalized = normalize_phone_number(phone_number)
+            user = find_user_by_phone(normalized or phone_number)
+            if not user:
                 raise serializers.ValidationError("User with this phone number does not exist.")
+            attrs['phone_number'] = user.phone_number or normalized
 
         # Find valid verification code with optimized query
         try:
