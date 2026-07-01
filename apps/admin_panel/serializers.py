@@ -3,6 +3,7 @@ from rest_framework import serializers
 from apps.accounts.models import (
     CustomUser,
     DriverVerification,
+    LoginLegalDocument,
     DriverIdentificationRegistrationAgreementsUserAccepted,
     DriverIdentificationUploadType,
     DriverIdentificationUploadTypeItem,
@@ -47,6 +48,8 @@ class AdminPanelDriverListSerializer(serializers.ModelSerializer):
     full_name = serializers.SerializerMethodField()
     avatar = serializers.SerializerMethodField()
     driver_verification = serializers.SerializerMethodField()
+    online_status = serializers.SerializerMethodField()
+    current_location = serializers.SerializerMethodField()
 
     class Meta:
         model = CustomUser
@@ -65,9 +68,10 @@ class AdminPanelDriverListSerializer(serializers.ModelSerializer):
             'id_identification',
             'is_verified',
             'is_active',
-            'is_online',
             'created_at',
             'updated_at',
+            'online_status',
+            'current_location',
             'verification_activation',
             'driver_verification',
             'groups',
@@ -133,6 +137,23 @@ class AdminPanelDriverListSerializer(serializers.ModelSerializer):
             'estimated_review_hours': dv.estimated_review_hours,
             'reviewed_at': dv.reviewed_at,
             'reviewer': reviewer.email if reviewer else None,
+        }
+
+    def get_online_status(self, obj):
+        is_online = bool(getattr(obj, 'is_online', False))
+        return {
+            'is_online': is_online,
+            'status': 'online' if is_online else 'offline',
+        }
+
+    def get_current_location(self, obj):
+        lat = getattr(obj, 'latitude', None)
+        lng = getattr(obj, 'longitude', None)
+        return {
+            'latitude': str(lat) if lat is not None else None,
+            'longitude': str(lng) if lng is not None else None,
+            'updated_at': obj.updated_at,
+            'has_location': lat is not None and lng is not None,
         }
 
     def get_driver_preferences(self, obj):
@@ -406,9 +427,48 @@ class AdminOrderBaseModelSerializer(serializers.ModelSerializer):
         fields = '__all__'
 
 
-class AdminRideTypeSerializer(AdminOrderBaseModelSerializer):
-    class Meta(AdminOrderBaseModelSerializer.Meta):
+class AdminRideTypeSerializer(serializers.ModelSerializer):
+    """Admin CRUD for ride types (tariffs shown in rider app price estimate)."""
+
+    class Meta:
         model = RideType
+        fields = (
+            'id',
+            'name',
+            'name_large',
+            'base_price',
+            'price_per_km',
+            'capacity',
+            'icon',
+            'is_premium',
+            'is_ev',
+            'is_active',
+            'created_at',
+        )
+        read_only_fields = ('id', 'created_at')
+        extra_kwargs = {
+            'name': {'required': False, 'allow_null': True, 'allow_blank': True},
+            'name_large': {'required': False, 'allow_null': True, 'allow_blank': True},
+            'base_price': {'required': True},
+            'price_per_km': {'required': True},
+            'capacity': {'required': False, 'allow_null': True},
+            'icon': {'required': False, 'allow_null': True, 'allow_blank': True},
+        }
+
+    def validate_base_price(self, value):
+        if value is not None and value < 0:
+            raise serializers.ValidationError('Base price cannot be negative.')
+        return value
+
+    def validate_price_per_km(self, value):
+        if value is not None and value < 0:
+            raise serializers.ValidationError('Price per km cannot be negative.')
+        return value
+
+    def validate_capacity(self, value):
+        if value is not None and value < 1:
+            raise serializers.ValidationError('Capacity must be at least 1.')
+        return value
 
 
 class AdminSurgePricingSerializer(AdminOrderBaseModelSerializer):
@@ -825,3 +885,71 @@ class AdminPanelTermsTypeWriteSerializer(serializers.ModelSerializer):
     class Meta:
         model = DriverIdentificationTermsType
         fields = ('title', 'description', 'is_active')
+
+
+class AdminLoginLegalDocumentSerializer(serializers.ModelSerializer):
+    document_type_display = serializers.CharField(source='get_document_type_display', read_only=True)
+    content_format_display = serializers.CharField(source='get_content_format_display', read_only=True)
+    pdf_file_url = serializers.SerializerMethodField()
+    open_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = LoginLegalDocument
+        fields = (
+            'id',
+            'document_type',
+            'document_type_display',
+            'title',
+            'content_format',
+            'content_format_display',
+            'html_content',
+            'pdf_file',
+            'pdf_file_url',
+            'open_url',
+            'is_active',
+            'created_at',
+            'updated_at',
+        )
+        read_only_fields = ('id', 'created_at', 'updated_at', 'document_type_display', 'content_format_display', 'pdf_file_url', 'open_url')
+
+    def _public_slug(self, document_type: str) -> str:
+        from apps.accounts.serializers.login_legal import SLUG_BY_DOCUMENT_TYPE
+
+        return SLUG_BY_DOCUMENT_TYPE.get(document_type, document_type)
+
+    def get_pdf_file_url(self, obj: LoginLegalDocument) -> str | None:
+        if not obj.pdf_file:
+            return None
+        request = self.context.get('request')
+        if request:
+            return request.build_absolute_uri(obj.pdf_file.url)
+        return obj.pdf_file.url
+
+    def get_open_url(self, obj: LoginLegalDocument) -> str | None:
+        request = self.context.get('request')
+        if obj.content_format == LoginLegalDocument.ContentFormat.PDF:
+            return self.get_pdf_file_url(obj)
+        path = f'/api/v1/accounts/legal-documents/{self._public_slug(obj.document_type)}/view/'
+        if request:
+            return request.build_absolute_uri(path)
+        return path
+
+    def validate(self, attrs):
+        content_format = attrs.get(
+            'content_format',
+            getattr(self.instance, 'content_format', LoginLegalDocument.ContentFormat.HTML),
+        )
+        html_content = attrs.get('html_content', getattr(self.instance, 'html_content', '') or '')
+        pdf_file = attrs.get('pdf_file', getattr(self.instance, 'pdf_file', None))
+
+        if content_format == LoginLegalDocument.ContentFormat.PDF:
+            if not pdf_file and not (self.instance and self.instance.pdf_file):
+                raise serializers.ValidationError(
+                    {'pdf_file': ['PDF file is required when content format is PDF.']}
+                )
+        elif content_format == LoginLegalDocument.ContentFormat.HTML:
+            if not str(html_content).strip():
+                raise serializers.ValidationError(
+                    {'html_content': ['HTML content is required when content format is HTML.']}
+                )
+        return attrs

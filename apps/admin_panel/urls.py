@@ -5,6 +5,7 @@ from .views import (
     AdminPanelDriverDetailView,
     AdminPanelRidersListView,
     AdminPanelRiderDetailView,
+    AdminPanelUserDeleteView,
     AdminPanelSavedCardsListView,
     AdminOrdersListView,
     AdminOrdersDetailView,
@@ -39,6 +40,8 @@ from .views import (
     AdminDriverCashoutsListView,
     AdminDriverCashoutsDetailView,
     AdminAnalyticsDashboardView,
+    AdminLoginLegalDocumentsListView,
+    AdminLoginLegalDocumentsDetailView,
     AdminPanelDriverVerificationListView,
     AdminPanelDriverVerificationDetailView,
     AdminPanelUploadTypesListView,
@@ -58,6 +61,7 @@ urlpatterns = [
     path('drivers/<int:driver_id>/', AdminPanelDriverDetailView.as_view(), name='drivers-detail'),
     path('riders/', AdminPanelRidersListView.as_view(), name='riders-list'),
     path('riders/<int:rider_id>/', AdminPanelRiderDetailView.as_view(), name='riders-detail'),
+    path('users/<int:user_id>/', AdminPanelUserDeleteView.as_view(), name='users-delete'),
     path('payment/saved-cards/', AdminPanelSavedCardsListView.as_view(), name='admin-saved-cards-list'),
 
     # Orders domain (Admin Panel frontend)
@@ -94,6 +98,13 @@ urlpatterns = [
     path('driver-cashouts/', AdminDriverCashoutsListView.as_view(), name='admin-driver-cashouts-list'),
     path('driver-cashouts/<int:driver_cashout_id>/', AdminDriverCashoutsDetailView.as_view(), name='admin-driver-cashouts-detail'),
     path('analytics/dashboard/', AdminAnalyticsDashboardView.as_view(), name='admin-analytics-dashboard'),
+
+    path('login-legal-documents/', AdminLoginLegalDocumentsListView.as_view(), name='admin-login-legal-documents-list'),
+    path(
+        'login-legal-documents/<int:document_id>/',
+        AdminLoginLegalDocumentsDetailView.as_view(),
+        name='admin-login-legal-documents-detail',
+    ),
 
     path('verification-drivers/', AdminPanelDriverVerificationListView.as_view(), name='verification-drivers-list'),
     path('verification-drivers/<int:verification_id>/', AdminPanelDriverVerificationDetailView.as_view(), name='verification-drivers-detail'),

@@ -6,7 +6,7 @@ from django.db.models import Count, Sum
 from django.db.models.functions import Coalesce, TruncDay, TruncMonth
 from django.db.models import DecimalField, Value
 from django.utils import timezone
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiTypes
 from rest_framework import status
 from rest_framework.permissions import IsAdminUser, IsAuthenticated
 from rest_framework.response import Response
@@ -14,6 +14,7 @@ from rest_framework.response import Response
 from apps.accounts.models import (
     CustomUser,
     DriverVerification,
+    LoginLegalDocument,
     DriverIdentificationUploadType,
     DriverIdentificationLegalType,
     DriverIdentificationRegistrationType,
@@ -69,9 +70,105 @@ from .serializers import (
     AdminPanelLegalTypeWriteSerializer,
     AdminPanelRegistrationTypeWriteSerializer,
     AdminPanelTermsTypeWriteSerializer,
+    AdminLoginLegalDocumentSerializer,
 )
 from apps.payment.models import SavedCard
 from apps.accounts.services import send_sms
+from .dashboard_analytics import (
+    build_driver_statistics,
+    build_recent_rides,
+    build_ride_statistics,
+    build_ride_status_series,
+    build_site_statistics,
+)
+from .order_filters import ADMIN_ORDER_FILTERS, admin_orders_base_queryset, apply_admin_order_list_filters
+
+
+def _admin_forbidden_response():
+    return Response(
+        {
+            'message': 'Only superusers can access admin panel APIs.',
+            'status': 'error',
+        },
+        status=status.HTTP_403_FORBIDDEN,
+    )
+
+
+async def _delete_user_by_id(request, user_id: int):
+    """
+    Permanently delete a CustomUser by id. Superusers cannot delete themselves or other superusers.
+    """
+    if not request.user.is_superuser:
+        return _admin_forbidden_response()
+
+    if int(user_id) == int(request.user.id):
+        return Response(
+            {
+                'message': 'You cannot delete your own account.',
+                'status': 'error',
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    user = await CustomUser.objects.filter(pk=user_id).afirst()
+    if not user:
+        return Response(
+            {'message': 'User not found.', 'status': 'error'},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    if user.is_superuser:
+        return Response(
+            {
+                'message': 'Superuser accounts cannot be deleted via this API.',
+                'status': 'error',
+            },
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
+    snapshot = {
+        'id': user.id,
+        'email': user.email,
+        'username': user.username,
+        'full_name': user.get_full_name(),
+    }
+
+    try:
+        await sync_to_async(user.delete)()
+    except IntegrityError:
+        return Response(
+            {
+                'message': 'Cannot delete user: related records exist (orders, payments, etc.).',
+                'status': 'error',
+            },
+            status=status.HTTP_409_CONFLICT,
+        )
+
+    return Response(
+        {
+            'message': 'User deleted successfully',
+            'status': 'success',
+            'data': snapshot,
+        },
+        status=status.HTTP_200_OK,
+    )
+
+
+class AdminPanelUserDeleteView(AsyncAPIView):
+    """Delete any rider/driver user by id."""
+
+    permission_classes = [IsAuthenticated, IsAdminUser]
+
+    @extend_schema(
+        tags=['Admin Panel'],
+        summary='Delete user by id',
+        description=(
+            'Permanently deletes a user (rider or driver) by `user_id`. '
+            'Cannot delete yourself or other superusers.'
+        ),
+    )
+    async def delete(self, request, user_id):
+        return await _delete_user_by_id(request, user_id)
 
 
 class AdminPanelDriversListView(AsyncAPIView):
@@ -80,7 +177,15 @@ class AdminPanelDriversListView(AsyncAPIView):
     @extend_schema(
         tags=['Admin Panel'],
         summary='Drivers list for admin panel',
-        description='Returns all drivers with profile, verification and related admin panel data.',
+        description=(
+            'Returns drivers with profile, verification, online status and current GPS location. '
+            'Pagination: `page`, `page_size` (default 10, max 200).'
+        ),
+        parameters=[
+            OpenApiParameter('search', OpenApiTypes.STR, OpenApiParameter.QUERY, required=False),
+            OpenApiParameter('page', OpenApiTypes.INT, OpenApiParameter.QUERY, required=False),
+            OpenApiParameter('page_size', OpenApiTypes.INT, OpenApiParameter.QUERY, required=False),
+        ],
         responses=AdminPanelDriverListSerializer(many=True),
     )
     async def get(self, request):
@@ -139,7 +244,24 @@ class AdminPanelDriversListView(AsyncAPIView):
                 | Q(id_identification__icontains=search)
             )
 
-        drivers = await sync_to_async(list)(queryset)
+        try:
+            page = max(1, int(request.query_params.get('page', 1)))
+            page_size = int(request.query_params.get('page_size', 10))
+        except (TypeError, ValueError):
+            return Response(
+                {
+                    'message': 'Validation error',
+                    'status': 'error',
+                    'errors': {'page': ['page and page_size must be integers.']},
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        page_size = max(1, min(page_size, 200))
+
+        total_count = await sync_to_async(queryset.count)()
+        start = (page - 1) * page_size
+        end = start + page_size
+        drivers = await sync_to_async(list)(queryset[start:end])
         serializer = AdminPanelDriverListSerializer(drivers, many=True, context={'request': request})
         data = await sync_to_async(lambda: serializer.data)()
 
@@ -148,6 +270,10 @@ class AdminPanelDriversListView(AsyncAPIView):
                 'message': 'Drivers retrieved successfully',
                 'status': 'success',
                 'count': len(data),
+                'total_count': total_count,
+                'page': page,
+                'page_size': page_size,
+                'total_pages': (total_count + page_size - 1) // page_size if page_size else 0,
                 'data': data,
             },
             status=status.HTTP_200_OK,
@@ -226,6 +352,14 @@ class AdminPanelDriverDetailView(AsyncAPIView):
             },
             status=status.HTTP_200_OK,
         )
+
+    @extend_schema(
+        tags=['Admin Panel'],
+        summary='Delete driver by id',
+        description='Permanently deletes the driver user account.',
+    )
+    async def delete(self, request, driver_id):
+        return await _delete_user_by_id(request, driver_id)
 
 
 class AdminPanelRidersListView(AsyncAPIView):
@@ -358,6 +492,14 @@ class AdminPanelRiderDetailView(AsyncAPIView):
             },
             status=status.HTTP_200_OK,
         )
+
+    @extend_schema(
+        tags=['Admin Panel'],
+        summary='Delete rider by id',
+        description='Permanently deletes the rider user account.',
+    )
+    async def delete(self, request, rider_id):
+        return await _delete_user_by_id(request, rider_id)
 
 
 class AdminPanelSavedCardsListView(AsyncAPIView):
@@ -496,30 +638,117 @@ class _AdminPanelCRUDBaseView(AsyncAPIView):
 class AdminOrdersListView(AsyncAPIView):
     permission_classes = [IsAuthenticated, IsAdminUser]
 
-    @extend_schema(tags=['Admin Panel'], summary='Admin Orders: list (full split objects)', responses=AdminOrderFullSerializer(many=True))
+    @extend_schema(
+        tags=['Admin: Orders'],
+        summary='List orders (rides) with status filter',
+        description=(
+            'Admin rides list. Use `filter` for sidebar tabs:\n'
+            '- `all` — all rides (default)\n'
+            '- `scheduled` — has schedule, not completed/cancelled\n'
+            '- `pending` — status pending\n'
+            '- `cancelled` — cancelled + rejected\n'
+            '- `running` — accepted / on_the_way / arrived / in_progress\n'
+            '- `completed` — completed\n\n'
+            'Or use exact `status` (e.g. `status=in_progress`).\n'
+            'Pagination: `page`, `page_size` (default 50, max 200).'
+        ),
+        parameters=[
+            OpenApiParameter(
+                'filter',
+                OpenApiTypes.STR,
+                OpenApiParameter.QUERY,
+                required=False,
+                description='all | scheduled | pending | cancelled | running | completed',
+            ),
+            OpenApiParameter(
+                'status',
+                OpenApiTypes.STR,
+                OpenApiParameter.QUERY,
+                required=False,
+                description='Exact order status (overrides filter)',
+            ),
+            OpenApiParameter('page', OpenApiTypes.INT, OpenApiParameter.QUERY, required=False),
+            OpenApiParameter('page_size', OpenApiTypes.INT, OpenApiParameter.QUERY, required=False),
+            OpenApiParameter('search', OpenApiTypes.STR, OpenApiParameter.QUERY, required=False),
+        ],
+        responses=AdminOrderFullSerializer(many=True),
+    )
     async def get(self, request):
         if not request.user.is_superuser:
             return Response(
                 {'message': 'Only superusers can access admin panel APIs.', 'status': 'error'},
                 status=status.HTTP_403_FORBIDDEN,
             )
-        qs = (
-            Order.objects.select_related('user', 'saved_card')
-            .prefetch_related(
-                'order_items__ride_type',
-                'order_preferences',
-                'additional_passengers',
-                'order_schedules',
-                'order_drivers__driver',
-                'cancel_orders',
-                'payment_splits',
+
+        filter_value = request.query_params.get('filter', 'all')
+        status_value = request.query_params.get('status')
+
+        try:
+            qs, applied_filter, applied_status = apply_admin_order_list_filters(
+                admin_orders_base_queryset(),
+                filter_value=filter_value,
+                status_value=status_value,
             )
-            .order_by('-created_at')
-        )
-        rows = await sync_to_async(list)(qs)
+        except ValueError as exc:
+            return Response(
+                {
+                    'message': 'Validation error',
+                    'status': 'error',
+                    'errors': {'filter': [str(exc)]},
+                    'available_filters': ADMIN_ORDER_FILTERS,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        search = (request.query_params.get('search') or '').strip()
+        if search:
+            search_q = (
+                Q(order_code__icontains=search)
+                | Q(user__email__icontains=search)
+                | Q(user__first_name__icontains=search)
+                | Q(user__last_name__icontains=search)
+            )
+            if search.isdigit():
+                search_q |= Q(id=int(search))
+            qs = qs.filter(search_q)
+
+        try:
+            page = max(1, int(request.query_params.get('page', 1)))
+            page_size = int(request.query_params.get('page_size', 50))
+        except (TypeError, ValueError):
+            return Response(
+                {
+                    'message': 'Validation error',
+                    'status': 'error',
+                    'errors': {'page': ['page and page_size must be integers.']},
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        page_size = max(1, min(page_size, 200))
+
+        total_count = await sync_to_async(qs.count)()
+        start = (page - 1) * page_size
+        end = start + page_size
+        rows = await sync_to_async(list)(qs[start:end])
         ser = AdminOrderFullSerializer(rows, many=True, context={'request': request})
         data = await sync_to_async(lambda: ser.data)()
-        return Response({'message': 'Orders retrieved successfully', 'status': 'success', 'count': len(data), 'data': data}, status=status.HTTP_200_OK)
+
+        return Response(
+            {
+                'message': 'Orders retrieved successfully',
+                'status': 'success',
+                'count': len(data),
+                'total_count': total_count,
+                'page': page,
+                'page_size': page_size,
+                'total_pages': (total_count + page_size - 1) // page_size if page_size else 0,
+                'filter': applied_filter,
+                'status': applied_status,
+                'available_filters': ADMIN_ORDER_FILTERS,
+                'data': data,
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 class AdminOrdersDetailView(AsyncAPIView):
@@ -557,13 +786,38 @@ class AdminRideTypesListView(_AdminPanelCRUDBaseView):
     model = RideType
     serializer_class = AdminRideTypeSerializer
 
-    @extend_schema(tags=['Admin Ride Types'], summary='Admin Ride Types: list', responses=AdminRideTypeSerializer(many=True))
+    def base_queryset(self):
+        return RideType.objects.order_by('name', 'id')
+
+    @extend_schema(
+        tags=['Admin: Ride Types'],
+        summary='List ride types',
+        description='Optional query: `is_active=true` or `is_active=false`.',
+        responses=AdminRideTypeSerializer(many=True),
+    )
     async def get(self, request):
         if not request.user.is_superuser:
             return self._forbidden_response()
-        return await self._list(request)
+        qs = self.base_queryset()
+        is_active = (request.query_params.get('is_active') or '').strip().lower()
+        if is_active in ('true', '1', 'yes'):
+            qs = qs.filter(is_active=True)
+        elif is_active in ('false', '0', 'no'):
+            qs = qs.filter(is_active=False)
+        rows = await sync_to_async(list)(qs)
+        ser = self.serializer_class(rows, many=True, context={'request': request})
+        data = await sync_to_async(lambda: ser.data)()
+        return Response(
+            {'message': 'Retrieved successfully', 'status': 'success', 'count': len(data), 'data': data},
+            status=status.HTTP_200_OK,
+        )
 
-    @extend_schema(tags=['Admin Ride Types'], summary='Admin Ride Types: create', request=AdminRideTypeSerializer, responses=AdminRideTypeSerializer)
+    @extend_schema(
+        tags=['Admin: Ride Types'],
+        summary='Create ride type',
+        request=AdminRideTypeSerializer,
+        responses=AdminRideTypeSerializer,
+    )
     async def post(self, request):
         if not request.user.is_superuser:
             return self._forbidden_response()
@@ -575,19 +829,39 @@ class AdminRideTypesDetailView(_AdminPanelCRUDBaseView):
     serializer_class = AdminRideTypeSerializer
     not_found_message = 'Ride type not found.'
 
-    @extend_schema(tags=['Admin Ride Types'], summary='Admin Ride Types: detail', responses=AdminRideTypeSerializer)
+    @extend_schema(
+        tags=['Admin: Ride Types'],
+        summary='Get ride type by id',
+        responses=AdminRideTypeSerializer,
+    )
     async def get(self, request, ride_type_id):
         if not request.user.is_superuser:
             return self._forbidden_response()
         return await self._detail(request, ride_type_id)
 
-    @extend_schema(tags=['Admin Ride Types'], summary='Admin Ride Types: update', request=AdminRideTypeSerializer, responses=AdminRideTypeSerializer)
+    @extend_schema(
+        tags=['Admin: Ride Types'],
+        summary='Update ride type (partial)',
+        request=AdminRideTypeSerializer,
+        responses=AdminRideTypeSerializer,
+    )
     async def patch(self, request, ride_type_id):
         if not request.user.is_superuser:
             return self._forbidden_response()
         return await self._update(request, ride_type_id)
 
-    @extend_schema(tags=['Admin Ride Types'], summary='Admin Ride Types: delete')
+    @extend_schema(
+        tags=['Admin: Ride Types'],
+        summary='Update ride type (full)',
+        request=AdminRideTypeSerializer,
+        responses=AdminRideTypeSerializer,
+    )
+    async def put(self, request, ride_type_id):
+        if not request.user.is_superuser:
+            return self._forbidden_response()
+        return await self._update(request, ride_type_id)
+
+    @extend_schema(tags=['Admin: Ride Types'], summary='Delete ride type')
     async def delete(self, request, ride_type_id):
         if not request.user.is_superuser:
             return self._forbidden_response()
@@ -1289,11 +1563,14 @@ class AdminAnalyticsDashboardView(AsyncAPIView):
         tags=['Admin: Analytics'],
         summary='Admin analytics dashboard',
         description=(
+            'Admin dashboard data for charts and tables.\n\n'
             'Query params:\n'
             '- `date_from` (YYYY-MM-DD) optional\n'
             '- `date_to` (YYYY-MM-DD) optional\n'
             '- `interval` = `day` | `month` (default `month`)\n'
-            '- `recent_limit` (default 10)\n'
+            '- `recent_limit` (default 10)\n\n'
+            'Response includes: `kpis`, `monthly_target`, `charts`, `site_statistics`, '
+            '`ride_statistics`, `driver_statistics`, `ride_status_chart`, `recent_rides`.'
         ),
     )
     async def get(self, request):
@@ -1526,6 +1803,12 @@ class AdminAnalyticsDashboardView(AsyncAPIView):
                 }
             )
 
+        site_statistics = await sync_to_async(build_site_statistics)()
+        ride_statistics = await sync_to_async(build_ride_statistics)()
+        driver_statistics = await sync_to_async(build_driver_statistics)()
+        ride_status_chart = await sync_to_async(build_ride_status_series)(dt_from, dt_to, interval)
+        recent_rides = await sync_to_async(build_recent_rides)(recent_limit)
+
         data = {
             'filters': {
                 'date_from': str(date_from),
@@ -1570,6 +1853,11 @@ class AdminAnalyticsDashboardView(AsyncAPIView):
                 'riders': _fill_series(riders_series),
                 'drivers': _fill_series(drivers_series),
             },
+            'site_statistics': site_statistics,
+            'ride_statistics': ride_statistics,
+            'driver_statistics': driver_statistics,
+            'ride_status_chart': ride_status_chart,
+            'recent_rides': recent_rides,
             'recent_orders': recent_rows,
         }
 
@@ -1577,6 +1865,79 @@ class AdminAnalyticsDashboardView(AsyncAPIView):
             {'message': 'Analytics dashboard retrieved successfully', 'status': 'success', 'data': data},
             status=status.HTTP_200_OK,
         )
+
+
+class AdminLoginLegalDocumentsListView(_AdminPanelCRUDBaseView):
+    model = LoginLegalDocument
+    serializer_class = AdminLoginLegalDocumentSerializer
+
+    def base_queryset(self):
+        return LoginLegalDocument.objects.order_by('document_type')
+
+    @extend_schema(
+        tags=['Admin: Login legal documents'],
+        summary='List login legal documents (Privacy Policy, Terms of Service)',
+        responses=AdminLoginLegalDocumentSerializer(many=True),
+    )
+    async def get(self, request):
+        if not request.user.is_superuser:
+            return self._forbidden_response()
+        return await self._list(request)
+
+    @extend_schema(
+        tags=['Admin: Login legal documents'],
+        summary='Create login legal document',
+        request=AdminLoginLegalDocumentSerializer,
+        responses=AdminLoginLegalDocumentSerializer,
+    )
+    async def post(self, request):
+        if not request.user.is_superuser:
+            return self._forbidden_response()
+        return await self._create(request)
+
+
+class AdminLoginLegalDocumentsDetailView(_AdminPanelCRUDBaseView):
+    model = LoginLegalDocument
+    serializer_class = AdminLoginLegalDocumentSerializer
+    not_found_message = 'Login legal document not found.'
+
+    @extend_schema(
+        tags=['Admin: Login legal documents'],
+        summary='Get login legal document by id',
+        responses=AdminLoginLegalDocumentSerializer,
+    )
+    async def get(self, request, document_id):
+        if not request.user.is_superuser:
+            return self._forbidden_response()
+        return await self._detail(request, document_id)
+
+    @extend_schema(
+        tags=['Admin: Login legal documents'],
+        summary='Update login legal document (partial)',
+        request=AdminLoginLegalDocumentSerializer,
+        responses=AdminLoginLegalDocumentSerializer,
+    )
+    async def patch(self, request, document_id):
+        if not request.user.is_superuser:
+            return self._forbidden_response()
+        return await self._update(request, document_id)
+
+    @extend_schema(
+        tags=['Admin: Login legal documents'],
+        summary='Update login legal document (full)',
+        request=AdminLoginLegalDocumentSerializer,
+        responses=AdminLoginLegalDocumentSerializer,
+    )
+    async def put(self, request, document_id):
+        if not request.user.is_superuser:
+            return self._forbidden_response()
+        return await self._update(request, document_id)
+
+    @extend_schema(tags=['Admin: Login legal documents'], summary='Delete login legal document')
+    async def delete(self, request, document_id):
+        if not request.user.is_superuser:
+            return self._forbidden_response()
+        return await self._delete(request, document_id)
 
 
 class _AdminPanelSuperuserView(AsyncAPIView):
