@@ -5,6 +5,7 @@ from .views import (
     AdminPanelDriverDetailView,
     AdminPanelRidersListView,
     AdminPanelRiderDetailView,
+    AdminPanelUsersSearchView,
     AdminPanelUserDeleteView,
     AdminPanelSavedCardsListView,
     AdminOrdersListView,
@@ -61,6 +62,7 @@ urlpatterns = [
     path('drivers/<int:driver_id>/', AdminPanelDriverDetailView.as_view(), name='drivers-detail'),
     path('riders/', AdminPanelRidersListView.as_view(), name='riders-list'),
     path('riders/<int:rider_id>/', AdminPanelRiderDetailView.as_view(), name='riders-detail'),
+    path('users/search/', AdminPanelUsersSearchView.as_view(), name='users-search'),
     path('users/<int:user_id>/', AdminPanelUserDeleteView.as_view(), name='users-delete'),
     path('payment/saved-cards/', AdminPanelSavedCardsListView.as_view(), name='admin-saved-cards-list'),
 

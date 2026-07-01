@@ -82,6 +82,12 @@ from .dashboard_analytics import (
     build_site_statistics,
 )
 from .order_filters import ADMIN_ORDER_FILTERS, admin_orders_base_queryset, apply_admin_order_list_filters
+from .user_query import (
+    admin_user_search_snapshot,
+    apply_admin_user_search,
+    paginate_queryset,
+    parse_admin_pagination,
+)
 
 
 def _admin_forbidden_response():
@@ -236,17 +242,13 @@ class AdminPanelDriversListView(AsyncAPIView):
         )
 
         if search:
-            queryset = queryset.filter(
-                Q(email__icontains=search)
-                | Q(username__icontains=search)
-                | Q(first_name__icontains=search)
-                | Q(last_name__icontains=search)
-                | Q(id_identification__icontains=search)
-            )
+            queryset = apply_admin_user_search(queryset, search)
 
         try:
-            page = max(1, int(request.query_params.get('page', 1)))
-            page_size = int(request.query_params.get('page_size', 10))
+            page, page_size = parse_admin_pagination(
+                request.query_params.get('page', 1),
+                request.query_params.get('page_size', 10),
+            )
         except (TypeError, ValueError):
             return Response(
                 {
@@ -256,12 +258,9 @@ class AdminPanelDriversListView(AsyncAPIView):
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        page_size = max(1, min(page_size, 200))
 
         total_count = await sync_to_async(queryset.count)()
-        start = (page - 1) * page_size
-        end = start + page_size
-        drivers = await sync_to_async(list)(queryset[start:end])
+        drivers = await sync_to_async(lambda: list(queryset[(page - 1) * page_size : page * page_size]))()
         serializer = AdminPanelDriverListSerializer(drivers, many=True, context={'request': request})
         data = await sync_to_async(lambda: serializer.data)()
 
@@ -274,6 +273,7 @@ class AdminPanelDriversListView(AsyncAPIView):
                 'page': page,
                 'page_size': page_size,
                 'total_pages': (total_count + page_size - 1) // page_size if page_size else 0,
+                'role': 'driver',
                 'data': data,
             },
             status=status.HTTP_200_OK,
@@ -368,7 +368,15 @@ class AdminPanelRidersListView(AsyncAPIView):
     @extend_schema(
         tags=['Admin Panel'],
         summary='Riders list for admin panel',
-        description='Returns all riders with profile and related admin panel data.',
+        description=(
+            'Returns riders only (not drivers). Use `search` to find by name, email, phone, or id. '
+            'Pagination: `page`, `page_size` (default 10, max 200).'
+        ),
+        parameters=[
+            OpenApiParameter('search', OpenApiTypes.STR, OpenApiParameter.QUERY, required=False),
+            OpenApiParameter('page', OpenApiTypes.INT, OpenApiParameter.QUERY, required=False),
+            OpenApiParameter('page_size', OpenApiTypes.INT, OpenApiParameter.QUERY, required=False),
+        ],
         responses=AdminPanelRiderListSerializer(many=True),
     )
     async def get(self, request):
@@ -408,15 +416,25 @@ class AdminPanelRidersListView(AsyncAPIView):
         )
 
         if search:
-            queryset = queryset.filter(
-                Q(email__icontains=search)
-                | Q(username__icontains=search)
-                | Q(first_name__icontains=search)
-                | Q(last_name__icontains=search)
-                | Q(id_identification__icontains=search)
+            queryset = apply_admin_user_search(queryset, search)
+
+        try:
+            page, page_size = parse_admin_pagination(
+                request.query_params.get('page', 1),
+                request.query_params.get('page_size', 10),
+            )
+        except (TypeError, ValueError):
+            return Response(
+                {
+                    'message': 'Validation error',
+                    'status': 'error',
+                    'errors': {'page': ['page and page_size must be integers.']},
+                },
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
-        riders = await sync_to_async(list)(queryset)
+        total_count = await sync_to_async(queryset.count)()
+        riders = await sync_to_async(lambda: list(queryset[(page - 1) * page_size : page * page_size]))()
         serializer = AdminPanelRiderListSerializer(riders, many=True, context={'request': request})
         data = await sync_to_async(lambda: serializer.data)()
 
@@ -425,7 +443,136 @@ class AdminPanelRidersListView(AsyncAPIView):
                 'message': 'Riders retrieved successfully',
                 'status': 'success',
                 'count': len(data),
+                'total_count': total_count,
+                'page': page,
+                'page_size': page_size,
+                'total_pages': (total_count + page_size - 1) // page_size if page_size else 0,
+                'role': 'rider',
                 'data': data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class AdminPanelUsersSearchView(AsyncAPIView):
+    """
+    Fast admin search — riders and drivers are queried separately.
+    Use role=rider to search riders without loading drivers first.
+    """
+
+    permission_classes = [IsAuthenticated, IsAdminUser]
+
+    @extend_schema(
+        tags=['Admin Panel'],
+        summary='Search riders or drivers',
+        description=(
+            'Lightweight search for admin header/search bar. '
+            '`role=rider` returns only riders; `role=driver` only drivers; '
+            '`role=all` (default) searches both in parallel. '
+            'Does not mix pagination — each role is filtered in the database.'
+        ),
+        parameters=[
+            OpenApiParameter(
+                'q',
+                OpenApiTypes.STR,
+                OpenApiParameter.QUERY,
+                required=False,
+                description='Search text (name, email, phone, id)',
+            ),
+            OpenApiParameter(
+                'search',
+                OpenApiTypes.STR,
+                OpenApiParameter.QUERY,
+                required=False,
+                description='Alias for q',
+            ),
+            OpenApiParameter(
+                'role',
+                OpenApiTypes.STR,
+                OpenApiParameter.QUERY,
+                required=False,
+                description='rider | driver | all (default all)',
+            ),
+            OpenApiParameter('page', OpenApiTypes.INT, OpenApiParameter.QUERY, required=False),
+            OpenApiParameter('page_size', OpenApiTypes.INT, OpenApiParameter.QUERY, required=False),
+        ],
+    )
+    async def get(self, request):
+        if not request.user.is_superuser:
+            return Response(
+                {'message': 'Only superusers can access admin panel APIs.', 'status': 'error'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        query = (request.query_params.get('q') or request.query_params.get('search') or '').strip()
+        role = (request.query_params.get('role') or 'all').strip().lower()
+        if role not in ('rider', 'driver', 'all'):
+            return Response(
+                {
+                    'message': 'Validation error',
+                    'status': 'error',
+                    'errors': {'role': ['Must be rider, driver, or all.']},
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            page, page_size = parse_admin_pagination(
+                request.query_params.get('page', 1),
+                request.query_params.get('page_size', 20),
+                default_page_size=20,
+            )
+        except (TypeError, ValueError):
+            return Response(
+                {
+                    'message': 'Validation error',
+                    'status': 'error',
+                    'errors': {'page': ['page and page_size must be integers.']},
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        async def _search_group(group_name: str, role_label: str):
+            try:
+                group = await sync_to_async(Group.objects.get)(name=group_name)
+            except Group.DoesNotExist:
+                return [], 0
+            qs = CustomUser.objects.filter(groups=group).order_by('-created_at')
+            qs = apply_admin_user_search(qs, query)
+            rows, total = await sync_to_async(paginate_queryset)(qs, page, page_size)
+            return [admin_user_search_snapshot(u, role_label) for u in rows], total
+
+        riders_data, riders_total = ([], 0)
+        drivers_data, drivers_total = ([], 0)
+
+        if role in ('rider', 'all'):
+            riders_data, riders_total = await _search_group('Rider', 'rider')
+        if role in ('driver', 'all'):
+            drivers_data, drivers_total = await _search_group('Driver', 'driver')
+
+        if role == 'rider':
+            combined = riders_data
+            total_count = riders_total
+        elif role == 'driver':
+            combined = drivers_data
+            total_count = drivers_total
+        else:
+            combined = riders_data + drivers_data
+            total_count = riders_total + drivers_total
+
+        return Response(
+            {
+                'message': 'Users search completed',
+                'status': 'success',
+                'q': query,
+                'role': role,
+                'count': len(combined),
+                'total_count': total_count,
+                'page': page,
+                'page_size': page_size,
+                'riders_count': len(riders_data),
+                'drivers_count': len(drivers_data),
+                'data': combined,
             },
             status=status.HTTP_200_OK,
         )
