@@ -1,5 +1,13 @@
 from django.urls import path
 
+from apps.voice_call.admin_views import (
+    AdminVoiceCallAcceptView,
+    AdminVoiceCallDetailView,
+    AdminVoiceCallEndView,
+    AdminVoiceCallNoteView,
+    AdminVoiceCallRejectView,
+    AdminVoiceCallsListView,
+)
 from .views import (
     AdminPanelDriversListView,
     AdminPanelDriverDetailView,
@@ -118,4 +126,12 @@ urlpatterns = [
     path('registration-driver-identification/<int:registration_type_id>/', AdminPanelRegistrationTypesDetailView.as_view(), name='registration-identification-detail'),
     path('terms-driver-identification/', AdminPanelTermsTypesListView.as_view(), name='terms-identification-list'),
     path('terms-driver-identification/<int:terms_type_id>/', AdminPanelTermsTypesDetailView.as_view(), name='terms-identification-detail'),
+
+    # Voice calls (Agora)
+    path('voice-calls/', AdminVoiceCallsListView.as_view(), name='admin-voice-calls-list'),
+    path('voice-calls/<int:call_id>/', AdminVoiceCallDetailView.as_view(), name='admin-voice-calls-detail'),
+    path('voice-calls/<int:call_id>/accept/', AdminVoiceCallAcceptView.as_view(), name='admin-voice-calls-accept'),
+    path('voice-calls/<int:call_id>/reject/', AdminVoiceCallRejectView.as_view(), name='admin-voice-calls-reject'),
+    path('voice-calls/<int:call_id>/end/', AdminVoiceCallEndView.as_view(), name='admin-voice-calls-end'),
+    path('voice-calls/<int:call_id>/note/', AdminVoiceCallNoteView.as_view(), name='admin-voice-calls-note'),
 ]

@@ -357,7 +357,15 @@ class VerifyCodeView(AsyncAPIView):
             refresh = await sync_to_async(RefreshToken.for_user)(user)
             access_token = str(refresh.access_token)
             refresh_token = str(refresh)
-            
+
+            groups = await sync_to_async(
+                lambda: list(user.groups.filter(name__in=['Rider', 'Driver']).values('id', 'name'))
+            )()
+            app_role = None
+            if groups:
+                name = groups[0]['name']
+                app_role = 'driver' if name == 'Driver' else 'rider'
+
             return Response(
                 {
                     'message': (
@@ -377,6 +385,8 @@ class VerifyCodeView(AsyncAPIView):
                             'full_name': await sync_to_async(user.get_full_name)(),
                             'username': user.username,
                             'is_verified': user.is_verified,
+                            'groups': groups,
+                            'app_role': app_role,
                         }
                     }
                 },

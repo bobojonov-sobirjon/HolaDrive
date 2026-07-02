@@ -65,6 +65,23 @@ def _assign_role_group(user: CustomUser, role: Optional[str]) -> None:
         user.groups.add(group)
 
 
+def user_has_app_role(user: CustomUser) -> bool:
+    return user.groups.filter(name__in=ROLE_GROUP_NAMES.values()).exists()
+
+
+def ensure_user_app_role(user: CustomUser, role: Optional[str], *, only_if_missing: bool = True) -> None:
+    """Assign Rider/Driver group; by default only when user has no app role yet."""
+    if not role:
+        return
+    if only_if_missing and user_has_app_role(user):
+        return
+    _assign_role_group(user, role)
+
+
+def user_app_roles(user: CustomUser) -> list[str]:
+    return list(user.groups.filter(name__in=ROLE_GROUP_NAMES.values()).values_list('name', flat=True))
+
+
 def _ensure_stripe_customer(user: CustomUser) -> None:
     try:
         from django.conf import settings
@@ -99,6 +116,7 @@ def get_or_create_user_for_phone(
         if existing.phone_number != normalized:
             existing.phone_number = normalized
             existing.save(update_fields=['phone_number'])
+        ensure_user_app_role(existing, role, only_if_missing=True)
         return existing, False
 
     email = _placeholder_email(normalized)
@@ -113,6 +131,9 @@ def get_or_create_user_for_phone(
     )
     user.set_unusable_password()
     user.save()
+
+    if not role:
+        raise ValueError('role is required for new phone sign-up (rider or driver).')
 
     _assign_role_group(user, role)
     _ensure_stripe_customer(user)

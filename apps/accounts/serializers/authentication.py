@@ -183,7 +183,14 @@ class LoginSerializer(serializers.Serializer):
             try:
                 user, is_new_user = get_or_create_user_for_phone(normalized, role=role)
             except ValueError as exc:
-                raise serializers.ValidationError({"phone_number": [str(exc)]}) from exc
+                raise serializers.ValidationError(
+                    {"phone_number": [str(exc)]} if 'phone' in str(exc).lower() else {"role": [str(exc)]}
+                ) from exc
+
+            if is_new_user and not role:
+                raise serializers.ValidationError(
+                    {"role": ["This field is required for new phone sign-up (rider or driver)."]}
+                )
 
             attrs['user'] = user
             attrs['phone_number'] = normalized
@@ -273,6 +280,10 @@ class SendVerificationCodeSerializer(serializers.Serializer):
             user = find_user_by_phone(normalized)
             if not user:
                 role = (attrs.get('role') or '').strip() or None
+                if not role:
+                    raise serializers.ValidationError(
+                        {"role": ["This field is required for new phone sign-up (rider or driver)."]}
+                    )
                 user, _ = get_or_create_user_for_phone(normalized, role=role)
             attrs['phone_number'] = user.phone_number or normalized
 
@@ -292,11 +303,17 @@ class VerifyCodeSerializer(serializers.Serializer):
         min_length=4,
         help_text="4-digit verification code"
     )
+    role = serializers.ChoiceField(
+        required=False,
+        choices=[('rider', 'Rider'), ('driver', 'Driver')],
+        help_text='Required if account has no Rider/Driver group yet.',
+    )
 
     def validate(self, attrs):
         email = attrs.get('email')
         phone_number = attrs.get('phone_number')
         code = attrs.get('code')
+        role = (attrs.get('role') or '').strip() or None
 
         if not email and not phone_number:
             raise serializers.ValidationError("Either email or phone number is required.")
@@ -317,6 +334,19 @@ class VerifyCodeSerializer(serializers.Serializer):
             if not user:
                 raise serializers.ValidationError("User with this phone number does not exist.")
             attrs['phone_number'] = user.phone_number or normalized
+
+            from apps.accounts.phone_auth import ensure_user_app_role, user_has_app_role
+
+            if role:
+                ensure_user_app_role(user, role)
+            elif not user_has_app_role(user):
+                raise serializers.ValidationError(
+                    {
+                        'role': [
+                            'Account has no Rider/Driver role. Send role=rider or role=driver.'
+                        ]
+                    }
+                )
 
         # Find valid verification code with optimized query
         try:

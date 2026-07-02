@@ -15,6 +15,7 @@ urlpatterns = [
     path('api/v1/payment/', include('apps.payment.urls')),
     path('api/v1/notification/', include('apps.notification.urls')),
     path('api/v1/chat/', include('apps.chat.urls')),
+    path('api/v1/voice-call/', include('apps.voice_call.urls')),
     path('admin/', admin.site.urls),
 ]
 

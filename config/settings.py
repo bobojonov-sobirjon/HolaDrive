@@ -35,6 +35,7 @@ LOCAL_APPS = [
     'apps.payment',
     'apps.notification',
     'apps.chat',
+    'apps.voice_call',
 ]
 
 THIRD_PARTY_APPS = [
@@ -440,3 +441,8 @@ CELERY_TASK_TIME_LIMIT = 30 * 60
 CELERY_TASK_SOFT_TIME_LIMIT = 25 * 60
 CELERY_WORKER_PREFETCH_MULTIPLIER = 1
 CELERY_WORKER_MAX_TASKS_PER_CHILD = 1000
+
+# Agora voice calls (RTC)
+AGORA_APP_ID = os.getenv('AGORA_APP_ID', '')
+AGORA_APP_CERTIFICATE = os.getenv('AGORA_APP_CERTIFICATE', '')
+AGORA_TOKEN_EXPIRE_SECONDS = int(os.getenv('AGORA_TOKEN_EXPIRE_SECONDS', '3600'))
