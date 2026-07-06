@@ -31,7 +31,7 @@ class VehicleImageSerializer(serializers.ModelSerializer):
             if request:
                 return request.build_absolute_uri(obj.image.url)
             return obj.image.url
-        return None
+        return ''
 
 
 class VehicleDetailsSerializer(serializers.ModelSerializer):
@@ -79,11 +79,14 @@ class VehicleDetailsSerializer(serializers.ModelSerializer):
     
     def to_representation(self, instance):
         data = super().to_representation(instance)
-        # Flutter clients often cast FK ids as non-nullable int; 0 means "not set".
-        if data.get('default_ride_type') is None:
-            data['default_ride_type'] = 0
+        # default_ride_type_id: int (0 = not set). Keep default_ride_type as null|int — never force 0 (breaks String parsers).
         if data.get('default_ride_type_id') is None:
             data['default_ride_type_id'] = 0
+        if data.get('default_ride_type') is None:
+            data.pop('default_ride_type', None)
+        for key in ('plate_number', 'color', 'default_ride_type_name'):
+            if data.get(key) is None:
+                data[key] = ''
         return data
     
     def __init__(self, *args, **kwargs):
