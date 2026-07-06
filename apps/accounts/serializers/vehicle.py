@@ -23,15 +23,20 @@ class VehicleImageSerializer(serializers.ModelSerializer):
         read_only_fields = ('id', 'created_at')
     
     def get_image_url(self, obj):
-        """
-        Return full URL for the image
-        """
         if obj.image:
             request = self.context.get('request')
             if request:
                 return request.build_absolute_uri(obj.image.url)
             return obj.image.url
         return ''
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        data['id'] = int(data.get('id') or 0)
+        data['image_url'] = data.get('image_url') or ''
+        data['image'] = data.get('image') or ''
+        data['created_at'] = data.get('created_at') or ''
+        return data
 
 
 class VehicleDetailsSerializer(serializers.ModelSerializer):
@@ -76,17 +81,44 @@ class VehicleDetailsSerializer(serializers.ModelSerializer):
             'images', 'images_data', 'created_at', 'updated_at'
         )
         read_only_fields = ('id', 'user', 'created_at', 'updated_at', 'suggested_ride_types')
-    
+
+    def validate(self, attrs):
+        initial = getattr(self, 'initial_data', None) or {}
+        if isinstance(initial, dict) and initial.get('default_ride_type') in (0, '0', '', None):
+            attrs['default_ride_type'] = None
+        return attrs
+
     def to_representation(self, instance):
+        """Mobile-safe JSON: never null for int/string fields the app casts strictly."""
         data = super().to_representation(instance)
-        # default_ride_type_id: int (0 = not set). Keep default_ride_type as null|int — never force 0 (breaks String parsers).
-        if data.get('default_ride_type_id') is None:
-            data['default_ride_type_id'] = 0
-        if data.get('default_ride_type') is None:
-            data.pop('default_ride_type', None)
-        for key in ('plate_number', 'color', 'default_ride_type_name'):
+
+        ride_type_id = data.get('default_ride_type_id')
+        if ride_type_id is None:
+            ride_type_id = data.get('default_ride_type')
+        ride_type_id = int(ride_type_id or 0)
+        data['default_ride_type_id'] = ride_type_id
+        data['default_ride_type'] = ride_type_id
+
+        for key in (
+            'brand', 'model', 'vin', 'plate_number', 'color',
+            'vehicle_condition', 'default_ride_type_name',
+            'created_at', 'updated_at',
+        ):
             if data.get(key) is None:
                 data[key] = ''
+
+        for key in ('id', 'user', 'year_of_manufacture'):
+            data[key] = int(data.get(key) or 0)
+
+        data['supported_ride_types'] = [int(x) for x in (data.get('supported_ride_types') or [])]
+        data['supported_ride_types_names'] = list(data.get('supported_ride_types_names') or [])
+        data['suggested_ride_types'] = list(data.get('suggested_ride_types') or [])
+        for item in data['suggested_ride_types']:
+            item['id'] = int(item.get('id') or 0)
+            item['name'] = item.get('name') or ''
+            item['reason'] = item.get('reason') or ''
+
+        data['images'] = list(data.get('images') or [])
         return data
     
     def __init__(self, *args, **kwargs):
