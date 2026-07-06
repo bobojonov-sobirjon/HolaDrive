@@ -2163,6 +2163,15 @@ class AdminPanelDriverVerificationDetailView(_AdminPanelSuperuserView):
         data = await sync_to_async(lambda: out.data)()
         return Response({'message': 'Driver verification updated successfully', 'status': 'success', 'data': data}, status=status.HTTP_200_OK)
 
+    @extend_schema(
+        tags=['Admin Panel'],
+        summary='Update driver verification (full)',
+        request=AdminPanelDriverVerificationWriteSerializer,
+        responses=AdminPanelDriverVerificationSerializer,
+    )
+    async def put(self, request, verification_id):
+        return await self.patch(request, verification_id)
+
     @extend_schema(tags=['Admin Panel'], summary='Delete driver verification')
     async def delete(self, request, verification_id):
         if not request.user.is_superuser:
@@ -2234,6 +2243,11 @@ class _AdminPanelModelListView(_AdminPanelSuperuserView):
         data = await sync_to_async(lambda: output.data)()
         return Response({'message': 'Updated successfully', 'status': 'success', 'data': data}, status=status.HTTP_200_OK)
 
+    async def _patch_or_put(self, request, pk):
+        if not request.user.is_superuser:
+            return self._forbidden_response()
+        return await self._update(request, pk)
+
 
 class AdminPanelUploadTypesListView(_AdminPanelModelListView):
     def get_queryset(self):
@@ -2276,9 +2290,11 @@ class AdminPanelUploadTypesDetailView(_AdminPanelModelListView):
 
     @extend_schema(tags=['Admin Panel'], summary='Update upload identification type', request=AdminPanelUploadTypeWriteSerializer, responses=AdminPanelUploadTypeSerializer)
     async def patch(self, request, upload_type_id):
-        if not request.user.is_superuser:
-            return self._forbidden_response()
-        return await self._update(request, upload_type_id)
+        return await self._patch_or_put(request, upload_type_id)
+
+    @extend_schema(tags=['Admin Panel'], summary='Update upload identification type (full)', request=AdminPanelUploadTypeWriteSerializer, responses=AdminPanelUploadTypeSerializer)
+    async def put(self, request, upload_type_id):
+        return await self._patch_or_put(request, upload_type_id)
 
     @extend_schema(tags=['Admin Panel'], summary='Delete upload identification type')
     async def delete(self, request, upload_type_id):
@@ -2338,9 +2354,11 @@ class AdminPanelLegalTypesDetailView(_AdminPanelModelListView):
 
     @extend_schema(tags=['Admin Panel'], summary='Update legal identification type', request=AdminPanelLegalTypeWriteSerializer, responses=AdminPanelLegalTypeSerializer)
     async def patch(self, request, legal_type_id):
-        if not request.user.is_superuser:
-            return self._forbidden_response()
-        return await self._update(request, legal_type_id)
+        return await self._patch_or_put(request, legal_type_id)
+
+    @extend_schema(tags=['Admin Panel'], summary='Update legal identification type (full)', request=AdminPanelLegalTypeWriteSerializer, responses=AdminPanelLegalTypeSerializer)
+    async def put(self, request, legal_type_id):
+        return await self._patch_or_put(request, legal_type_id)
 
     @extend_schema(tags=['Admin Panel'], summary='Delete legal identification type')
     async def delete(self, request, legal_type_id):
@@ -2400,9 +2418,11 @@ class AdminPanelRegistrationTypesDetailView(_AdminPanelModelListView):
 
     @extend_schema(tags=['Admin Panel'], summary='Update registration identification type', request=AdminPanelRegistrationTypeWriteSerializer, responses=AdminPanelRegistrationTypeSerializer)
     async def patch(self, request, registration_type_id):
-        if not request.user.is_superuser:
-            return self._forbidden_response()
-        return await self._update(request, registration_type_id)
+        return await self._patch_or_put(request, registration_type_id)
+
+    @extend_schema(tags=['Admin Panel'], summary='Update registration identification type (full)', request=AdminPanelRegistrationTypeWriteSerializer, responses=AdminPanelRegistrationTypeSerializer)
+    async def put(self, request, registration_type_id):
+        return await self._patch_or_put(request, registration_type_id)
 
     @extend_schema(tags=['Admin Panel'], summary='Delete registration identification type')
     async def delete(self, request, registration_type_id):
@@ -2462,9 +2482,11 @@ class AdminPanelTermsTypesDetailView(_AdminPanelModelListView):
 
     @extend_schema(tags=['Admin Panel'], summary='Update terms identification type', request=AdminPanelTermsTypeWriteSerializer, responses=AdminPanelTermsTypeSerializer)
     async def patch(self, request, terms_type_id):
-        if not request.user.is_superuser:
-            return self._forbidden_response()
-        return await self._update(request, terms_type_id)
+        return await self._patch_or_put(request, terms_type_id)
+
+    @extend_schema(tags=['Admin Panel'], summary='Update terms identification type (full)', request=AdminPanelTermsTypeWriteSerializer, responses=AdminPanelTermsTypeSerializer)
+    async def put(self, request, terms_type_id):
+        return await self._patch_or_put(request, terms_type_id)
 
     @extend_schema(tags=['Admin Panel'], summary='Delete terms identification type')
     async def delete(self, request, terms_type_id):
