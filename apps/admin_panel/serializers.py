@@ -1,7 +1,9 @@
+from django.contrib.contenttypes.models import ContentType
 from rest_framework import serializers
 
 from apps.accounts.models import (
     CustomUser,
+    DriverIdentificationAgreementsItems,
     DriverVerification,
     LoginLegalDocument,
     DriverIdentificationRegistrationAgreementsUserAccepted,
@@ -869,22 +871,66 @@ class AdminPanelTermsTypeSerializer(_AdminPanelAgreementTypeBaseSerializer):
         model = DriverIdentificationTermsType
 
 
-class AdminPanelLegalTypeWriteSerializer(serializers.ModelSerializer):
+class AdminPanelAgreementItemWriteSerializer(serializers.Serializer):
+    title = serializers.CharField(max_length=255)
+    content = serializers.CharField(allow_blank=True, required=False, default='')
+
+
+class _AdminPanelAgreementTypeWriteSerializer(serializers.ModelSerializer):
+    """Create/update identification types with nested agreement HTML items."""
+
+    agreement_items = AdminPanelAgreementItemWriteSerializer(many=True, required=False)
+    agreement_item_type = None
+
+    def _replace_agreement_items(self, instance, items_data):
+        ct = ContentType.objects.get_for_model(self.Meta.model)
+        instance.agreement_items.filter(item_type=self.agreement_item_type).delete()
+        for item in items_data:
+            DriverIdentificationAgreementsItems.objects.create(
+                title=item['title'],
+                content=item.get('content', ''),
+                item_type=self.agreement_item_type,
+                content_type=ct,
+                object_id=instance.pk,
+            )
+
+    def create(self, validated_data):
+        items_data = validated_data.pop('agreement_items', [])
+        instance = super().create(validated_data)
+        if items_data:
+            self._replace_agreement_items(instance, items_data)
+        return instance
+
+    def update(self, instance, validated_data):
+        items_data = validated_data.pop('agreement_items', None)
+        instance = super().update(instance, validated_data)
+        if items_data is not None:
+            self._replace_agreement_items(instance, items_data)
+        return instance
+
+
+class AdminPanelLegalTypeWriteSerializer(_AdminPanelAgreementTypeWriteSerializer):
+    agreement_item_type = 'legal'
+
     class Meta:
         model = DriverIdentificationLegalType
-        fields = ('title', 'description', 'is_active')
+        fields = ('title', 'description', 'is_active', 'agreement_items')
 
 
-class AdminPanelRegistrationTypeWriteSerializer(serializers.ModelSerializer):
+class AdminPanelRegistrationTypeWriteSerializer(_AdminPanelAgreementTypeWriteSerializer):
+    agreement_item_type = 'registration'
+
     class Meta:
         model = DriverIdentificationRegistrationType
-        fields = ('title', 'description', 'is_active')
+        fields = ('title', 'description', 'is_active', 'agreement_items')
 
 
-class AdminPanelTermsTypeWriteSerializer(serializers.ModelSerializer):
+class AdminPanelTermsTypeWriteSerializer(_AdminPanelAgreementTypeWriteSerializer):
+    agreement_item_type = 'terms'
+
     class Meta:
         model = DriverIdentificationTermsType
-        fields = ('title', 'description', 'is_active')
+        fields = ('title', 'description', 'is_active', 'agreement_items')
 
 
 class AdminLoginLegalDocumentSerializer(serializers.ModelSerializer):

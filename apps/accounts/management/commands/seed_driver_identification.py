@@ -18,11 +18,12 @@ from django.core.management.base import BaseCommand
 from django.db import transaction
 from django.utils import timezone
 
-from apps.accounts.driver_identification_services import legal_content_type
+from apps.accounts.driver_identification_services import legal_content_type, registration_content_type
 from apps.accounts.models import (
     DriverIdentification,
     DriverIdentificationAgreementsItems,
     DriverIdentificationLegalType,
+    DriverIdentificationRegistrationType,
     DriverIdentificationUploadType,
 )
 
@@ -107,7 +108,35 @@ LEGAL_STEP = {
     ],
 }
 
-ALL_SEED_TITLES = [s['title'] for s in UPLOAD_STEPS] + [LEGAL_STEP['title']]
+REGISTRATION_STEP = {
+    'title': 'Driver Registration Terms',
+    'description': (
+        'Please read and accept the terms below to continue with your HolaDrive driver registration.'
+    ),
+    'agreements': [
+        {
+            'title': 'Terms of Service',
+            'content': (
+                '<p>By registering as a HolaDrive driver, you agree to comply with all applicable '
+                'laws, provide accurate information, and maintain valid documents. Replace this text '
+                'in the admin panel with your full registration terms.</p>'
+            ),
+        },
+        {
+            'title': 'Privacy Policy',
+            'content': (
+                '<p>We collect and process your personal data to verify your identity and operate '
+                'the platform. Replace this text in the admin panel with your full privacy policy.</p>'
+            ),
+        },
+    ],
+}
+
+ALL_SEED_TITLES = (
+    [s['title'] for s in UPLOAD_STEPS]
+    + [LEGAL_STEP['title']]
+    + [REGISTRATION_STEP['title']]
+)
 
 
 def _icon_filename(title: str) -> str:
@@ -146,7 +175,15 @@ class Command(BaseCommand):
                 f'  would create legal: {LEGAL_STEP["title"]} '
                 f'({len(LEGAL_STEP["agreements"])} agreements)'
             )
-            self.stdout.write(self.style.SUCCESS(f'Done. would create {len(UPLOAD_STEPS)} uploads + 1 legal type.'))
+            self.stdout.write(
+                f'  would create registration: {REGISTRATION_STEP["title"]} '
+                f'({len(REGISTRATION_STEP["agreements"])} agreements)'
+            )
+            self.stdout.write(
+                self.style.SUCCESS(
+                    f'Done. would create {len(UPLOAD_STEPS)} uploads + 1 legal + 1 registration type.'
+                )
+            )
             return
 
         if force:
@@ -156,6 +193,8 @@ class Command(BaseCommand):
         skipped_uploads = 0
         created_legal = False
         skipped_legal = False
+        created_registration = False
+        skipped_registration = False
 
         base_time = timezone.now()
 
@@ -220,11 +259,54 @@ class Command(BaseCommand):
                     )
                 )
 
+            registration_title = REGISTRATION_STEP['title']
+            registration_exists = DriverIdentificationRegistrationType.objects.filter(
+                title=registration_title,
+            ).exists()
+
+            if registration_exists and not force:
+                skipped_registration = True
+                self.stdout.write(f'  skip registration: {registration_title}')
+            else:
+                if registration_exists and force:
+                    DriverIdentificationRegistrationType.objects.filter(
+                        title=registration_title,
+                    ).delete()
+
+                registration = DriverIdentificationRegistrationType.objects.create(
+                    title=registration_title,
+                    description=REGISTRATION_STEP['description'],
+                    display_type='registration',
+                    is_active=True,
+                )
+                registration_index = len(UPLOAD_STEPS) + 1
+                _set_created_at(registration.pk, base_time + timedelta(seconds=registration_index))
+
+                reg_ct = registration_content_type()
+                for ag in REGISTRATION_STEP['agreements']:
+                    DriverIdentificationAgreementsItems.objects.create(
+                        title=ag['title'],
+                        content=ag['content'],
+                        item_type='registration',
+                        content_type=reg_ct,
+                        object_id=registration.pk,
+                    )
+
+                created_registration = True
+                self.stdout.write(
+                    self.style.SUCCESS(
+                        f'  created registration: {registration_title} (id={registration.pk}, '
+                        f'{len(REGISTRATION_STEP["agreements"])} agreements)'
+                    )
+                )
+
         self.stdout.write('')
         self.stdout.write(
             self.style.SUCCESS(
                 f'Done. uploads created={created_uploads}, skipped={skipped_uploads}, '
-                f'legal created={created_legal}, legal skipped={skipped_legal}'
+                f'legal created={created_legal}, legal skipped={skipped_legal}, '
+                f'registration created={created_registration}, '
+                f'registration skipped={skipped_registration}'
             )
         )
         self.stdout.write(
@@ -235,4 +317,5 @@ class Command(BaseCommand):
         deleted_u = DriverIdentificationUploadType.objects.filter(title__in=ALL_SEED_TITLES).count()
         DriverIdentificationUploadType.objects.filter(title__in=[s['title'] for s in UPLOAD_STEPS]).delete()
         DriverIdentificationLegalType.objects.filter(title=LEGAL_STEP['title']).delete()
+        DriverIdentificationRegistrationType.objects.filter(title=REGISTRATION_STEP['title']).delete()
         self.stdout.write(self.style.WARNING(f'Removed {deleted_u} seeded identification row(s).'))

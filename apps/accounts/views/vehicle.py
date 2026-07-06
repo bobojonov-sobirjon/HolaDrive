@@ -76,7 +76,16 @@ class VehicleDetailsView(AsyncAPIView):
             status=status.HTTP_200_OK
         )
 
-    @extend_schema(tags=['Vehicle Details'], summary='Create vehicle', description='Create vehicle details with images. Role: Driver.', request=VehicleDetailsSerializer)
+    @extend_schema(
+        tags=['Vehicle Details'],
+        summary='Create or update vehicle',
+        description=(
+            'Create vehicle details with images. If the driver already has a vehicle record '
+            '(e.g. resumed registration), the existing record is updated instead of returning an error. '
+            'Role: Driver.'
+        ),
+        request=VehicleDetailsSerializer,
+    )
     async def post(self, request):
         """
         Create vehicle details with multiple images - ASYNC VERSION
@@ -92,13 +101,9 @@ class VehicleDetailsView(AsyncAPIView):
         ).only('id').afirst()
         
         if existing_vehicle:
-            return Response(
-                {
-                    'message': 'Vehicle details already exist. Use PUT or PATCH to update.',
-                    'status': 'error'
-                },
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            # Registration flow often retries POST; update existing vehicle instead of failing.
+            detail_view = VehicleDetailView()
+            return await detail_view.put(request, existing_vehicle.id)
         
         # Handle multiple images from request.FILES
         # Multipart/form-data da files request.FILES da bo'ladi
@@ -232,6 +237,30 @@ class VehicleDetailsView(AsyncAPIView):
             },
             status=status.HTTP_400_BAD_REQUEST
         )
+
+    @extend_schema(
+        tags=['Vehicle Details'],
+        summary='Update current driver vehicle',
+        description=(
+            'Partially update the authenticated driver\'s vehicle without passing an id. '
+            'Use when `POST /vehicle/` would fail because a vehicle already exists. Role: Driver.'
+        ),
+        request=VehicleDetailsSerializer,
+    )
+    async def patch(self, request):
+        permission_error = await self.check_driver_permission(request)
+        if permission_error:
+            return permission_error
+
+        vehicle = await VehicleDetails.objects.filter(user=request.user).only('id').afirst()
+        if not vehicle:
+            return Response(
+                {'message': 'Vehicle details not found', 'status': 'error'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        detail_view = VehicleDetailView()
+        return await detail_view.put(request, vehicle.id)
 
 
 class VehicleDetailView(AsyncAPIView):

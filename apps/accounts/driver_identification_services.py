@@ -10,6 +10,7 @@ from apps.accounts.models import (
     DriverIdentificationAgreementsItems,
     DriverIdentificationLegalAgreementsUserAccepted,
     DriverIdentificationLegalType,
+    DriverIdentificationRegistrationType,
     DriverIdentificationTermsItemUserAccepted,
     DriverIdentificationTermsType,
     DriverIdentificationUploadType,
@@ -117,6 +118,19 @@ def terms_agreement_item_ids_by_type(terms_type_ids):
 
 def legal_content_type():
     return ContentType.objects.get_for_model(DriverIdentificationLegalType)
+
+
+def registration_content_type():
+    return ContentType.objects.get_for_model(DriverIdentificationRegistrationType)
+
+
+def registration_agreement_items(registration_type):
+    ct = registration_content_type()
+    return DriverIdentificationAgreementsItems.objects.filter(
+        content_type=ct,
+        object_id=registration_type.pk,
+        item_type='registration',
+    ).order_by('created_at', 'id')
 
 
 def terms_agreement_items(terms_type):
