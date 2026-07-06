@@ -53,7 +53,12 @@ def _resolve_connect_destination(driver_user: 'CustomUser') -> str | None:
         acct = stripe.Account.retrieve(dest)
     except stripe.error.InvalidRequestError as exc:
         err = str(exc).lower()
-        if 'no such' in err or 'does not exist' in err:
+        if (
+            'no such' in err
+            or 'does not exist' in err
+            or 'does not have access' in err
+            or 'application access may have been revoked' in err
+        ):
             CustomUser.objects.filter(pk=driver_user.pk, stripe_connect_account_id=dest).update(
                 stripe_connect_account_id=''
             )

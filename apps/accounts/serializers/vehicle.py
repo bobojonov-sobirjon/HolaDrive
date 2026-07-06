@@ -68,6 +68,7 @@ class VehicleDetailsSerializer(serializers.ModelSerializer):
         model = VehicleDetails
         fields = (
             'id', 'user', 'brand', 'model', 'year_of_manufacture', 'vin',
+            'plate_number', 'color',
             'vehicle_condition',
             'default_ride_type', 'default_ride_type_name', 'default_ride_type_id',
             'supported_ride_types', 'supported_ride_types_names',
@@ -75,6 +76,15 @@ class VehicleDetailsSerializer(serializers.ModelSerializer):
             'images', 'images_data', 'created_at', 'updated_at'
         )
         read_only_fields = ('id', 'user', 'created_at', 'updated_at', 'suggested_ride_types')
+    
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        # Flutter clients often cast FK ids as non-nullable int; 0 means "not set".
+        if data.get('default_ride_type') is None:
+            data['default_ride_type'] = 0
+        if data.get('default_ride_type_id') is None:
+            data['default_ride_type_id'] = 0
+        return data
     
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

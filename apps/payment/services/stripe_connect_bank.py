@@ -13,6 +13,7 @@ from .stripe_connect_common import (
     configure_stripe,
     create_connect_account,
     is_stripe_live_mode,
+    resolve_user_connect_account_id,
     retrieve_connect_account,
 )
 from .stripe_connect_setup import complete_connect_account_setup
@@ -58,7 +59,7 @@ def _mask_bank(acct: Any) -> dict[str, Any] | None:
 
 
 def build_driver_payout_profile(user: CustomUser) -> dict[str, Any]:
-    acct_id = (getattr(user, 'stripe_connect_account_id', None) or '').strip()
+    acct_id = resolve_user_connect_account_id(user)
     base: dict[str, Any] = {
         'stripe_connect_account_id': acct_id or None,
         'stripe_publishable_key': (getattr(settings, 'STRIPE_PUBLISHABLE_KEY', '') or '').strip() or None,
@@ -101,7 +102,7 @@ def ensure_connect_and_add_bank(
     accept_agreement: bool,
 ) -> dict[str, Any]:
     configure_stripe()
-    acct_id = (user.stripe_connect_account_id or '').strip()
+    acct_id = resolve_user_connect_account_id(user)
     if not acct_id:
         acct_id = create_connect_account(email=user.email, user_id=user.id)
         user.stripe_connect_account_id = acct_id

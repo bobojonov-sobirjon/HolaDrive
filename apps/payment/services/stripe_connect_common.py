@@ -55,6 +55,52 @@ def retrieve_connect_account(account_id: str) -> Any:
     return stripe.Account.retrieve(account_id)
 
 
+def _is_stale_connect_account_error(exc: stripe.error.InvalidRequestError) -> bool:
+    err = str(exc).lower()
+    return any(
+        phrase in err
+        for phrase in (
+            'no such',
+            'does not exist',
+            'does not have access',
+            'application access may have been revoked',
+        )
+    )
+
+
+def resolve_user_connect_account_id(user) -> str:
+    """
+    Return a Stripe Connect account id valid for the current STRIPE_SECRET_KEY.
+    Clears stale ids on the user when the platform key cannot access that account.
+    """
+    from apps.accounts.models import CustomUser
+
+    acct_id = (getattr(user, 'stripe_connect_account_id', None) or '').strip()
+    if not acct_id or not acct_id.startswith('acct_'):
+        return ''
+
+    configure_stripe()
+    try:
+        acct = stripe.Account.retrieve(acct_id)
+    except stripe.error.InvalidRequestError as exc:
+        if _is_stale_connect_account_error(exc):
+            CustomUser.objects.filter(pk=user.pk, stripe_connect_account_id=acct_id).update(
+                stripe_connect_account_id=''
+            )
+            user.stripe_connect_account_id = ''
+            return ''
+        raise
+
+    if getattr(acct, 'deleted', False):
+        CustomUser.objects.filter(pk=user.pk, stripe_connect_account_id=acct_id).update(
+            stripe_connect_account_id=''
+        )
+        user.stripe_connect_account_id = ''
+        return ''
+
+    return acct_id
+
+
 def account_status_payload(acct: Any) -> dict[str, Any]:
     req = getattr(acct, 'requirements', None) or {}
     currently_due = list(getattr(req, 'currently_due', None) or req.get('currently_due') or [])
