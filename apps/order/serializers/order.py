@@ -128,7 +128,7 @@ class OrderCreateSerializer(serializers.Serializer):
         if ride_type_id:
             ride_type = RideType.objects.filter(id=ride_type_id, is_active=True).first()
         if not ride_type:
-            ride_type = RideType.objects.filter(is_active=True).order_by('id').first()
+            ride_type = RideType.objects.filter(is_active=True).order_by('sort_order', 'id').first()
         if ride_type:
             order_item.ride_type = ride_type
             order_item.save()

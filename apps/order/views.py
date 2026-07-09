@@ -1568,7 +1568,9 @@ class PriceEstimateView(AsyncAPIView):
             except (TypeError, ValueError):
                 surge_multiplier = 1.0
             
-            ride_types = await sync_to_async(list)(RideType.objects.filter(is_active=True))
+            ride_types = await sync_to_async(list)(
+                RideType.objects.filter(is_active=True).order_by('sort_order', 'id')
+            )
             
             estimates = []
             for ride_type in ride_types:
@@ -1588,6 +1590,7 @@ class PriceEstimateView(AsyncAPIView):
                     estimates.append({
                         'id': ride_type.id,
                         'ride_type_id': ride_type.id,
+                        'sort_order': ride_type.sort_order,
                         'ride_type_name': label,
                         'ride_type_name_large': ride_type.name_large or '',
                         'ride_type_icon': ride_type.icon or '',

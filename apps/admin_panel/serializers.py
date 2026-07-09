@@ -445,6 +445,7 @@ class AdminRideTypeSerializer(serializers.ModelSerializer):
             'is_premium',
             'is_ev',
             'is_active',
+            'sort_order',
             'created_at',
         )
         read_only_fields = ('id', 'created_at')

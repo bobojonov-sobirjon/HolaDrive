@@ -66,7 +66,7 @@ def _order_to_dict(order, driver=None, requested_at=None):
             # No price/ride_type yet: use first active RideType for estimated price so driver sees non-zero
             try:
                 from ..models import RideType
-                fallback_ride = RideType.objects.filter(is_active=True).order_by('id').first()
+                fallback_ride = RideType.objects.filter(is_active=True).order_by('sort_order', 'id').first()
                 if fallback_ride and fallback_ride.base_price is not None and fallback_ride.price_per_km is not None:
                     estimated = fallback_ride.calculate_price(float(item.distance_km))
                     net_price += float(estimated)

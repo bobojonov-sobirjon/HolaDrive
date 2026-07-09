@@ -111,6 +111,11 @@ class RideType(models.Model):
     is_premium = models.BooleanField(default=False)
     is_ev = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
+    sort_order = models.PositiveSmallIntegerField(
+        default=0,
+        verbose_name='Sort order',
+        help_text='Display order in rider app and admin (lower = first). Figma: Hola → Hola Large → Premium → …',
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     
     def calculate_price(self, distance_km, surge_multiplier=1.00):
@@ -142,9 +147,11 @@ class RideType(models.Model):
     class Meta:
         verbose_name = 'Ride Type'
         verbose_name_plural = '02 Ride Types'
-        ordering = ['name']
+        ordering = ['sort_order', 'id']
         indexes = [
             models.Index(fields=['created_at'], name='ride_type_created_idx'),
+            models.Index(fields=['sort_order'], name='ride_type_sort_idx'),
+            models.Index(fields=['is_active', 'sort_order'], name='ride_type_active_sort_idx'),
         ]
 
 

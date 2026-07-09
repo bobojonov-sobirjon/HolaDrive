@@ -24,6 +24,7 @@ FIGMA_RIDE_TYPES = [
     {
         'name': 'hola',
         'name_large': 'Hola',
+        'sort_order': 1,
         'base_price': Decimal('2.50'),
         'price_per_km': Decimal('1.85'),
         'capacity': 4,
@@ -34,6 +35,7 @@ FIGMA_RIDE_TYPES = [
     {
         'name': 'hola_large',
         'name_large': 'Hola Large',
+        'sort_order': 2,
         'base_price': Decimal('4.00'),
         'price_per_km': Decimal('3.25'),
         'capacity': 8,
@@ -44,6 +46,7 @@ FIGMA_RIDE_TYPES = [
     {
         'name': 'premium',
         'name_large': 'Premium',
+        'sort_order': 3,
         'base_price': Decimal('20.00'),
         'price_per_km': Decimal('6.10'),
         'capacity': 6,
@@ -54,6 +57,7 @@ FIGMA_RIDE_TYPES = [
     {
         'name': 'premium_large',
         'name_large': 'Premium Large',
+        'sort_order': 4,
         'base_price': Decimal('22.00'),
         'price_per_km': Decimal('6.91'),
         'capacity': 6,
@@ -64,6 +68,7 @@ FIGMA_RIDE_TYPES = [
     {
         'name': 'hola_ev',
         'name_large': 'Hola EV',
+        'sort_order': 5,
         'base_price': Decimal('8.00'),
         'price_per_km': Decimal('4.07'),
         'capacity': 6,
@@ -74,6 +79,7 @@ FIGMA_RIDE_TYPES = [
     {
         'name': 'hola_ev_large',
         'name_large': 'Hola EV Large',
+        'sort_order': 6,
         'base_price': Decimal('10.00'),
         'price_per_km': Decimal('5.69'),
         'capacity': 6,

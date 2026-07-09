@@ -6,7 +6,7 @@ def get_ride_type_queryset():
     """Get queryset for active ride types"""
     try:
         from apps.order.models import RideType
-        return RideType.objects.filter(is_active=True)
+        return RideType.objects.filter(is_active=True).order_by('sort_order', 'id')
     except ImportError:
         return None
 

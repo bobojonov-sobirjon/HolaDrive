@@ -934,7 +934,7 @@ class AdminRideTypesListView(_AdminPanelCRUDBaseView):
     serializer_class = AdminRideTypeSerializer
 
     def base_queryset(self):
-        return RideType.objects.order_by('name', 'id')
+        return RideType.objects.order_by('sort_order', 'id')
 
     @extend_schema(
         tags=['Admin: Ride Types'],
