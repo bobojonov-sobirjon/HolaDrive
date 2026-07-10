@@ -102,7 +102,9 @@ def _admin_forbidden_response():
 
 async def _delete_user_by_id(request, user_id: int):
     """
-    Permanently delete a CustomUser by id. Superusers cannot delete themselves or other superusers.
+    Permanently hard-delete a CustomUser (orders, cards, chats, firebase_uid, email).
+    After this, Google / phone can register again with the same identity.
+    Superusers cannot delete themselves or other superusers.
     """
     if not request.user.is_superuser:
         return _admin_forbidden_response()
@@ -132,27 +134,36 @@ async def _delete_user_by_id(request, user_id: int):
             status=status.HTTP_403_FORBIDDEN,
         )
 
-    snapshot = {
-        'id': user.id,
-        'email': user.email,
-        'username': user.username,
-        'full_name': user.get_full_name(),
-    }
+    from .user_hard_delete import hard_delete_user
 
     try:
-        await sync_to_async(user.delete)()
-    except IntegrityError:
+        snapshot = await sync_to_async(hard_delete_user)(user)
+    except IntegrityError as exc:
         return Response(
             {
-                'message': 'Cannot delete user: related records exist (orders, payments, etc.).',
+                'message': (
+                    'Cannot fully delete user: related records still block removal. '
+                    f'Detail: {exc}'
+                ),
                 'status': 'error',
             },
             status=status.HTTP_409_CONFLICT,
         )
+    except Exception as exc:
+        return Response(
+            {
+                'message': f'User delete failed: {exc}',
+                'status': 'error',
+            },
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
 
     return Response(
         {
-            'message': 'User deleted successfully',
+            'message': (
+                'User permanently deleted. Google / email / phone can register again '
+                'with the same identity.'
+            ),
             'status': 'success',
             'data': snapshot,
         },

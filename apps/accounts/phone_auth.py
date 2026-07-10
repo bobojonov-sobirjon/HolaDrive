@@ -112,6 +112,9 @@ def get_or_create_user_for_phone(
         raise ValueError('Invalid phone number.')
 
     existing = find_user_by_phone(normalized)
+    if existing and not existing.is_active:
+        existing.delete()
+        existing = None
     if existing:
         if existing.phone_number != normalized:
             existing.phone_number = normalized

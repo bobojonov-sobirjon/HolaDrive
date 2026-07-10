@@ -123,6 +123,10 @@ def get_or_create_user_from_firebase(
     display_name = (full_name or claims.get('name') or '').strip()
 
     user = CustomUser.objects.select_for_update().filter(firebase_uid=firebase_uid).first()
+    if user and not user.is_active:
+        # Incomplete admin delete left an inactive shell — free identity for a fresh account
+        user.delete()
+        user = None
     if user:
         if display_name and not user.get_full_name().strip():
             first, last = _split_name(display_name)
@@ -135,6 +139,9 @@ def get_or_create_user_from_firebase(
 
     if email:
         existing = CustomUser.objects.select_for_update().filter(email__iexact=email).first()
+        if existing and not existing.is_active:
+            existing.delete()
+            existing = None
         if existing:
             if existing.firebase_uid and existing.firebase_uid != firebase_uid:
                 raise SocialAuthError(
