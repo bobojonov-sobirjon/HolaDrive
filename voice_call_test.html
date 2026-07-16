@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <title>HolaDrive — Rider Voice Test</title>
-  <script src="https://download.agora.io/sdk/release/AgoraRTC_N.js" crossorigin="anonymous"></script>
+  <!-- Agora yuklanadi JS orqali (local /vendor + CDN fallback) -->
   <style>
     :root {
       --bg: #0f1419;
@@ -103,7 +103,7 @@
     <h1>Rider / Driver — Support Call</h1>
     <p class="sub" id="intro">
       Faqat user token + order_id. Admin boshqa joyda accept qiladi.
-      <b>Prod/iOS:</b> faqat <code>https://api.../voice-call-test/</code> dan oching (file:// emas).
+      <b>Prod/iOS:</b> <code>https://api.holadrive.app/voice-call-test/</code>
     </p>
     <div id="envWarn" class="status warn" style="display:none;margin-bottom:12px"></div>
 
@@ -135,34 +135,84 @@
     const $ = (id) => document.getElementById(id);
     const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
       || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-    const PROD_HINT = 'https://api.autohandy.app/voice-call-test/';
+    const PROD_HINT = (window.location.origin || 'https://api.holadrive.app') + '/voice-call-test/';
     const DEFAULT_API = 'http://127.0.0.1:8001';
+    let agoraReady = false;
 
     function showEnvWarn(text) {
       const el = $('envWarn');
       el.style.display = 'block';
+      el.className = 'status warn';
       el.textContent = text;
     }
 
-    if (window.location.protocol === 'file:') {
-      // iOS/Android file:// — 127.0.0.1 redirect ISHLAMAYDI (telefon o‘zi)
+    function clearEnvWarn() {
+      const el = $('envWarn');
+      el.style.display = 'none';
+      el.textContent = '';
+    }
+
+    function loadScript(src) {
+      return new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        s.src = src;
+        s.async = true;
+        s.onload = () => resolve(src);
+        s.onerror = () => reject(new Error('load failed: ' + src));
+        document.head.appendChild(s);
+      });
+    }
+
+    async function ensureAgoraSdk() {
+      if (typeof AgoraRTC !== 'undefined') {
+        agoraReady = true;
+        return;
+      }
+      const origin = window.location.origin;
+      const sources = [
+        origin + '/vendor/AgoraRTC_N.js',
+        origin + '/static/vendor/AgoraRTC_N.js',
+        'https://cdn.jsdelivr.net/npm/agora-rtc-sdk-ng@4.23.4/AgoraRTC_N-production.js',
+        'https://unpkg.com/agora-rtc-sdk-ng@4.23.4/AgoraRTC_N-production.js',
+        'https://download.agora.io/sdk/release/AgoraRTC_N.js',
+      ];
+      let lastErr = null;
+      for (const src of sources) {
+        try {
+          await loadScript(src);
+          if (typeof AgoraRTC !== 'undefined') {
+            agoraReady = true;
+            log('Agora SDK OK: ' + src);
+            clearEnvWarn();
+            setStatus('Agora SDK yuklandi', 'ok');
+            return;
+          }
+        } catch (e) {
+          lastErr = e;
+          console.warn(e);
+        }
+      }
       showEnvWarn(
-        'Faylni diskdan ochdingiz (file://). iOS da ishlamaydi. Safari ga yozing: ' + PROD_HINT
-          + ' yoki local: http://<kompyuter-IP>:8001/voice-call-test/'
+        'Agora SDK yuklanmadi. Serverga deploy qiling: static/vendor/AgoraRTC_N.js va /vendor/AgoraRTC_N.js. '
+        + (lastErr ? lastErr.message : '')
       );
-      $('apiBase').value = PROD_HINT.replace('/voice-call-test/', '');
+      throw new Error('Agora SDK yuklanmadi');
+    }
+
+    if (window.location.protocol === 'file:') {
+      showEnvWarn(
+        'Faylni diskdan ochdingiz (file://). Safari ga yozing: https://api.holadrive.app/voice-call-test/'
+      );
+      $('apiBase').value = 'https://api.holadrive.app';
       $('hint').textContent = 'Ochilgan: ' + window.location.href;
     } else {
       $('apiBase').value = window.location.origin || DEFAULT_API;
       $('hint').textContent = 'URL: ' + window.location.href
-        + (IS_IOS ? ' | iOS: Safari + HTTPS kerak' : '');
+        + (IS_IOS ? ' | iOS: Safari + HTTPS + mic ruxsat' : '');
     }
 
     if (IS_IOS && window.location.protocol !== 'https:' && !/localhost|127\.0\.0\.1/.test(window.location.hostname)) {
       showEnvWarn('iOS mikrofon uchun HTTPS kerak. Prod: ' + PROD_HINT);
-    }
-    if (typeof AgoraRTC === 'undefined') {
-      showEnvWarn('Agora SDK yuklanmadi. Internet yoki firewall CDN ni bloklayapti.');
     }
 
     const state = {
@@ -192,6 +242,9 @@
       const extra = obj !== undefined ? '\n' + JSON.stringify(obj, null, 2) : '';
       $('log').textContent = `[${t}] ${msg}${extra}\n` + $('log').textContent;
     }
+
+    // Sahifa ochilganda SDK ni oldindan yuklash
+    ensureAgoraSdk().catch(() => {});
 
     function wsUrl() {
       const u = new URL(apiBase());
@@ -243,7 +296,6 @@
       } catch (e) {
         log('audio play retry (iOS)', String(e));
       }
-      // iOS Safari: ovoz ba'zan faqat touch dan keyin chiqadi
       const once = () => {
         try { track.play(); } catch (_) {}
         document.removeEventListener('touchstart', once);
@@ -254,9 +306,7 @@
     }
 
     async function joinAgora(agora) {
-      if (typeof AgoraRTC === 'undefined') {
-        throw new Error('Agora SDK yo‘q — CDN bloklangan');
-      }
+      await ensureAgoraSdk();
       if (!window.isSecureContext && IS_IOS) {
         throw new Error('iOS da mic uchun HTTPS kerak (secure context)');
       }
@@ -345,13 +395,13 @@
       const oid = $('orderId').value.trim();
       try {
         setStatus('Initiate…', 'warn');
+        await ensureAgoraSdk();
         let res;
         if (oid) {
           res = await api('/api/v1/voice-call/support/initiate/', 'POST', {
             order_id: Number(oid),
           });
         } else {
-          // Order-siz support
           res = await api('/api/v1/voice-call/support/direct/', 'POST', {});
         }
         log('initiate OK', res);

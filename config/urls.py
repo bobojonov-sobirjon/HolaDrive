@@ -14,11 +14,21 @@ def voice_call_test_page(_request):
     return FileResponse(path.open('rb'), content_type='text/html; charset=utf-8')
 
 
+def agora_sdk_js(_request):
+    """Serve Agora Web SDK from repo so CDN blocks don't break voice test page."""
+    path = Path(settings.BASE_DIR) / 'static' / 'vendor' / 'AgoraRTC_N.js'
+    if not path.exists():
+        from django.http import HttpResponseNotFound
+        return HttpResponseNotFound('AgoraRTC_N.js missing — run collect / place under static/vendor/')
+    return FileResponse(path.open('rb'), content_type='application/javascript; charset=utf-8')
+
+
 urlpatterns = [
     path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
     path('swagger/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
     path('redoc/', SpectacularRedocView.as_view(url_name='schema'), name='redoc'),
     path('voice-call-test/', voice_call_test_page, name='voice-call-test'),
+    path('vendor/AgoraRTC_N.js', agora_sdk_js, name='agora-sdk-js'),
     path('api/v1/accounts/', include('apps.accounts.urls')),
     path('api/v1/admin-panel/', include('apps.admin_panel.urls')),
     path('api/v1/order/', include('apps.order.urls')),
