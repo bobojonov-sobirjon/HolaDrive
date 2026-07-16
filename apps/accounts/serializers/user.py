@@ -1,3 +1,4 @@
+from django.db.models import Avg, Count
 from rest_framework import serializers
 from ..models import CustomUser
 
@@ -8,6 +9,8 @@ class UserDetailSerializer(serializers.ModelSerializer):
     """
     full_name = serializers.SerializerMethodField()
     groups = serializers.SerializerMethodField()
+    rating = serializers.SerializerMethodField()
+    rating_count = serializers.SerializerMethodField()
     avatar = serializers.ImageField(required=False, allow_null=True)
 
     class Meta:
@@ -16,9 +19,13 @@ class UserDetailSerializer(serializers.ModelSerializer):
             'id', 'email', 'username', 'full_name', 'phone_number',
             'date_of_birth', 'gender', 'avatar', 'address',
             'longitude', 'latitude', 'tax_number', 'id_identification', 'is_verified', 'is_active',
+            'rating', 'rating_count',
             'groups', 'created_at', 'updated_at', 'last_login'
         )
-        read_only_fields = ('id', 'email', 'username', 'id_identification', 'is_verified', 'created_at', 'updated_at', 'last_login')
+        read_only_fields = (
+            'id', 'email', 'username', 'id_identification', 'is_verified',
+            'rating', 'rating_count', 'created_at', 'updated_at', 'last_login',
+        )
 
     def get_full_name(self, obj):
         return obj.get_full_name()
@@ -29,6 +36,51 @@ class UserDetailSerializer(serializers.ModelSerializer):
         Uses prefetch_related cache if available to avoid additional queries.
         """
         return [{'id': group.id, 'name': group.name} for group in obj.groups.all()]
+
+    def _profile_rating_stats(self, obj):
+        """
+        Driver: average of approved TripRating (rider → driver).
+        Rider: average of DriverRiderRating (driver → rider).
+        Others: 0 / 0.
+        """
+        cached = getattr(obj, '_profile_rating_stats_cache', None)
+        if cached is not None:
+            return cached
+
+        group_names = {g.name for g in obj.groups.all()}
+        average = 0.0
+        count = 0
+
+        if 'Driver' in group_names:
+            from apps.order.models import TripRating
+
+            agg = TripRating.objects.filter(driver=obj, status='approved').aggregate(
+                avg=Avg('rating'),
+                count=Count('id'),
+            )
+            count = int(agg['count'] or 0)
+            if agg['avg'] is not None:
+                average = round(float(agg['avg']), 2)
+        elif 'Rider' in group_names:
+            from apps.order.models import DriverRiderRating
+
+            agg = DriverRiderRating.objects.filter(rider=obj).aggregate(
+                avg=Avg('rating'),
+                count=Count('id'),
+            )
+            count = int(agg['count'] or 0)
+            if agg['avg'] is not None:
+                average = round(float(agg['avg']), 2)
+
+        cached = {'rating': average, 'rating_count': count}
+        obj._profile_rating_stats_cache = cached
+        return cached
+
+    def get_rating(self, obj):
+        return self._profile_rating_stats(obj)['rating']
+
+    def get_rating_count(self, obj):
+        return self._profile_rating_stats(obj)['rating_count']
 
     def to_representation(self, instance):
         """

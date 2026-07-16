@@ -3,7 +3,6 @@ import re
 import logging
 
 from django.conf import settings
-from django.core.mail import send_mail
 from twilio.rest import Client
 
 logger = logging.getLogger(__name__)
@@ -76,7 +75,12 @@ def send_sms(phone_number, message):
 
 
 def send_verification_code(user, email=None, phone_number=None, code=None, email_subject='Verification Code', email_message=None):
+    """
+    Store OTP and deliver via email (SMTP) or SMS (Twilio).
+    Same escape hatch pattern as SMS: EMAIL_OTP_LOG_ONLY / SMS_OTP_LOG_ONLY.
+    """
     from .models import VerificationCode
+    from django.core.mail import send_mail
 
     verification_code = VerificationCode.objects.create(
         user=user,
@@ -92,29 +96,70 @@ def send_verification_code(user, email=None, phone_number=None, code=None, email
     error = None
 
     if email:
+        subject = str(email_subject or 'Verification Code')
+        if email_message:
+            message_text = str(email_message.format(code=verification_code.code))
+        else:
+            message_text = f'Your verification code is: {verification_code.code}'
+
+        from_email = (
+            getattr(settings, 'DEFAULT_FROM_EMAIL', None)
+            or getattr(settings, 'EMAIL_HOST_USER', None)
+            or ''
+        )
+        from_email = str(from_email).strip()
+        to_email = str(email).strip()
+
+        if getattr(settings, 'EMAIL_OTP_LOG_ONLY', False):
+            logger.warning(
+                '[EMAIL_OTP_LOG_ONLY] OTP email to %s (not sent via SMTP): %s',
+                to_email,
+                message_text,
+            )
+            print(f'[OTP EMAIL_OTP_LOG_ONLY] to={to_email} code={verification_code.code}', flush=True)
+            return verification_code, True, None
+
         try:
-            if email_message:
-                message_text = email_message.format(code=verification_code.code)
-            else:
-                message_text = f'Your verification code is: {verification_code.code}'
+            if not from_email:
+                return (
+                    verification_code,
+                    False,
+                    'DEFAULT_FROM_EMAIL / EMAIL_HOST_USER is empty. Set them in .env',
+                )
+
             send_mail(
-                subject=email_subject,
+                subject=subject,
                 message=message_text,
-                from_email=settings.DEFAULT_FROM_EMAIL,
-                recipient_list=[email],
+                from_email=from_email,
+                recipient_list=[to_email],
                 fail_silently=False,
             )
             success = True
+            logger.info('OTP email sent to %s', to_email)
         except Exception as e:
-            error = str(e)
+            error = str(e) or repr(e)
             success = False
-            logger.exception("Failed to send verification email to %s", email)
+            logger.exception('Failed to send verification email to %s', email)
+
+            if getattr(settings, 'EMAIL_OTP_FALLBACK_ON_ERROR', False):
+                logger.warning(
+                    '[EMAIL_OTP_FALLBACK] to=%s code=%s error=%s',
+                    email,
+                    verification_code.code,
+                    error,
+                )
+                print(
+                    f'[OTP EMAIL_OTP_FALLBACK] to={email} code={verification_code.code}',
+                    flush=True,
+                )
+                success = True
+                error = None
 
     elif phone_number:
         message = f'Your verification code is: {verification_code.code}'
         success, sms_error = send_sms(phone_number, message)
         if not success:
             error = sms_error
-            logger.error("Failed to send verification SMS to %s: %s", phone_number, sms_error)
+            logger.error('Failed to send verification SMS to %s: %s', phone_number, sms_error)
 
     return verification_code, success, error

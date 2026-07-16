@@ -15,6 +15,19 @@ class JsonErrorResponseMiddleware:
 
     def process_exception(self, request, exception):
         # Process exceptions and return JSON error response
+        if isinstance(exception, UnicodeDecodeError):
+            return JsonResponse(
+                {
+                    'message': (
+                        'Invalid text encoding in request or email settings. '
+                        'Use UTF-8 JSON body and ensure EMAIL_* / .env values are UTF-8 '
+                        '(re-save EMAIL_HOST_PASSWORD without special/smart quotes).'
+                    ),
+                    'status': 'error',
+                    'error': str(exception),
+                },
+                status=500,
+            )
         error_message = str(exception)
         response_data = {"error": error_message}
         return JsonResponse(response_data, status=500)

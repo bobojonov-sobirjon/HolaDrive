@@ -17,7 +17,15 @@ class UserDetailView(AsyncAPIView):
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser, JSONParser]
 
-    @extend_schema(tags=['User'], summary='Get user details', description='Get authenticated user details.')
+    @extend_schema(
+        tags=['User'],
+        summary='Get user details',
+        description=(
+            'Get authenticated user details. Includes `rating` (average 0–5) and `rating_count`:\n'
+            '- **Driver:** from approved rider→driver trip ratings\n'
+            '- **Rider:** from driver→rider ratings'
+        ),
+    )
     async def get(self, request):
         """
         Get current user details with optimized query - ASYNC VERSION

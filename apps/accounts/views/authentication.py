@@ -240,15 +240,19 @@ class AdminLoginView(AsyncAPIView):
                     },
                     status=status.HTTP_500_INTERNAL_SERVER_ERROR
                 )
-            
+
+            data = {
+                'expires_in': 600,
+                'sent_to': email,
+            }
+            if settings.DEBUG and getattr(settings, 'EMAIL_OTP_LOG_ONLY', False):
+                data['debug_otp'] = verification_code.code
+
             return Response(
                 {
                     'message': 'Admin verification code sent successfully',
                     'status': 'success',
-                    'data': {
-                        'expires_in': 600,
-                        'sent_to': email,
-                    }
+                    'data': data,
                 },
                 status=status.HTTP_200_OK
             )

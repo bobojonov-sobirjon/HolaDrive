@@ -8,6 +8,7 @@ from .views import (
     CallHistoryView,
     CallRejectView,
     SupportCallInitiateView,
+    SupportDirectCallInitiateView,
     SupportDutyView,
     TripCallInitiateView,
 )
@@ -17,6 +18,7 @@ app_name = 'voice_call'
 urlpatterns = [
     path('trip/initiate/', TripCallInitiateView.as_view(), name='trip-initiate'),
     path('support/initiate/', SupportCallInitiateView.as_view(), name='support-initiate'),
+    path('support/direct/', SupportDirectCallInitiateView.as_view(), name='support-direct'),
     path('history/', CallHistoryView.as_view(), name='history'),
     path('support-duty/', SupportDutyView.as_view(), name='support-duty'),
     path('<int:call_id>/', CallDetailView.as_view(), name='detail'),

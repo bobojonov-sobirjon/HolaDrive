@@ -10,6 +10,7 @@ from apps.common.views import AsyncAPIView
 from apps.voice_call.serializers import (
     CallActionSerializer,
     SupportCallInitiateSerializer,
+    SupportDirectCallInitiateSerializer,
     SupportDutySerializer,
     TripCallInitiateSerializer,
     VoiceCallSessionListSerializer,
@@ -86,7 +87,12 @@ class SupportCallInitiateView(AsyncAPIView):
 
     @extend_schema(
         tags=['Voice calls'],
-        summary='Start support call (rider or driver → admin)',
+        summary='Start support call (optional order)',
+        description=(
+            'Rider/driver → admin. '
+            '`order_id` optional: send it to attach call to an order, or omit / null for general support. '
+            'For a dedicated order-less endpoint see POST /api/v1/voice-call/support/direct/.'
+        ),
         request=SupportCallInitiateSerializer,
         responses={201: VoiceCallSessionSerializer},
     )
@@ -109,6 +115,41 @@ class SupportCallInitiateView(AsyncAPIView):
         data = await sync_to_async(_serialize_call)(result.call, request, result.agora)
         return Response(
             {'message': 'Support call initiated', 'status': 'success', 'data': data},
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class SupportDirectCallInitiateView(AsyncAPIView):
+    """General support call with no order (rider/driver → admin)."""
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        tags=['Voice calls'],
+        summary='Start support call without order',
+        description=(
+            'Rider or driver calls support/admin with no order context. '
+            'Body may be empty `{}`. Same accept/reject/end flow as other support calls.'
+        ),
+        request=SupportDirectCallInitiateSerializer,
+        responses={201: VoiceCallSessionSerializer},
+    )
+    async def post(self, request):
+        try:
+            result = await sync_to_async(initiate_support_call)(
+                user=request.user,
+                order_id=None,
+            )
+        except CallServiceError as exc:
+            code = status.HTTP_403_FORBIDDEN if exc.code == 'forbidden' else status.HTTP_400_BAD_REQUEST
+            return _error_response(exc, code)
+
+        data = await sync_to_async(_serialize_call)(result.call, request, result.agora)
+        return Response(
+            {
+                'message': 'Support call initiated (no order)',
+                'status': 'success',
+                'data': data,
+            },
             status=status.HTTP_201_CREATED,
         )
 

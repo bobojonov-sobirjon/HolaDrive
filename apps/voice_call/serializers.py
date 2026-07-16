@@ -8,7 +8,13 @@ class TripCallInitiateSerializer(serializers.Serializer):
 
 
 class SupportCallInitiateSerializer(serializers.Serializer):
+    """Optional order link for support context. Omit body/order_id for order-less support call."""
     order_id = serializers.IntegerField(required=False, allow_null=True)
+
+
+class SupportDirectCallInitiateSerializer(serializers.Serializer):
+    """No fields — general support call without an order."""
+    pass
 
 
 class CallActionSerializer(serializers.Serializer):

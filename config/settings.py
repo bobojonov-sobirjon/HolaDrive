@@ -9,7 +9,17 @@ try:
     from dotenv import load_dotenv
     # Load .env file from BASE_DIR explicitly
     env_path = BASE_DIR / '.env'
-    load_dotenv(dotenv_path=env_path)
+    # Windows-edited .env files are sometimes not pure UTF-8; try utf-8 then fallback.
+    loaded = False
+    for enc in ('utf-8-sig', 'utf-8', 'cp1251', 'latin-1'):
+        try:
+            load_dotenv(dotenv_path=env_path, encoding=enc, override=False)
+            loaded = True
+            break
+        except UnicodeDecodeError:
+            continue
+    if not loaded:
+        load_dotenv(dotenv_path=env_path)
 except ImportError:
     load_dotenv = None
 
@@ -174,6 +184,7 @@ CKEDITOR_CONFIGS = {
 
 REST_FRAMEWORK = {
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+    'EXCEPTION_HANDLER': 'apps.common.exception_handlers.holadrive_exception_handler',
     'DEFAULT_RENDERER_CLASSES': [
         'rest_framework.renderers.JSONRenderer',
         'rest_framework.renderers.BrowsableAPIRenderer',
@@ -183,6 +194,7 @@ REST_FRAMEWORK = {
         'rest_framework_simplejwt.authentication.JWTAuthentication',
     ),
     "DEFAULT_PARSER_CLASSES": (
+        "apps.common.parsers.LenientJSONParser",
         "rest_framework.parsers.JSONParser",
         "rest_framework.parsers.FormParser",
         "rest_framework.parsers.MultiPartParser",
@@ -277,8 +289,11 @@ _cors_origins = os.getenv(
     'https://hola-admin-nu.vercel.app,https://apiss.firepole.ru,https://api.holadrive.app'
 )
 CORS_ALLOWED_ORIGINS = [origin.strip() for origin in _cors_origins.split(',') if origin.strip()]
+# file:// HTML tester sends Origin: null — allow in DEBUG so local tests work
+if DEBUG and 'null' not in CORS_ALLOWED_ORIGINS:
+    CORS_ALLOWED_ORIGINS = list(CORS_ALLOWED_ORIGINS) + ['null']
 
-CORS_ALLOW_ALL_ORIGINS = os.getenv('CORS_ALLOW_ALL_ORIGINS', 'False').lower() == 'true'
+CORS_ALLOW_ALL_ORIGINS = os.getenv('CORS_ALLOW_ALL_ORIGINS', 'True' if DEBUG else 'False').lower() == 'true'
 CORS_ALLOW_CREDENTIALS = True
 
 AUTHENTICATION_BACKENDS = (
@@ -289,13 +304,48 @@ AUTH_USER_MODEL = 'accounts.CustomUser'
 
 SITE_ID = 1
 
-EMAIL_BACKEND = os.getenv('EMAIL_BACKEND', 'django.core.mail.backends.smtp.EmailBackend')
-EMAIL_HOST = os.getenv('EMAIL_HOST', 'smtp.gmail.com')
-EMAIL_PORT = int(os.getenv('EMAIL_PORT', '587'))
-EMAIL_USE_TLS = os.getenv('EMAIL_USE_TLS', 'True').lower() == 'true'
-EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER', '')
-EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD', '')
-DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', '')
+def _env_text(key: str, default: str = '') -> str:
+    """Read env var as clean UTF-8 text (avoids SMTP/login UnicodeDecodeError)."""
+    raw = os.getenv(key, default)
+    if raw is None:
+        return default
+    if isinstance(raw, bytes):
+        for enc in ('utf-8', 'utf-8-sig', 'cp1251', 'latin-1'):
+            try:
+                raw = raw.decode(enc)
+                break
+            except UnicodeDecodeError:
+                continue
+        else:
+            raw = raw.decode('utf-8', errors='replace')
+    text = str(raw).strip()
+    # Strip BOM / nulls that break smtplib AUTH
+    text = text.lstrip('\ufeff').replace('\x00', '')
+    try:
+        text.encode('utf-8')
+    except UnicodeEncodeError:
+        text = text.encode('utf-8', errors='replace').decode('utf-8')
+    return text
+
+
+EMAIL_BACKEND = _env_text('EMAIL_BACKEND', 'django.core.mail.backends.smtp.EmailBackend')
+EMAIL_HOST = _env_text('EMAIL_HOST', 'smtp.gmail.com')
+EMAIL_PORT = int(_env_text('EMAIL_PORT', '587') or '587')
+EMAIL_USE_TLS = _env_text('EMAIL_USE_TLS', 'True').lower() == 'true'
+EMAIL_HOST_USER = _env_text('EMAIL_HOST_USER', '')
+EMAIL_HOST_PASSWORD = _env_text('EMAIL_HOST_PASSWORD', '')
+DEFAULT_FROM_EMAIL = _env_text('DEFAULT_FROM_EMAIL', '') or EMAIL_HOST_USER
+EMAIL_USE_LOCALTIME = False
+# Force SMTP conversation charset (avoids decode crashes on some servers)
+EMAIL_CHARSET = 'utf-8'
+# If true: do not call SMTP; log OTP to server logs (same idea as SMS_OTP_LOG_ONLY)
+EMAIL_OTP_LOG_ONLY = _env_text('EMAIL_OTP_LOG_ONLY', 'false').lower() in ('1', 'true', 'yes')
+# If true: on SMTP failure still succeed and log OTP (off by default — real email like SMS)
+EMAIL_OTP_FALLBACK_ON_ERROR = _env_text('EMAIL_OTP_FALLBACK_ON_ERROR', 'false').lower() in (
+    '1',
+    'true',
+    'yes',
+)
 
 FCM_SERVER_KEY = os.getenv('FCM_SERVER_KEY', '')
 

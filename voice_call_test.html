@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>HolaDrive — Rider Voice Test</title>
+  <script src="https://download.agora.io/sdk/release/AgoraRTC_N.js"></script>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --card: #1a2332;
+      --line: #2a3548;
+      --text: #e8eef7;
+      --muted: #8b9bb4;
+      --accent: #3d8bfd;
+      --ok: #3ecf8e;
+      --bad: #f07178;
+      --warn: #e6b450;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", system-ui, sans-serif;
+      background: radial-gradient(900px 500px at 0% -20%, #1b2a44, var(--bg));
+      color: var(--text);
+      min-height: 100vh;
+      padding: 28px 16px;
+    }
+    .wrap { max-width: 560px; margin: 0 auto; }
+    h1 { font-size: 1.3rem; margin: 0 0 6px; }
+    .sub { color: var(--muted); margin: 0 0 18px; font-size: 0.9rem; line-height: 1.45; }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 18px;
+    }
+    label {
+      display: block;
+      font-size: 0.78rem;
+      color: var(--muted);
+      margin: 12px 0 4px;
+    }
+    input {
+      width: 100%;
+      padding: 11px 12px;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      background: #121a26;
+      color: var(--text);
+      font-size: 0.92rem;
+    }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 16px; }
+    button {
+      border: 0;
+      border-radius: 8px;
+      padding: 11px 14px;
+      font-weight: 600;
+      cursor: pointer;
+      font-size: 0.88rem;
+    }
+    button:disabled { opacity: 0.45; cursor: not-allowed; }
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-ok { background: var(--ok); color: #062016; }
+    .btn-bad { background: var(--bad); color: #1a0506; }
+    .status {
+      margin-top: 14px;
+      padding: 10px 12px;
+      border-radius: 8px;
+      background: #121a26;
+      border: 1px solid var(--line);
+      font-size: 0.88rem;
+      min-height: 42px;
+      word-break: break-word;
+    }
+    .status.ok { border-color: #2a6b4f; color: var(--ok); }
+    .status.err { border-color: #7a3036; color: var(--bad); }
+    .status.warn { border-color: #6b5520; color: var(--warn); }
+    .meter { height: 8px; background: #243247; border-radius: 999px; overflow: hidden; margin-top: 6px; }
+    .meter > span {
+      display: block; height: 100%; width: 0%;
+      background: linear-gradient(90deg, var(--ok), var(--accent));
+    }
+    .log {
+      margin-top: 12px;
+      max-height: 260px;
+      overflow: auto;
+      font-family: ui-monospace, Consolas, monospace;
+      font-size: 0.72rem;
+      background: #0c1118;
+      border-radius: 8px;
+      padding: 10px;
+      border: 1px solid var(--line);
+      color: #9db0cc;
+      white-space: pre-wrap;
+    }
+    .hint { font-size: 0.8rem; color: var(--muted); margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Rider / Driver — Support Call</h1>
+    <p class="sub">
+      Faqat user token + order_id. Admin boshqa joyda bo‘lsin.
+      Sahifani <b>shu serverdan</b> oching (file:// emas), aks holda <code>Failed to fetch</code> chiqadi.
+    </p>
+
+    <div class="card">
+      <label>API base</label>
+      <input id="apiBase" value="" />
+
+      <label>User JWT (access)</label>
+      <input id="token" placeholder="eyJhbGciOi..." autocomplete="off" />
+
+      <label>order_id (ixtiyoriy)</label>
+      <input id="orderId" type="number" placeholder="61" />
+
+      <div class="row">
+        <button class="btn-primary" id="btnWs" type="button">1. WS ulash</button>
+        <button class="btn-ok" id="btnStart" type="button" disabled>2. Call boshlash</button>
+        <button class="btn-bad" id="btnEnd" type="button" disabled>End / Cancel</button>
+      </div>
+
+      <div id="status" class="status">Tayyor</div>
+      <label style="margin-top:12px">Mic level</label>
+      <div class="meter"><span id="meter"></span></div>
+      <p class="hint" id="hint"></p>
+      <div class="log" id="log"></div>
+    </div>
+  </div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+
+    // Same-origin default — fixes CORS / Failed to fetch from file://
+    const DEFAULT_API = 'http://127.0.0.1:8001';
+    if (window.location.protocol === 'file:') {
+      // Diskdan ochilgan — brauzer fetch bloklaydi. Server URL ga o'tkazamiz.
+      window.location.replace(DEFAULT_API + '/voice-call-test/');
+    } else {
+      $('apiBase').value = window.location.origin || DEFAULT_API;
+      $('hint').textContent = 'Ochilgan URL: ' + window.location.href;
+    }
+
+    const state = {
+      ws: null,
+      callId: null,
+      client: null,
+      mic: null,
+      meterTimer: null,
+    };
+
+    function apiBase() {
+      return ($('apiBase').value || '').replace(/\/$/, '');
+    }
+
+    function token() {
+      return ($('token').value || '').trim();
+    }
+
+    function setStatus(text, kind) {
+      const el = $('status');
+      el.className = 'status' + (kind ? ' ' + kind : '');
+      el.textContent = text;
+    }
+
+    function log(msg, obj) {
+      const t = new Date().toLocaleTimeString();
+      const extra = obj !== undefined ? '\n' + JSON.stringify(obj, null, 2) : '';
+      $('log').textContent = `[${t}] ${msg}${extra}\n` + $('log').textContent;
+    }
+
+    function wsUrl() {
+      const u = new URL(apiBase());
+      const proto = u.protocol === 'https:' ? 'wss:' : 'ws:';
+      return `${proto}//${u.host}/ws/voice-call/?token=${encodeURIComponent(token())}`;
+    }
+
+    async function api(path, method = 'GET', body) {
+      let res;
+      try {
+        res = await fetch(apiBase() + path, {
+          method,
+          headers: {
+            Authorization: 'Bearer ' + token(),
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+          },
+          body: body ? JSON.stringify(body) : undefined,
+        });
+      } catch (e) {
+        throw new Error(
+          'Failed to fetch — sahifani http://127.0.0.1:8001/voice-call-test/ orqali oching (file:// emas). ' + e.message
+        );
+      }
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const err = new Error(data.message || ('HTTP ' + res.status));
+        err.payload = data;
+        throw err;
+      }
+      return data;
+    }
+
+    async function leaveAgora() {
+      if (state.meterTimer) {
+        clearInterval(state.meterTimer);
+        state.meterTimer = null;
+      }
+      try { state.mic?.close(); } catch (_) {}
+      state.mic = null;
+      try { await state.client?.leave(); } catch (_) {}
+      state.client = null;
+      $('meter').style.width = '0%';
+    }
+
+    async function joinAgora(agora) {
+      if (!agora?.app_id || !agora?.token || !agora?.channel_name) {
+        throw new Error('Agora credentials yo‘q (API response)');
+      }
+      await leaveAgora();
+      AgoraRTC.setLogLevel(3);
+      const client = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
+      state.client = client;
+
+      client.on('user-published', async (user, mediaType) => {
+        await client.subscribe(user, mediaType);
+        if (mediaType === 'audio') {
+          user.audioTrack.play();
+          log('Remote audio uid=' + user.uid);
+          setStatus('Admin ovozi kelmoqda (uid ' + user.uid + ')', 'ok');
+        }
+      });
+
+      await client.join(agora.app_id, agora.channel_name, agora.token, Number(agora.uid));
+      const mic = await AgoraRTC.createMicrophoneAudioTrack();
+      state.mic = mic;
+      await client.publish([mic]);
+
+      state.meterTimer = setInterval(() => {
+        try {
+          $('meter').style.width = Math.min(100, Math.round(mic.getVolumeLevel() * 140)) + '%';
+        } catch (_) {}
+      }, 80);
+
+      log('Agora joined', { channel: agora.channel_name, uid: agora.uid });
+      setStatus('Agora OK — gapiring (mic meter harakatlansin). Admin accept qilsin.', 'ok');
+    }
+
+    $('btnWs').onclick = () => {
+      if (!token()) {
+        setStatus('Token kiriting', 'err');
+        return;
+      }
+      if (state.ws) {
+        try { state.ws.close(); } catch (_) {}
+      }
+      const url = wsUrl();
+      log('WS connecting…');
+      const ws = new WebSocket(url);
+      state.ws = ws;
+      ws.onopen = () => {
+        setStatus('WS connected', 'ok');
+        log('WS open');
+        $('btnStart').disabled = false;
+      };
+      ws.onclose = (e) => {
+        setStatus('WS closed ' + e.code, 'warn');
+        log('WS close ' + e.code);
+      };
+      ws.onerror = () => {
+        setStatus('WS error', 'err');
+        log('WS error');
+      };
+      ws.onmessage = (ev) => {
+        let msg;
+        try { msg = JSON.parse(ev.data); } catch { msg = { raw: ev.data }; }
+        log('WS ← ' + (msg.type || '?'), msg);
+        if (msg.type === 'call_accepted') {
+          setStatus('Admin qabul qildi — gaplashing', 'ok');
+        }
+        if (['call_ended', 'call_rejected', 'call_cancelled'].includes(msg.type)) {
+          leaveAgora();
+          setStatus('Call: ' + msg.type, 'warn');
+          $('btnStart').disabled = false;
+          $('btnEnd').disabled = true;
+        }
+      };
+    };
+
+    $('btnStart').onclick = async () => {
+      const oid = $('orderId').value.trim();
+      try {
+        setStatus('Initiate…', 'warn');
+        let res;
+        if (oid) {
+          res = await api('/api/v1/voice-call/support/initiate/', 'POST', {
+            order_id: Number(oid),
+          });
+        } else {
+          // Order-siz support
+          res = await api('/api/v1/voice-call/support/direct/', 'POST', {});
+        }
+        log('initiate OK', res);
+        state.callId = res?.data?.id;
+        await joinAgora(res?.data?.agora);
+        $('btnEnd').disabled = false;
+        $('btnStart').disabled = true;
+      } catch (e) {
+        log('initiate FAIL', e.payload || String(e));
+        setStatus(e.message || String(e), 'err');
+      }
+    };
+
+    $('btnEnd').onclick = async () => {
+      if (!state.callId) return;
+      try {
+        try {
+          await api(`/api/v1/voice-call/${state.callId}/cancel/`, 'POST', {});
+          log('cancel OK');
+        } catch (_) {
+          await api(`/api/v1/voice-call/${state.callId}/end/`, 'POST', {});
+          log('end OK');
+        }
+      } catch (e) {
+        log('end FAIL', e.payload || String(e));
+      }
+      await leaveAgora();
+      $('btnStart').disabled = false;
+      $('btnEnd').disabled = true;
+      setStatus('Call yopildi', 'warn');
+    };
+  </script>
+</body>
+</html>

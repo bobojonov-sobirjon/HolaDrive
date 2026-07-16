@@ -38,6 +38,36 @@ class AsyncAPIView(APIView):
             else:
                 response = await sync_to_async(handler)(request, *args, **kwargs)
 
+        except UnicodeDecodeError as exc:
+            # Often a Postgres/libpq Win32 error message (cp1251) mis-decoded as UTF-8,
+            # not the JSON body or Gmail password.
+            import logging
+            import traceback
+            from rest_framework.response import Response
+
+            logging.getLogger(__name__).exception(
+                'UnicodeDecodeError in AsyncAPIView.dispatch: %s',
+                exc,
+            )
+            print(
+                '[UnicodeDecodeError TRACE]\n' + traceback.format_exc(),
+                flush=True,
+            )
+
+            response = Response(
+                {
+                    'message': 'Server text encoding / database connection error',
+                    'status': 'error',
+                    'errors': {
+                        'detail': [str(exc)],
+                        'hint': [
+                            'Check DB_NAME/DB_* in .env and that PostgreSQL is running. '
+                            'On Windows, missing DB often surfaces as this UTF-8 decode error.'
+                        ],
+                    },
+                },
+                status=500,
+            )
         except Exception as exc:
             response = await sync_to_async(self.handle_exception)(exc)
 
