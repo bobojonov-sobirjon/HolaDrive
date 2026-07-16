@@ -164,10 +164,10 @@ def initiate_trip_call(*, user: CustomUser, order_id: int) -> CallActionResult:
     _create_recording_stub(call)
 
     caller_agora = build_rtc_token(channel_name=channel, user_id=user.id)
-    payload = build_call_ws_payload(call, agora=caller_agora, for_user_id=user.id)
+    incoming_payload = build_call_ws_payload(call)
     notify_incoming_call(
         callee_user_id=callee.id,
-        call_payload=payload,
+        call_payload=incoming_payload,
         title='Incoming call',
         body=f'{user.get_full_name() or user.email} is calling about order {order.order_code}',
     )
@@ -234,9 +234,9 @@ def initiate_support_call(*, user: CustomUser, order_id: int | None = None) -> C
     _create_recording_stub(call)
 
     caller_agora = build_rtc_token(channel_name=channel, user_id=user.id)
-    payload = build_call_ws_payload(call, agora=caller_agora, for_user_id=user.id)
+    incoming_payload = build_call_ws_payload(call)
     notify_support_incoming(
-        call_payload=payload,
+        call_payload=incoming_payload,
         title='Support call',
         body=f'{user.get_full_name() or user.email} is calling support',
     )
@@ -286,8 +286,8 @@ def accept_call(*, user: CustomUser, call_id: int) -> CallActionResult:
     callee_agora = build_rtc_token(channel_name=call.agora_channel_name, user_id=user.id)
     caller_agora = build_rtc_token(channel_name=call.agora_channel_name, user_id=call.caller_id)
 
-    payload_callee = build_call_ws_payload(call, agora=callee_agora, for_user_id=user.id)
-    payload_caller = build_call_ws_payload(call, agora=caller_agora, for_user_id=call.caller_id)
+    payload_callee = build_call_ws_payload(call, agora=callee_agora, include_agora=True)
+    payload_caller = build_call_ws_payload(call, agora=caller_agora, include_agora=True)
 
     notify_call_update([call.caller_id], 'call_accepted', payload_caller)
     if is_support:

@@ -137,7 +137,16 @@ def notify_support_incoming(call_payload: dict, title: str, body: str) -> None:
         )
 
 
-def build_call_ws_payload(call, *, agora: dict | None = None, for_user_id: int | None = None) -> dict:
+def build_call_ws_payload(
+    call,
+    *,
+    agora: dict | None = None,
+    include_agora: bool = False,
+) -> dict:
+    """
+    WS signaling payload. Agora credentials are per-user — never put caller token
+    in incoming_call to callee (causes one-way audio / UID clash on support accept).
+  """
     caller = call.caller
     callee = call.callee
     payload = {
@@ -164,6 +173,6 @@ def build_call_ws_payload(call, *, agora: dict | None = None, for_user_id: int |
             'email': callee.email,
         },
     }
-    if agora and for_user_id:
+    if include_agora and agora:
         payload['agora'] = agora
     return payload

@@ -3,8 +3,9 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
   <title>HolaDrive — Rider Voice Test</title>
-  <script src="https://download.agora.io/sdk/release/AgoraRTC_N.js"></script>
+  <script src="https://download.agora.io/sdk/release/AgoraRTC_N.js" crossorigin="anonymous"></script>
   <style>
     :root {
       --bg: #0f1419;
@@ -100,10 +101,11 @@
 <body>
   <div class="wrap">
     <h1>Rider / Driver — Support Call</h1>
-    <p class="sub">
-      Faqat user token + order_id. Admin boshqa joyda bo‘lsin.
-      Sahifani <b>shu serverdan</b> oching (file:// emas), aks holda <code>Failed to fetch</code> chiqadi.
+    <p class="sub" id="intro">
+      Faqat user token + order_id. Admin boshqa joyda accept qiladi.
+      <b>Prod/iOS:</b> faqat <code>https://api.../voice-call-test/</code> dan oching (file:// emas).
     </p>
+    <div id="envWarn" class="status warn" style="display:none;margin-bottom:12px"></div>
 
     <div class="card">
       <label>API base</label>
@@ -131,15 +133,36 @@
 
   <script>
     const $ = (id) => document.getElementById(id);
-
-    // Same-origin default — fixes CORS / Failed to fetch from file://
+    const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
+      || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    const PROD_HINT = 'https://api.autohandy.app/voice-call-test/';
     const DEFAULT_API = 'http://127.0.0.1:8001';
+
+    function showEnvWarn(text) {
+      const el = $('envWarn');
+      el.style.display = 'block';
+      el.textContent = text;
+    }
+
     if (window.location.protocol === 'file:') {
-      // Diskdan ochilgan — brauzer fetch bloklaydi. Server URL ga o'tkazamiz.
-      window.location.replace(DEFAULT_API + '/voice-call-test/');
+      // iOS/Android file:// — 127.0.0.1 redirect ISHLAMAYDI (telefon o‘zi)
+      showEnvWarn(
+        'Faylni diskdan ochdingiz (file://). iOS da ishlamaydi. Safari ga yozing: ' + PROD_HINT
+          + ' yoki local: http://<kompyuter-IP>:8001/voice-call-test/'
+      );
+      $('apiBase').value = PROD_HINT.replace('/voice-call-test/', '');
+      $('hint').textContent = 'Ochilgan: ' + window.location.href;
     } else {
       $('apiBase').value = window.location.origin || DEFAULT_API;
-      $('hint').textContent = 'Ochilgan URL: ' + window.location.href;
+      $('hint').textContent = 'URL: ' + window.location.href
+        + (IS_IOS ? ' | iOS: Safari + HTTPS kerak' : '');
+    }
+
+    if (IS_IOS && window.location.protocol !== 'https:' && !/localhost|127\.0\.0\.1/.test(window.location.hostname)) {
+      showEnvWarn('iOS mikrofon uchun HTTPS kerak. Prod: ' + PROD_HINT);
+    }
+    if (typeof AgoraRTC === 'undefined') {
+      showEnvWarn('Agora SDK yuklanmadi. Internet yoki firewall CDN ni bloklayapti.');
     }
 
     const state = {
@@ -190,7 +213,7 @@
         });
       } catch (e) {
         throw new Error(
-          'Failed to fetch — sahifani http://127.0.0.1:8001/voice-call-test/ orqali oching (file:// emas). ' + e.message
+          'API ulanmadi. Prod: ' + PROD_HINT + ' | WS nginx proxy kerak. ' + e.message
         );
       }
       const data = await res.json().catch(() => ({}));
@@ -214,26 +237,53 @@
       $('meter').style.width = '0%';
     }
 
+    function playRemoteAudio(track) {
+      try {
+        track.play();
+      } catch (e) {
+        log('audio play retry (iOS)', String(e));
+      }
+      // iOS Safari: ovoz ba'zan faqat touch dan keyin chiqadi
+      const once = () => {
+        try { track.play(); } catch (_) {}
+        document.removeEventListener('touchstart', once);
+        document.removeEventListener('click', once);
+      };
+      document.addEventListener('touchstart', once, { once: true });
+      document.addEventListener('click', once, { once: true });
+    }
+
     async function joinAgora(agora) {
+      if (typeof AgoraRTC === 'undefined') {
+        throw new Error('Agora SDK yo‘q — CDN bloklangan');
+      }
+      if (!window.isSecureContext && IS_IOS) {
+        throw new Error('iOS da mic uchun HTTPS kerak (secure context)');
+      }
       if (!agora?.app_id || !agora?.token || !agora?.channel_name) {
         throw new Error('Agora credentials yo‘q (API response)');
       }
       await leaveAgora();
       AgoraRTC.setLogLevel(3);
-      const client = AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' });
+      const codec = IS_IOS ? 'h264' : 'vp8';
+      const client = AgoraRTC.createClient({ mode: 'rtc', codec });
       state.client = client;
 
       client.on('user-published', async (user, mediaType) => {
         await client.subscribe(user, mediaType);
         if (mediaType === 'audio') {
-          user.audioTrack.play();
+          playRemoteAudio(user.audioTrack);
           log('Remote audio uid=' + user.uid);
           setStatus('Admin ovozi kelmoqda (uid ' + user.uid + ')', 'ok');
         }
       });
 
       await client.join(agora.app_id, agora.channel_name, agora.token, Number(agora.uid));
-      const mic = await AgoraRTC.createMicrophoneAudioTrack();
+      const mic = await AgoraRTC.createMicrophoneAudioTrack({
+        encoderConfig: 'speech_standard',
+        AEC: true,
+        ANS: true,
+      });
       state.mic = mic;
       await client.publish([mic]);
 
@@ -265,8 +315,11 @@
         $('btnStart').disabled = false;
       };
       ws.onclose = (e) => {
-        setStatus('WS closed ' + e.code, 'warn');
-        log('WS close ' + e.code);
+        const hint = e.code === 1006
+          ? ' (prod: nginx WebSocket proxy /ws/ tekshiring)'
+          : '';
+        setStatus('WS closed ' + e.code + hint, 'warn');
+        log('WS close ' + e.code + hint);
       };
       ws.onerror = () => {
         setStatus('WS error', 'err');
