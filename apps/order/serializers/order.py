@@ -160,13 +160,12 @@ class OrderCreateSerializer(serializers.Serializer):
             logging.getLogger(__name__).error(f"Failed to create ChatRoom for order {order.id}: {e}")
         def _schedule_driver_assignment(oid):
             """Celery/sync assign — faqat DB commitdan keyin (boshqa process orderni ko‘radi)."""
-            try:
-                from apps.order.tasks import assign_driver_to_order_async
-                assign_driver_to_order_async.delay(oid)
-            except ImportError:
-                import logging
-                logger = logging.getLogger(__name__)
-                logger.warning("Celery task not available, using sync driver assignment")
+            import logging
+            from django.conf import settings
+
+            logger = logging.getLogger(__name__)
+
+            def _assign_sync():
                 from apps.order.services.driver_assignment_service import DriverAssignmentService
                 try:
                     o = Order.objects.get(pk=oid)
@@ -175,10 +174,27 @@ class OrderCreateSerializer(serializers.Serializer):
                     logger.error("Order %s not found for sync driver assignment", oid)
                 except Exception as e:
                     logger.error("Failed to assign driver to order %s: %s", oid, e)
+
+            # Local/dev: Celery worker bo‘lmasa ham driverga darhol offer qilinsin
+            if getattr(settings, 'DEBUG', False) or getattr(
+                settings, 'CELERY_TASK_ALWAYS_EAGER', False
+            ):
+                _assign_sync()
+                return
+
+            try:
+                from apps.order.tasks import assign_driver_to_order_async
+                assign_driver_to_order_async.delay(oid)
+            except ImportError:
+                logger.warning("Celery task not available, using sync driver assignment")
+                _assign_sync()
             except Exception as e:
-                import logging
-                logger = logging.getLogger(__name__)
-                logger.error("Failed to schedule async driver assignment for order %s: %s", oid, e)
+                logger.error(
+                    "Failed to schedule async driver assignment for order %s: %s — falling back to sync",
+                    oid,
+                    e,
+                )
+                _assign_sync()
 
         transaction.on_commit(lambda oid=order.id: _schedule_driver_assignment(oid))
 

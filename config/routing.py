@@ -3,9 +3,12 @@ from apps.chat import consumers
 from apps.chat.consumers_support import SupportChatConsumer
 from apps.order import consumers as order_consumers
 from apps.voice_call import consumers as voice_call_consumers
+from apps.safety import consumers as safety_consumers
 
 websocket_urlpatterns = [
     re_path(r"^ws/chat/(?P<conversation_id>\d+)(?:/.*)?/?$", consumers.ChatConsumer.as_asgi()),
+    re_path(r"^ws/safety/share/(?P<token>[^/]+)/?$", safety_consumers.TripShareTrackingConsumer.as_asgi()),
+    re_path(r"^ws/safety/(?P<room_id>\d+)(?:/.*)?/?$", safety_consumers.SafetyChatConsumer.as_asgi()),
     re_path(r"^ws/support/(?P<room_id>\d+)(?:/.*)?/?$", SupportChatConsumer.as_asgi()),
     re_path(r"^ws/notifications(?:/.*)?/?$", consumers.NotificationConsumer.as_asgi()),
     re_path(r"^ws/voice-call(?:/.*)?/?$", voice_call_consumers.VoiceCallConsumer.as_asgi()),

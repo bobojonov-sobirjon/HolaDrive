@@ -1,0 +1,636 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
+  <title>HolaDrive — Shared trip</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    :root {
+      --white: #ffffff;
+      --off-white: #eeeeee;
+      --black: #1b1b1b;
+      --dark-grey: #262626;
+      --red: #e62a00;
+      --green: #2ba745;
+      --orange: #f1551a;
+      --field: #2e2e2e;
+      --safe-t: env(safe-area-inset-top, 0px);
+      --safe-b: env(safe-area-inset-bottom, 0px);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      height: 100%;
+      overflow: hidden;
+    }
+    body {
+      font-family: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--black);
+      color: var(--white);
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* One screen = map + bottom sheet */
+    .screen {
+      height: 100vh;
+      height: 100dvh;
+      width: 100%;
+      max-width: 480px;
+      margin: 0 auto;
+      display: grid;
+      grid-template-rows: minmax(0, 1fr) auto;
+      position: relative;
+      overflow: hidden;
+      background: var(--black);
+    }
+
+    .map-area {
+      position: relative;
+      min-height: 0;
+      background: #1a1a1a;
+    }
+    #map {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+    }
+    .map-fallback {
+      position: absolute;
+      inset: 0;
+      display: none;
+      place-items: center;
+      padding: 20px;
+      text-align: center;
+      color: #999;
+      font-size: 0.85rem;
+      font-weight: 600;
+      background: var(--dark-grey);
+      z-index: 2;
+    }
+    .map-fallback.show { display: grid; }
+
+    .top-bar {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 500;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: calc(10px + var(--safe-t)) 12px 10px;
+      background: linear-gradient(to bottom, rgba(27,27,27,.92) 40%, transparent);
+      pointer-events: none;
+    }
+    .top-bar img {
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+      background: #fff;
+      object-fit: contain;
+      pointer-events: auto;
+    }
+    .brand-word {
+      font-size: 1.25rem;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+    }
+    .brand-word .hola { color: var(--red); }
+
+    .sheet {
+      z-index: 600;
+      background: var(--dark-grey);
+      border-radius: 22px 22px 0 0;
+      padding: 10px 14px calc(12px + var(--safe-b));
+      box-shadow: 0 -10px 40px rgba(0,0,0,.45);
+      max-height: 58dvh;
+      overflow: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+    .sheet-handle {
+      width: 36px;
+      height: 4px;
+      border-radius: 999px;
+      background: #3a3a3a;
+      margin: 0 auto 10px;
+    }
+
+    .sheet-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+    .sheet-head h1 {
+      font-size: 1.15rem;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      line-height: 1.2;
+    }
+    .sheet-head p {
+      color: #9a9a9a;
+      font-size: 0.75rem;
+      font-weight: 500;
+      margin-top: 2px;
+      line-height: 1.3;
+    }
+    .tag {
+      flex-shrink: 0;
+      display: inline-flex;
+      padding: 4px 8px;
+      border-radius: 8px;
+      font-size: 0.68rem;
+      font-weight: 700;
+      text-transform: capitalize;
+      background: rgba(43, 167, 69, 0.2);
+      color: var(--green);
+      margin-top: 2px;
+    }
+    .tag.warn { background: rgba(241, 85, 26, 0.2); color: var(--orange); }
+    .tag.muted { background: rgba(85, 85, 85, 0.35); color: #bbb; }
+
+    .banner {
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: #b3b3b3;
+      margin-bottom: 8px;
+      min-height: 1em;
+    }
+    .banner.err { color: var(--red); }
+
+    .fields {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+    .field {
+      background: var(--field);
+      border-radius: 12px;
+      padding: 8px 10px;
+      min-width: 0;
+    }
+    .field.full { grid-column: 1 / -1; }
+    .field .label {
+      display: block;
+      color: #888;
+      font-size: 0.62rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      margin-bottom: 2px;
+    }
+    .field .val {
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: var(--off-white);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      line-height: 1.3;
+    }
+
+    .eta-pill {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(230, 42, 0, 0.12);
+      border: 1px solid rgba(230, 42, 0, 0.35);
+      border-radius: 12px;
+      padding: 8px 10px;
+      margin-bottom: 10px;
+    }
+    .eta-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--red);
+      box-shadow: 0 0 0 3px rgba(230, 42, 0, 0.25);
+      flex-shrink: 0;
+    }
+    .eta-pill .val { font-weight: 700; font-size: 0.85rem; }
+    .eta-pill .sub { color: #999; font-size: 0.68rem; font-weight: 500; }
+
+    .actions {
+      display: grid;
+      grid-template-columns: 1.35fr 1fr;
+      gap: 8px;
+    }
+    .btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 12px 10px;
+      border-radius: 999px;
+      font-weight: 700;
+      font-size: 0.85rem;
+      text-decoration: none;
+      border: none;
+      cursor: pointer;
+      font-family: inherit;
+      appearance: none;
+      -webkit-appearance: none;
+      line-height: 1.2;
+      min-height: 44px;
+    }
+    .btn-primary { background: var(--red); color: #fff; grid-column: 1 / -1; }
+    .btn-secondary { background: var(--black); color: #fff; }
+    .btn-outline {
+      background: transparent;
+      color: var(--red);
+      border: 1.5px solid var(--red);
+    }
+
+    .leaflet-container { background: #1a1a1a; font-family: inherit; }
+    .leaflet-control-zoom { margin-bottom: 12px !important; }
+    .pin {
+      width: 24px;
+      height: 24px;
+      border-radius: 50% 50% 50% 0;
+      transform: rotate(-45deg);
+      border: 2px solid #fff;
+      box-shadow: 0 2px 8px rgba(0,0,0,.4);
+    }
+    .pin-pickup { background: var(--green); }
+    .pin-dest { background: var(--red); }
+    .pin-live {
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: var(--orange);
+      border: 3px solid #fff;
+      box-shadow: 0 0 0 6px rgba(241, 85, 26, 0.28);
+      animation: pulse 1.6s ease-out infinite;
+    }
+    @keyframes pulse {
+      0% { box-shadow: 0 0 0 0 rgba(241, 85, 26, 0.45); }
+      70% { box-shadow: 0 0 0 12px rgba(241, 85, 26, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(241, 85, 26, 0); }
+    }
+
+    /* Short phones: sheet a bit tighter, map still visible */
+    @media (max-height: 700px) {
+      .sheet { max-height: 55dvh; padding-top: 8px; }
+      .sheet-head h1 { font-size: 1.05rem; }
+      .fields { gap: 6px; }
+      .field { padding: 6px 8px; }
+      .btn { padding: 10px 8px; font-size: 0.8rem; min-height: 40px; }
+      .top-bar img { width: 32px; height: 32px; }
+    }
+
+    @media (max-height: 560px) {
+      .sheet { max-height: 62dvh; }
+      .sheet-head p { display: none; }
+      .banner { display: none; }
+    }
+
+    /* Wider tablets / desktop: phone-like frame, still one composition */
+    @media (min-width: 640px) {
+      body {
+        display: grid;
+        place-items: center;
+        padding: 16px;
+        overflow: auto;
+        background: #111;
+      }
+      .screen {
+        height: min(860px, calc(100dvh - 32px));
+        width: min(420px, 100%);
+        border-radius: 28px;
+        overflow: hidden;
+        box-shadow: 0 20px 60px rgba(0,0,0,.5);
+        border: 1px solid #333;
+      }
+      .sheet { border-radius: 22px 22px 0 0; }
+    }
+
+    @media (min-width: 900px) {
+      .screen {
+        max-width: 440px;
+        height: min(820px, calc(100dvh - 40px));
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="screen">
+    <div class="map-area">
+      <div class="top-bar">
+        <img src="{% static 'safety/hola_logo.png' %}" width="36" height="36" alt="HolaDrive" />
+        <div class="brand-word"><span class="hola">Hola</span>Drive</div>
+      </div>
+      <div id="map" role="img" aria-label="Live trip map"></div>
+      <div class="map-fallback" id="mapFallback">Map unavailable — open the HolaDrive app.</div>
+    </div>
+
+    <section class="sheet">
+      <div class="sheet-handle" aria-hidden="true"></div>
+      <div class="sheet-head">
+        <div>
+          <h1>Shared trip</h1>
+          <p>A pickup · B destination · live driver</p>
+        </div>
+        <span class="tag muted" id="statusTag">—</span>
+      </div>
+
+      <div id="banner" class="banner">{% if error %}{{ error }}{% else %}Loading trip…{% endif %}</div>
+
+      <div class="fields">
+        <div class="field">
+          <span class="label">From</span>
+          <div class="val" id="pickup">—</div>
+        </div>
+        <div class="field">
+          <span class="label">To</span>
+          <div class="val" id="dest">—</div>
+        </div>
+        <div class="field full">
+          <span class="label">Driver</span>
+          <div class="val" id="driver">—</div>
+        </div>
+      </div>
+
+      <div class="eta-pill">
+        <span class="eta-dot" aria-hidden="true"></span>
+        <div>
+          <div class="val" id="eta">—</div>
+          <div class="sub" id="phase">Waiting for location…</div>
+        </div>
+      </div>
+
+      <div class="actions">
+        <a class="btn btn-primary" id="openApp" href="{{ deep_link }}">Open in HolaDrive</a>
+        <a class="btn btn-secondary" id="openStore" href="{{ store_url }}">Get the app</a>
+        <button type="button" class="btn btn-outline" id="viewWeb">Refresh map</button>
+      </div>
+    </section>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    const TOKEN = "{{ token|escapejs }}";
+    const DEEP = "{{ deep_link|escapejs }}";
+    const STORE = "{{ store_url|escapejs }}";
+    const HAS_ERROR = {% if error %}true{% else %}false{% endif %};
+    const API = window.location.origin + "/api/v1/safety/share/" + TOKEN + "/";
+
+    const ua = navigator.userAgent || "";
+    const isIOS = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+    const isAndroid = /Android/i.test(ua);
+    const isMobile = isIOS || isAndroid;
+
+    document.getElementById("openApp").href = DEEP;
+    document.getElementById("openStore").href = STORE;
+
+    let map, pickupMarker, destMarker, liveMarker, wsConn;
+    let followLive = true;
+    let lastDest = { lat: null, lng: null };
+    let lastPickup = { lat: null, lng: null };
+
+    function setBanner(text, isErr) {
+      const el = document.getElementById("banner");
+      el.textContent = text;
+      el.className = "banner" + (isErr ? " err" : "");
+    }
+
+    function statusClass(status) {
+      const s = (status || "").toLowerCase();
+      if (["accepted", "on_the_way", "arrived", "in_progress"].includes(s)) return "tag";
+      if (["cancelled", "rejected"].includes(s)) return "tag warn";
+      return "tag muted";
+    }
+
+    function formatStatus(status) {
+      if (!status) return "—";
+      return String(status).replace(/_/g, " ");
+    }
+
+    function formatPhase(phase) {
+      if (!phase) return "Live location";
+      return String(phase).replace(/_/g, " ");
+    }
+
+    function destIcon() {
+      return L.divIcon({
+        className: "",
+        html: '<div class="pin pin-dest"></div>',
+        iconSize: [24, 24],
+        iconAnchor: [12, 24],
+      });
+    }
+
+    function pickupIcon() {
+      return L.divIcon({
+        className: "",
+        html: '<div class="pin pin-pickup"></div>',
+        iconSize: [24, 24],
+        iconAnchor: [12, 24],
+      });
+    }
+
+    function liveIcon() {
+      return L.divIcon({
+        className: "",
+        html: '<div class="pin-live" title="Driver now"></div>',
+        iconSize: [18, 18],
+        iconAnchor: [9, 9],
+      });
+    }
+
+    function ensureMap() {
+      if (map) return true;
+      if (typeof L === "undefined") {
+        document.getElementById("mapFallback").classList.add("show");
+        return false;
+      }
+      map = L.map("map", {
+        zoomControl: false,
+        attributionControl: false,
+      }).setView([39.77, 64.43], 14);
+
+      L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
+        maxZoom: 19,
+        subdomains: "abcd",
+      }).addTo(map);
+
+      L.control.zoom({ position: "topright" }).addTo(map);
+      map.on("dragstart", function () { followLive = false; });
+      setTimeout(function () { map.invalidateSize(); }, 60);
+      return true;
+    }
+
+    function focusOnLive(lat, lng) {
+      if (!map) return;
+      const live = [Number(lat), Number(lng)];
+      const pts = [live];
+      if (lastPickup.lat != null && lastPickup.lng != null) {
+        pts.push([lastPickup.lat, lastPickup.lng]);
+      }
+      if (lastDest.lat != null && lastDest.lng != null) {
+        pts.push([lastDest.lat, lastDest.lng]);
+      }
+      if (pts.length > 1) {
+        map.fitBounds(L.latLngBounds(pts).pad(0.3));
+      } else if (followLive) {
+        map.setView(live, Math.max(map.getZoom(), 15));
+      }
+    }
+
+    function updateLive(lat, lng) {
+      if (!ensureMap() || lat == null || lng == null) return;
+      const ll = [Number(lat), Number(lng)];
+      if (!liveMarker) {
+        liveMarker = L.marker(ll, { icon: liveIcon(), zIndexOffset: 1000 }).addTo(map)
+          .bindTooltip("Driver now", { direction: "top", offset: [0, -10] });
+      } else {
+        liveMarker.setLatLng(ll);
+      }
+      if (followLive) {
+        focusOnLive(lat, lng);
+      }
+    }
+
+    function updateMap(payload) {
+      if (!ensureMap()) return;
+      const order = payload.order || {};
+      const route = payload.route || {};
+      const pickup = route.pickup || {};
+      const dest = route.destination || {};
+
+      const pLat = pickup.latitude != null ? Number(pickup.latitude) : (order.pickup_latitude != null ? Number(order.pickup_latitude) : null);
+      const pLng = pickup.longitude != null ? Number(pickup.longitude) : (order.pickup_longitude != null ? Number(order.pickup_longitude) : null);
+      const dLat = dest.latitude != null ? Number(dest.latitude) : (order.destination_latitude != null ? Number(order.destination_latitude) : null);
+      const dLng = dest.longitude != null ? Number(dest.longitude) : (order.destination_longitude != null ? Number(order.destination_longitude) : null);
+
+      lastPickup = { lat: pLat, lng: pLng };
+      lastDest = { lat: dLat, lng: dLng };
+
+      // A = pickup (green), B = destination (red) — no straight line
+      if (pLat != null && pLng != null) {
+        const pll = [pLat, pLng];
+        if (!pickupMarker) {
+          pickupMarker = L.marker(pll, { icon: pickupIcon() }).addTo(map)
+            .bindTooltip("A · Pickup", { direction: "top", offset: [0, -12] });
+        } else {
+          pickupMarker.setLatLng(pll);
+        }
+      }
+
+      if (dLat != null && dLng != null) {
+        const dll = [dLat, dLng];
+        if (!destMarker) {
+          destMarker = L.marker(dll, { icon: destIcon() }).addTo(map)
+            .bindTooltip("B · Destination", { direction: "top", offset: [0, -12] });
+        } else {
+          destMarker.setLatLng(dll);
+        }
+      }
+
+      const loc = payload.location || {};
+      if (loc.latitude != null && loc.longitude != null) {
+        updateLive(loc.latitude, loc.longitude);
+      } else {
+        const pts = [];
+        if (pLat != null && pLng != null) pts.push([pLat, pLng]);
+        if (dLat != null && dLng != null) pts.push([dLat, dLng]);
+        if (pts.length) map.fitBounds(L.latLngBounds(pts).pad(0.3));
+        setBanner("Waiting for driver GPS…", false);
+      }
+
+      setTimeout(function () { if (map) map.invalidateSize(); }, 120);
+    }
+
+    function applyPayload(d) {
+      const order = d.order || {};
+      const loc = d.location || {};
+      const tag = document.getElementById("statusTag");
+      tag.textContent = formatStatus(order.status);
+      tag.className = statusClass(order.status);
+
+      document.getElementById("pickup").textContent = order.pickup || "—";
+      document.getElementById("dest").textContent = order.destination || "—";
+      document.getElementById("driver").textContent = (d.driver && d.driver.full_name) || "—";
+
+      if (loc.eta_minutes != null) {
+        document.getElementById("eta").textContent = loc.eta_minutes + " min ETA";
+        document.getElementById("phase").textContent = formatPhase(loc.tracking_phase);
+      } else {
+        document.getElementById("eta").textContent = "Locating driver…";
+        document.getElementById("phase").textContent = formatPhase(loc.tracking_phase);
+      }
+
+      updateMap(d);
+    }
+
+    function connectWs() {
+      if (wsConn) return;
+      const proto = location.protocol === "https:" ? "wss:" : "ws:";
+      wsConn = new WebSocket(proto + "//" + location.host + "/ws/safety/share/" + TOKEN + "/");
+      wsConn.onmessage = function (ev) {
+        try {
+          const msg = JSON.parse(ev.data);
+          if (msg.type === "driver_location_update") {
+            updateLive(msg.latitude, msg.longitude);
+            if (msg.eta_minutes != null) {
+              document.getElementById("eta").textContent = msg.eta_minutes + " min ETA";
+              document.getElementById("phase").textContent = formatPhase(msg.tracking_phase);
+            }
+            setBanner("Live — driver moving", false);
+          }
+        } catch (_) {}
+      };
+    }
+
+    async function loadTrip() {
+      ensureMap();
+      try {
+        const res = await fetch(API);
+        const body = await res.json();
+        if (!res.ok) throw new Error(body.message || "Failed");
+        applyPayload(body.data || {});
+        setBanner("Live tracking", false);
+        connectWs();
+      } catch (e) {
+        setBanner(e.message || "Link expired", true);
+        document.getElementById("mapFallback").classList.add("show");
+      }
+    }
+
+    function boot() {
+      if (HAS_ERROR) {
+        setBanner("{{ error|escapejs }}", true);
+        document.getElementById("mapFallback").classList.add("show");
+        return;
+      }
+
+      loadTrip();
+
+      // Mobile: also try deep link once (user can stay on this one-screen page)
+      if (isMobile) {
+        setTimeout(function () {
+          try { window.location.href = DEEP; } catch (_) {}
+        }, 400);
+      }
+    }
+
+    document.getElementById("viewWeb").addEventListener("click", function (e) {
+      e.preventDefault();
+      loadTrip();
+    });
+
+    window.addEventListener("resize", function () {
+      if (map) setTimeout(function () { map.invalidateSize(); }, 80);
+    });
+
+    boot();
+  </script>
+</body>
+</html>

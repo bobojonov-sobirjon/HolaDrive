@@ -46,6 +46,7 @@ LOCAL_APPS = [
     'apps.notification',
     'apps.chat',
     'apps.voice_call',
+    'apps.safety',
 ]
 
 THIRD_PARTY_APPS = [
@@ -169,6 +170,25 @@ MEDIA_ROOT = os.getenv('MEDIA_ROOT', '/var/www/media')
 
 # Prepended to MEDIA paths in WebSocket/API payloads (e.g. https://api.example.com — no trailing slash)
 PUBLIC_BASE_URL = os.getenv('PUBLIC_BASE_URL', '').rstrip('/')
+# Mobile app deep link (custom scheme), e.g. holadrive → holadrive://trip/share/<token>
+APP_DEEP_LINK_SCHEME = (os.getenv('APP_DEEP_LINK_SCHEME', 'holadrive') or 'holadrive').strip().rstrip(':/')
+# Optional HTTPS universal / App Link host for share (defaults to PUBLIC_BASE_URL)
+APP_SHARE_HTTPS_BASE = (
+    os.getenv('APP_SHARE_HTTPS_BASE', '') or os.getenv('PUBLIC_BASE_URL', '') or ''
+).rstrip('/')
+# Store fallbacks when app is not installed (share link landing page)
+IOS_APP_STORE_URL = os.getenv(
+    'IOS_APP_STORE_URL',
+    'https://apps.apple.com/app/id0000000000',
+)
+ANDROID_PLAY_STORE_URL = os.getenv(
+    'ANDROID_PLAY_STORE_URL',
+    'https://play.google.com/store/apps/details?id=com.holadrive.app',
+)
+SAFETY_SHARE_EXPIRE_HOURS = int(os.getenv('SAFETY_SHARE_EXPIRE_HOURS', '6') or '6')
+SAFETY_EMERGENCY_NUMBER = os.getenv('SAFETY_EMERGENCY_NUMBER', '911')
+# Deprecated alias (ignored for mobile; kept so old .env does not crash)
+FRONTEND_BASE_URL = os.getenv('FRONTEND_BASE_URL', '').rstrip('/')
 
 LOCALE_PATHS = [
     os.path.join(BASE_DIR, 'locale'),
@@ -246,6 +266,7 @@ SPECTACULAR_SETTINGS = {
         {'name': 'Admin Panel', 'description': 'React admin panel: drivers, riders, orders, cash-outs, analytics.'},
         {'name': 'Trip ratings', 'description': 'Post-trip ratings and feedback tags.'},
         {'name': 'Trip chat', 'description': 'Order-scoped rider–driver chat (HTTP).'},
+        {'name': 'Safety tools', 'description': 'Share trip link, safety agent chat, voice recording, 911 config.'},
         {'name': 'Payment: Saved cards', 'description': 'Stripe saved cards (rider/driver): GET/POST/PUT/DELETE.'},
         {'name': 'Payment: Stripe', 'description': 'Stripe Customer id (cus_) for riders.'},
         {'name': 'Stripe — Driver', 'description': 'Stripe Connect: bank account, balance, checkout history.'},

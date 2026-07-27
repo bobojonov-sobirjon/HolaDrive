@@ -7,6 +7,8 @@ from django.http import FileResponse
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView, SpectacularRedocView
 from pathlib import Path
 
+from apps.safety.views import TripShareMobilePageView
+
 
 def voice_call_test_page(_request):
     """Local HTML tester for rider/driver support calls (same-origin → no CORS)."""
@@ -29,6 +31,8 @@ urlpatterns = [
     path('redoc/', SpectacularRedocView.as_view(url_name='schema'), name='redoc'),
     path('voice-call-test/', voice_call_test_page, name='voice-call-test'),
     path('vendor/AgoraRTC_N.js', agora_sdk_js, name='agora-sdk-js'),
+    # Mobile share landing (friends open this HTTPS link; not a separate website)
+    path('trip/share/<str:token>/', TripShareMobilePageView.as_view(), name='trip-share-page'),
     path('api/v1/accounts/', include('apps.accounts.urls')),
     path('api/v1/admin-panel/', include('apps.admin_panel.urls')),
     path('api/v1/order/', include('apps.order.urls')),
@@ -36,6 +40,7 @@ urlpatterns = [
     path('api/v1/notification/', include('apps.notification.urls')),
     path('api/v1/chat/', include('apps.chat.urls')),
     path('api/v1/voice-call/', include('apps.voice_call.urls')),
+    path('api/v1/safety/', include('apps.safety.urls')),
     path('admin/', admin.site.urls),
 ]
 
