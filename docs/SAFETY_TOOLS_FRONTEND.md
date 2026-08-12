@@ -142,14 +142,17 @@ Response `data`:
   },
   "ws_url_path": "/ws/safety/share/<token>/"
 }
-
-**Flutter (deep link `holadrive://trip/share/:token`):**
-1. `GET /api/v1/safety/share/<token>/` — draw route A→B from `route`
-2. Put live marker from `location`
-3. Connect `ws/safety/share/<token>/` — update marker on `driver_location_update`
-4. Do **not** show raw lat/lng text to the user — only the map
 ```
+
 Telefon / email / to‘lov ma’lumoti **yo‘q**.
+
+**Flutter map qoidalari** (batafsil: `docs/TRIP_SHARE_FRONTEND.md`):
+
+1. `route.pickup` → **A** (yashil pin)  
+2. `route.destination` → **B** (qizil pin)  
+3. `location` + WS → **driver live** marker  
+4. A→B **to‘g‘ri chiziq chizilmasin**  
+5. Raw lat/lng matn ko‘rsatilmasin  
 
 ### 2.5 Public live WS (login yo‘q)
 ```

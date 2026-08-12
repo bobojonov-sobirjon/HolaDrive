@@ -1,0 +1,179 @@
+================================================================================
+HOLADRIVE vs YANDEX GO
+Mijoz uchun: ustunliklar + yangi funksiyalar (qo‘shish kerak bo‘lganlar)
+Bozor: O‘zbekiston (hozircha) | Rider + Driver
+Sana: 2026-07-29
+================================================================================
+
+QISQA
+------
+Yandex Go — katta platforma (taksi + ko‘p xizmatlar). Undan “hamma narsani
+nusxa qilib” yutib bo‘lmaydi. HolaDrive yutishi uchun: lokal to‘lov, xavfsizlik,
+haydovchi daromadi, shaffof narx va Yandexda zaif / yo‘q narsalarni qo‘shish.
+
+Bu faylda asosan: Yandex Go’da yo‘q yoki UZ’da zaif bo‘lgan, HolaDrive’ga
+QO‘SHISH kerak bo‘lgan g‘oyalar + qisqa tushuntirish.
+
+
+================================================================================
+1. RIDER (MIJOZ) UCHUN — YANGI / USTUN FUNKSIYALAR
+================================================================================
+
+1.1. Lokal to‘lovlar (Payme / Click / Uzum / Humo / UZS wallet)
+    Nima: Stripe/xalqaro kartadan tashqari O‘zbekiston to‘lovlari.
+    Nega kerak: Yandex ba’zan cheklangan; UZ’da odamlar Payme/Click ishlatadi.
+    Ustuvorlik: JUDA YUQORI.
+
+1.2. Narx “qulflash” (Price lock / Fixed fare guarantee)
+    Nima: Buyurtma berganda ko‘rsatilgan narx o‘zgarmaydi (surge o‘rtsa ham
+    shu safar uchun eski narx).
+    Nega: Yandexda ba’zan yo‘l o‘rtasida yoki kutishda narx oshishi shikoyat
+    qilinadi. HolaDrive “va’da qilingan narx” bilan ishonch beradi.
+    Ustuvorlik: YUQORI.
+
+1.3. Ayollar / oila xavfsizlik rejimi (Women & Family Safe Mode)
+    Nima: Faqat ayol haydovchi; yoki “oilaviy” (bolali o‘rindiq, jim haydash).
+    Nega: UZ’da ayollar kechasi taksi xavfsizligidan xavotir oladi. Yandexda
+    bu doimiy kuchli mahsulot emas.
+    Ustuvorlik: YUQORI (marketing + trust).
+
+1.4. Ovozli buyurtma (Voice booking — o‘zbek / rus)
+    Nima: Mikrofon orqali “Uyga ketaman” / manzil aytib buyurtma.
+    Nega: Katta yoshdagi mijozlar, yozish qiyin bo‘lganlar; differensial.
+    Ustuvorlik: O‘RTA–YUQORI.
+
+1.5. Offline / past internet rejimi
+    Nima: SMS orqali status, oddiy matnli ETA, bog‘lanish yo‘qolganda ham
+    oxirgi joylashuv.
+    Nega: UZ shaharlarida 3G/4G notekis. Yandex og‘ir ilova.
+    Ustuvorlik: O‘RTA–YUQORI.
+
+1.6. “Qarzga / keyinroq to‘lash” (Trusted pay later — limit bilan)
+    Nima: Tanlangan foydalanuvchilar uchun kichik limit (masalan 50–100k so‘m).
+    Nega: Naqd qolmagan payt; Yandexda kam uchraydi.
+    Ehtiyot: fraud risk — skor + KYC bilan.
+    Ustuvorlik: O‘RTA.
+
+1.7. Bir nechta to‘xtash + “bolani olib ketish” (School / family stops)
+    Nima: 2–3 stop, “bolani maktabdan kutib olish” shablonlari.
+    Nega: Oilaviy foydalanish; Yandex stops bor, lekin oilaviy UX zaifroq.
+    Ustuvorlik: O‘RTA.
+
+1.8. “Men yo‘ldaman” smart share (allaqachon bor — kuchaytirish)
+    Nima: Trip share link + live map (A/B + driver). Do‘stga 1 bosish.
+    HolaDrive’da bor — Yandex “ulashish” bor, lekin sizda safety tools
+    (agent chat, recording, 911) bilan paket qilib sotish mumkin.
+    Qo‘shimcha: avtomatik “uyga yetdim” SMS oilaga.
+    Ustuvorlik: mavjudni MARKETING qilish + avtomatik oila SMS.
+
+1.9. Shaffof haydovchi kartochkasi (Photo + plate + rating + trips + “verified”)
+    Nima: Buyurtmadan oldin to‘liq profil, mashina rasmlari, necha yil tajriba.
+    Nega: Ishonch. Yandexda minimal.
+    Ustuvorlik: O‘RTA.
+
+1.10. “Jim / no call” preferensiya
+     Nima: Haydovchi qo‘ng‘iroq qilmasin, faqat chat; musiqa yo‘q; konditsioner.
+     Nega: Premium hissiyot; differensial.
+     Ustuvorlik: O‘RTA (preferensiyalar bazada qisman bor — UI kuchaytirish).
+
+1.11. Rejali buyurtma + “ishga/uyga” smart schedule
+     Nima: Ertaga 08:00 ga oldindan; haftalik “ish–uy” marshrut.
+     Nega: Ofis ishchilari. Yandexda schedule ba’zan cheklangan.
+     Ustuvorlik: O‘RTA–YUQORI.
+
+1.12. Korporativ / kompaniya hisobi (Business rides)
+     Nima: Firma balansi, chek/invoice, bo‘limlar, limitlar.
+     Nega: B2B pul. Yandexda bor, lekin lokal firmalar uchun soddaroq Hola
+     Business yutishi mumkin.
+     Ustuvorlik: YUQORI (daromad).
+
+1.13. Promo “do‘stni chaqir” + haydovchi/rider ikki tomonlama bonus
+     Nima: Invitation (bazada bor) — UZ pul birligida aniq bonus mexanikasi.
+     Nega: O‘sish. Yandex reklama kuchi katta; siz viral loop bilan raqobat.
+     Ustuvorlik: O‘RTA.
+
+1.14. “Yo‘qolgan narsa” flow
+     Nima: Tripdan keyin “telefon qoldi” → haydovchiga push + chat + qaytarish
+     marshruti.
+     Nega: Support yukini kamaytiradi; Yandexda qo‘lda ko‘p.
+     Ustuvorlik: O‘RTA.
+
+1.15. Multilingual UX birinchi o‘rinda: O‘zbek / Rus / Ingliz
+     Nima: To‘liq o‘zbek interfeys (Yandex ko‘pincha rus-markaz).
+     Nega: Milliy brend hissi.
+     Ustuvorlik: YUQORI (pozitsiyalash).
+
+
+================================================================================
+2. DRIVER (HAYDOVCHI) UCHUN — YANGI / USTUN FUNKSIYALAR
+================================================================================
+
+2.1. Shaffof daromad paneli (soatlik / kunlik / “net” hisob)
+    Nima: Komissiya ochiq, “bugun qancha sof”, “surge zonalar xaritasi”.
+    Nega: Haydovchilar Yandex komissiyasidan norozi. Shaffoflik — asosiy
+    jalb qilish quroli.
+    Ustuvorlik: JUDA YUQORI.
+
+2.2. Past / dinamik komissiya (Launch offer)
+    Nima: Birinchi 30–90 kun 0–10% komissiya; keyin shaffof stavka.
+    Yoki “peak soatlarda pastroq komissiya”.
+    Nega: Yandexdan haydovchi o‘tkazishning #1 sababi.
+    Ustuvorlik: JUDA YUQORI.
+
+2.3. Tezkor chiqarish (Payme/Click/karta — “bugun pul”)
+    Nima: Kuniga 1–2 marta yoki instant payout (kichik fee bilan).
+    Nega: Yandexda pul chiqishi kechikishi shikoyat. “Pul shu kun” = sticky.
+    Ustuvorlik: JUDA YUQORI.
+
+2.4. “Qabul qilishdan oldin to‘liq info”
+    Nima: Manzil A+B, taxminiy km, narx, to‘lov turi (naqd/karta), surge —
+    ACCEPT dan oldin.
+    Nega: Ko‘p ilovalarda destination yashirin — haydovchi aldangan his qiladi.
+    Ustuvorlik: YUQORI.
+
+2.5. Navbat / “idle” yordamchi (Smart heatmap + “u yerga boring”)
+    Nima: Qayerda buyurtma ko‘p, qancha kutish, “tavsiya etilgan nuqta”.
+    Nega: Bo‘sh yurishni kamaytiradi. Surge heatmap bor — “next best spot”
+    AI maslahat qo‘shish.
+    Ustuvorlik: O‘RTA–YUQORI.
+
+2.6. Garantiyali soatlik (“Guaranteed earnings” slot)
+    Nima: Masalan 17:00–20:00 online bo‘lsangiz — minimal X so‘m kafolat.
+    Nega: Peak soatlarda haydovchi ushlab turish. Yandexda kampaniya tarzida
+    bo‘ladi; siz doimiy mahsulot qilishingiz mumkin.
+    Ustuvorlik: YUQORI (ops cost hisoblash kerak).
+
+2.7. Mashina / hujjat eslatmalari (TNDL, sug‘urta, texko‘rik)
+    Nima: Muddati tugashiga 14 kun qolganda push + checklist.
+    Nega: Bloklanish oldidan ogohlantirish — ishonch.
+    Ustuvorlik: O‘RTA.
+
+2.8. Ichki “haydovchi akademiya” (qisqa video + test)
+    Nima: Xavfsizlik, mijoz bilan muloqot, app ishlatish — sertifikat badge.
+    Nega: Sifat ↑, rating ↑. Differensial brend.
+    Ustuvorlik: O‘RTA.
+
+2.9. Guruh / “brigada” (fleet owner)
+    Nima: Bir egasi 5–20 mashina; o‘z haydovchilarini boshqaradi, hisobot.
+    Nega: Parklar Yandexga bog‘liq; sizga kelishi mumkin.
+    Ustuvorlik: YUQORI (B2B).
+
+2.10. “Dam olish / namoz / ovqat” status (Busy without going offline)
+     Nima: 15–30 daqiqa “break” — buyurtma kelmaydi, online statistikasi
+     buzilmaydi.
+     Nega: Haydovchi qulayligi; oddiy, lekin seviladi.
+     Ustuvorlik: O‘RTA.
+
+2.11. Bahoga e’tiroz (Rating appeal)
+     Nima: Adolatsiz 1 yulduzga izoh + admin ko‘rib chiqadi.
+     Nega: Haydovchi adolat hissi. Yandexda qiyin.
+     Ustuvorlik: O‘RTA.
+
+2.12. Yoqilg‘i / servis chegirmalari (Partner deals)
+     Nima: Hamkor YOY / yuvish / shinalar — HolaDrive haydovchisiga %.
+     Nega: Real iqtisodiy foyda.
+     Ustuvorlik: O‘RTA–YUQORI.
+
+
+
+

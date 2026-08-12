@@ -277,8 +277,16 @@ SPECTACULAR_SETTINGS = {
 }
 
 SIMPLE_JWT = {
-    "ACCESS_TOKEN_LIFETIME": timedelta(days=7),
-    "REFRESH_TOKEN_LIFETIME": timedelta(days=1),
+    # Mobile: access practically does not expire; refresh must outlive access.
+    # (Previously refresh was 1 day while access was 7 days → refresh failed after ~1 day.)
+    "ACCESS_TOKEN_LIFETIME": timedelta(
+        days=int(os.getenv("JWT_ACCESS_TOKEN_LIFETIME_DAYS", "3650"))
+    ),
+    "REFRESH_TOKEN_LIFETIME": timedelta(
+        days=int(os.getenv("JWT_REFRESH_TOKEN_LIFETIME_DAYS", "3650"))
+    ),
+    "ROTATE_REFRESH_TOKENS": False,
+    "UPDATE_LAST_LOGIN": False,
 }
 
 CSRF_TRUSTED_ORIGINS = [
