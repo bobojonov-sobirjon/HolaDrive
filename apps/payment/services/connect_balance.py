@@ -82,7 +82,24 @@ def fetch_connect_balance_and_payouts(user: CustomUser, *, payout_limit: int = 1
         )
 
     anchor = getattr(settings, 'STRIPE_CONNECT_PAYOUT_WEEKLY_ANCHOR', 'monday')
-    interval = getattr(settings, 'STRIPE_CONNECT_PAYOUT_INTERVAL', 'weekly')
+    interval = getattr(settings, 'STRIPE_CONNECT_PAYOUT_INTERVAL', 'manual') or 'manual'
+    manual = interval == 'manual'
+
+    instant_cents = sum(int(r.get('amount_cents') or 0) for r in instant_available)
+
+    if manual:
+        schedule_note = (
+            'Earnings appear in pending, then available. '
+            'Withdraw anytime with POST /api/v1/payment/driver/stripe-connect/withdraw/. '
+            'Use instant=true for instant payout when your bank supports it.'
+        )
+        payout_mode = 'manual_withdraw'
+    else:
+        schedule_note = (
+            f'Automatic {interval} bank deposits (anchor: {anchor}). '
+            'Trip earnings land in pending first, then become available, then Stripe pays out to your bank.'
+        )
+        payout_mode = f'automatic_{interval}'
 
     return {
         'stripe_connect_account_id': acct_id,
@@ -91,20 +108,19 @@ def fetch_connect_balance_and_payouts(user: CustomUser, *, payout_limit: int = 1
         'available': available,
         'pending': pending,
         'instant_available': instant_available,
+        'instant_available_cents': instant_cents,
+        'instant_available_total': _cents_to_money(instant_cents) if instant_cents else '0.00',
         # Flat totals for simple clients
         'available_total': _cents_to_money(avail_cents),
         'available_cents': avail_cents,
         'pending_total': _cents_to_money(pend_cents),
         'pending_cents': pend_cents,
         'recent_payouts': recent,
-        'payout_mode': 'automatic_weekly',
+        'payout_mode': payout_mode,
+        'withdraw_on_demand': manual,
         'payout_schedule': {
             'interval': interval,
             'weekly_anchor': anchor if interval == 'weekly' else None,
         },
-        'payout_schedule_note': (
-            f'Automatic {interval} bank deposits (anchor: {anchor}). '
-            'Trip earnings land in pending first, then become available, then Stripe pays out to your bank. '
-            'No manual cash-out is required.'
-        ),
+        'payout_schedule_note': schedule_note,
     }

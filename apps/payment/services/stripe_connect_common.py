@@ -22,7 +22,7 @@ def is_stripe_live_mode() -> bool:
 def apply_payout_schedule(account_id: str) -> None:
     if not getattr(settings, 'STRIPE_CONNECT_APPLY_PAYOUT_SCHEDULE', True):
         return
-    interval = getattr(settings, 'STRIPE_CONNECT_PAYOUT_INTERVAL', 'weekly') or 'weekly'
+    interval = getattr(settings, 'STRIPE_CONNECT_PAYOUT_INTERVAL', 'manual') or 'manual'
     params: dict[str, Any] = {'interval': interval}
     if interval == 'weekly':
         params['weekly_anchor'] = getattr(settings, 'STRIPE_CONNECT_PAYOUT_WEEKLY_ANCHOR', 'monday') or 'monday'
@@ -30,6 +30,18 @@ def apply_payout_schedule(account_id: str) -> None:
     if delay.isdigit():
         params['delay_days'] = int(delay)
     stripe.Account.modify(account_id, settings={'payouts': {'schedule': params}})
+
+
+def ensure_manual_payout_schedule(account_id: str) -> None:
+    """Switch Connect account to manual payouts so driver controls withdraw timing."""
+    configure_stripe()
+    acct = stripe.Account.retrieve(account_id)
+    schedule = getattr(getattr(acct, 'settings', None), 'payouts', None)
+    current = getattr(schedule, 'schedule', None) if schedule else None
+    interval = getattr(current, 'interval', None) if current else None
+    if interval == 'manual':
+        return
+    stripe.Account.modify(account_id, settings={'payouts': {'schedule': {'interval': 'manual'}}})
 
 
 def create_connect_account(*, email: str | None, user_id: int) -> str:
@@ -108,8 +120,9 @@ def account_status_payload(acct: Any) -> dict[str, Any]:
     charges_enabled = bool(getattr(acct, 'charges_enabled', False))
     payouts_enabled = bool(getattr(acct, 'payouts_enabled', False))
     details_submitted = bool(getattr(acct, 'details_submitted', False))
-    interval = getattr(settings, 'STRIPE_CONNECT_PAYOUT_INTERVAL', 'weekly') or 'weekly'
+    interval = getattr(settings, 'STRIPE_CONNECT_PAYOUT_INTERVAL', 'manual') or 'manual'
     anchor = getattr(settings, 'STRIPE_CONNECT_PAYOUT_WEEKLY_ANCHOR', 'monday') or 'monday'
+    manual = interval == 'manual'
     return {
         'charges_enabled': charges_enabled,
         'payouts_enabled': payouts_enabled,
@@ -127,10 +140,19 @@ def account_status_payload(acct: Any) -> dict[str, Any]:
             'payouts_enabled': payouts_enabled,
             'details_submitted': details_submitted,
         },
+        'payout_mode': 'manual_withdraw' if manual else 'automatic_scheduled',
+        'withdraw_on_demand': {
+            'enabled': manual,
+            'instant_supported': True,
+            'note': (
+                'Withdraw available earnings anytime via POST …/stripe-connect/withdraw/. '
+                'Use instant=true when Stripe instant balance is available.'
+            ),
+        },
         'weekly_direct_deposit': {
             'enabled': interval == 'weekly',
             'interval': interval,
             'weekly_anchor': anchor if interval == 'weekly' else None,
-            'fee_note': 'No fee',
+            'fee_note': 'No platform fee on standard bank transfer',
         },
     }

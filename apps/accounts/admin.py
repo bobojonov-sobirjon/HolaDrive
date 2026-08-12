@@ -30,6 +30,7 @@ class CustomUserAdmin(UserAdmin):
                     'avatar',
                     'address',
                     'tax_number',
+                    'tvq_number',
                     'firebase_uid',
                     'id_identification',
                     'is_verified',

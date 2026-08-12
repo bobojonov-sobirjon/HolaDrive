@@ -6,6 +6,7 @@ from .views_connect import (
     DriverStripeBalanceView,
     DriverStripeConnectBankAccountView,
     DriverStripeConnectCompleteSetupView,
+    DriverStripeWithdrawView,
 )
 
 app_name = 'payment'
@@ -25,5 +26,10 @@ urlpatterns = [
         name='driver-stripe-connect-complete-setup',
     ),
     path('driver/stripe-balance/', DriverStripeBalanceView.as_view(), name='driver-stripe-balance'),
+    path(
+        'driver/stripe-connect/withdraw/',
+        DriverStripeWithdrawView.as_view(),
+        name='driver-stripe-withdraw',
+    ),
     path('driver/checkout-history/', DriverCheckoutHistoryView.as_view(), name='driver-checkout-history'),
 ]

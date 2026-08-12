@@ -14,6 +14,7 @@ from .serializers_connect import (
     StripeConnectBankDeleteSerializer,
     StripeConnectBankWriteSerializer,
     StripeConnectCompleteSetupSerializer,
+    StripeConnectWithdrawSerializer,
 )
 from .utils import holder_role_for_user
 
@@ -233,8 +234,8 @@ class DriverStripeBalanceView(AsyncAPIView):
         tags=['Stripe — Driver'],
         summary='Stripe Connect balance (pending / available) & recent bank payouts',
         description=(
-            'Read-only. Shows pending and available Connect balance plus recent automatic bank payouts. '
-            'Stripe deposits available funds to the linked bank on the weekly schedule — no manual cash-out.'
+            'Read-only. Shows pending and available Connect balance plus recent payouts. '
+            'When payout_mode is manual_withdraw, drivers cash out via POST …/stripe-connect/withdraw/.'
         ),
     )
     async def get(self, request):
@@ -255,6 +256,73 @@ class DriverStripeBalanceView(AsyncAPIView):
                 status=400,
             )
         return Response({'message': 'Balance retrieved', 'status': 'success', 'data': data}, status=200)
+
+
+class DriverStripeWithdrawView(AsyncAPIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        tags=['Stripe — Driver'],
+        summary='Withdraw earnings to bank',
+        description=(
+            'Withdraw available Stripe Connect balance to the linked bank account.\n\n'
+            '**Body:** optional `amount_cents` (omit = full available balance), '
+            '`instant` (default false — use true for Stripe instant payout when supported).\n\n'
+            'Requires bank linked and Connect payouts enabled.'
+        ),
+        request=StripeConnectWithdrawSerializer,
+        examples=[
+            OpenApiExample(
+                'Withdraw all (standard)',
+                value={'instant': False},
+                request_only=True,
+            ),
+            OpenApiExample(
+                'Instant withdraw $50',
+                value={'amount_cents': 5000, 'instant': True},
+                request_only=True,
+            ),
+        ],
+    )
+    async def post(self, request):
+        if not await _require_driver(request.user):
+            return Response({'message': 'Only drivers can access this endpoint', 'status': 'error'}, status=403)
+        if not _stripe_ok():
+            return Response({'message': 'Stripe is not configured.', 'status': 'error'}, status=503)
+
+        ser = StripeConnectWithdrawSerializer(data=request.data or {})
+        if not await sync_to_async(lambda: ser.is_valid())():
+            return Response({'message': 'Validation error', 'status': 'error', 'errors': ser.errors}, status=400)
+
+        vd = ser.validated_data
+        from .services.connect_withdraw import WithdrawError, request_driver_withdraw
+
+        def _run():
+            u = CustomUser.objects.get(pk=request.user.pk)
+            return request_driver_withdraw(
+                u,
+                amount_cents=vd.get('amount_cents'),
+                instant=bool(vd.get('instant')),
+            )
+
+        try:
+            data = await sync_to_async(_run)()
+        except WithdrawError as e:
+            return Response({'message': str(e), 'status': 'error'}, status=400)
+        except stripe.error.StripeError as e:
+            return Response(
+                {'message': getattr(e, 'user_message', None) or str(e), 'status': 'error'},
+                status=400,
+            )
+
+        return Response(
+            {
+                'message': data.get('message', 'Withdrawal initiated'),
+                'status': 'success',
+                'data': data,
+            },
+            status=200,
+        )
 
 
 class DriverCheckoutHistoryView(AsyncAPIView):

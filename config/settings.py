@@ -398,7 +398,7 @@ STRIPE_APPLICATION_FEE_PERCENT = os.getenv('STRIPE_APPLICATION_FEE_PERCENT', '0'
 # Stripe Connect (driver payouts) — see docs/STRIPE_HolaDrive_INTEGRATION.md
 STRIPE_CONNECT_ACCOUNT_TYPE = os.getenv('STRIPE_CONNECT_ACCOUNT_TYPE', 'custom').strip().lower() or 'custom'
 STRIPE_CONNECT_COUNTRY = os.getenv('STRIPE_CONNECT_COUNTRY', 'US').strip().upper() or 'US'
-STRIPE_CONNECT_PAYOUT_INTERVAL = os.getenv('STRIPE_CONNECT_PAYOUT_INTERVAL', 'weekly').strip().lower() or 'weekly'
+STRIPE_CONNECT_PAYOUT_INTERVAL = os.getenv('STRIPE_CONNECT_PAYOUT_INTERVAL', 'manual').strip().lower() or 'manual'
 STRIPE_CONNECT_PAYOUT_WEEKLY_ANCHOR = os.getenv('STRIPE_CONNECT_PAYOUT_WEEKLY_ANCHOR', 'monday').strip().lower() or 'monday'
 STRIPE_CONNECT_PAYOUT_DELAY_DAYS = os.getenv('STRIPE_CONNECT_PAYOUT_DELAY_DAYS', '').strip()
 STRIPE_CONNECT_APPLY_PAYOUT_SCHEDULE = os.getenv('STRIPE_CONNECT_APPLY_PAYOUT_SCHEDULE', 'true').lower() == 'true'

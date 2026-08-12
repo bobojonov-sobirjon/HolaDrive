@@ -1,4 +1,4 @@
-"""Driver cash history — automatic Stripe Connect bank payouts (no manual cash-out)."""
+"""Driver cash history — Stripe Connect payouts (manual withdraw + history)."""
 from __future__ import annotations
 
 from datetime import datetime, timezone as dt_tz
@@ -24,7 +24,7 @@ def _payout_row(p) -> dict[str, Any]:
     return {
         'id': p.id,
         'source': 'stripe_payout',
-        'payout_type': 'automatic_bank_deposit',
+        'payout_type': 'driver_withdraw',
         'amount': _cents_to_money(int(p.amount)),
         'amount_cents': int(p.amount),
         'currency': (p.currency or '').upper(),
@@ -42,8 +42,7 @@ def build_driver_cash_history(
     page_size: int = 20,
 ) -> dict[str, Any]:
     """
-    Weekly automatic bank deposits from Stripe Connect.
-    Replaces legacy manual DriverCashout history for card earnings.
+    Connect payout history for driver earnings screen.
     """
     acct_id = (user.stripe_connect_account_id or '').strip()
     page = max(1, int(page))
@@ -51,7 +50,7 @@ def build_driver_cash_history(
 
     if not acct_id:
         return {
-            'payout_mode': 'automatic_weekly',
+            'payout_mode': 'manual_withdraw',
             'stripe_connect_account_id': None,
             'livemode': is_stripe_live_mode(),
             'balance': None,
@@ -59,7 +58,7 @@ def build_driver_cash_history(
             'count': 0,
             'page': page,
             'page_size': page_size,
-            'note': 'Link a bank account via Stripe Connect to receive automatic weekly deposits.',
+            'note': 'Link a bank account via Stripe Connect, then withdraw earnings anytime.',
         }
 
     balance = fetch_connect_balance_and_payouts(user, payout_limit=min(page_size, 10))
@@ -76,8 +75,10 @@ def build_driver_cash_history(
     start = (page - 1) * page_size
     page_rows = all_rows[start : start + page_size]
 
+    payout_mode = balance.get('payout_mode', 'manual_withdraw')
+
     return {
-        'payout_mode': 'automatic_weekly',
+        'payout_mode': payout_mode,
         'stripe_connect_account_id': acct_id,
         'livemode': is_stripe_live_mode(),
         'balance': {
@@ -85,6 +86,7 @@ def build_driver_cash_history(
             'pending': balance['pending'],
             'available_cents': balance['available_cents'],
             'pending_cents': balance['pending_cents'],
+            'instant_available_cents': balance.get('instant_available_cents', 0),
             'currency': balance['currency'],
         },
         'payout_schedule': balance['payout_schedule'],
@@ -94,9 +96,8 @@ def build_driver_cash_history(
         'page': page,
         'page_size': page_size,
         'note': (
-            'Earnings from card trips go to your Stripe Connect balance. '
-            'Stripe automatically deposits available funds to your bank on the weekly schedule — '
-            'no manual cash-out request is needed.'
+            'Withdraw available earnings with POST /api/v1/payment/driver/stripe-connect/withdraw/. '
+            'Set instant=true for instant payout when Stripe supports it on your bank.'
         ),
     }
 

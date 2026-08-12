@@ -79,7 +79,14 @@ class CustomUser(AbstractUser):
         blank=True,
         null=True,
         verbose_name="Tax Number (GST/HST)",
-        help_text="Optional. Enter your tax number (GST/HST)."
+        help_text="Federal tax number (GST/HST) — Canada.",
+    )
+    tvq_number = models.CharField(
+        max_length=15,
+        blank=True,
+        null=True,
+        verbose_name="Tax Number (TVQ/QST)",
+        help_text="Provincial tax number (TVQ / QST) — Quebec, Canada.",
     )
     id_identification = models.CharField(
         max_length=9,

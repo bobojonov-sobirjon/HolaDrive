@@ -11,10 +11,61 @@ logger = logging.getLogger(__name__)
 def normalize_phone_number(phone_number):
     if not phone_number:
         return phone_number
-    cleaned = re.sub(r'[^\d+]', '', str(phone_number))
+    cleaned = re.sub(r'[^\d+]', '', str(phone_number).strip())
+    if not cleaned:
+        return phone_number
     if cleaned.startswith('+'):
         return cleaned
+    if cleaned.startswith('1') and len(cleaned) == 11:
+        return f'+{cleaned}'
+    if len(cleaned) == 10:
+        return f'+1{cleaned}'
     return f'+{cleaned}'
+
+
+def validate_phone_number(phone_number, *, required=False):
+    """
+    Validate and normalize phone numbers.
+    North America (+1): country code + exactly 10 national digits.
+    """
+    if not phone_number or not str(phone_number).strip():
+        if required:
+            raise ValueError('Phone number is required.')
+        return None
+
+    normalized = normalize_phone_number(phone_number)
+    digits = re.sub(r'\D', '', normalized or '')
+
+    if not digits:
+        raise ValueError('Invalid phone number format.')
+
+    if digits.startswith('1'):
+        if len(digits) != 11:
+            raise ValueError(
+                'Phone number must include country code +1 and 10 digits '
+                '(example: +1 514 555 1234).'
+            )
+        return f'+{digits}'
+
+    if len(digits) == 10:
+        return f'+1{digits}'
+
+    if len(digits) < 10 or len(digits) > 15:
+        raise ValueError('Invalid phone number length.')
+
+    return f'+{digits}'
+
+
+def validate_canadian_tax_number(value, *, field_label='Tax number'):
+    """GST/HST or TVQ — digits and letters, 9–15 chars after cleanup."""
+    if value is None or not str(value).strip():
+        return None
+    cleaned = re.sub(r'[\s\-]', '', str(value).strip()).upper()
+    if len(cleaned) < 9 or len(cleaned) > 15:
+        raise ValueError(f'{field_label} must be 9–15 characters.')
+    if not re.fullmatch(r'[A-Z0-9]+', cleaned):
+        raise ValueError(f'{field_label} may contain letters and digits only.')
+    return cleaned
 
 
 def _twilio_credentials():

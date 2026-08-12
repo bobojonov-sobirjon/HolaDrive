@@ -1,6 +1,7 @@
 from django.db.models import Avg, Count
 from rest_framework import serializers
 from ..models import CustomUser
+from ..services import validate_canadian_tax_number, validate_phone_number
 
 
 class UserDetailSerializer(serializers.ModelSerializer):
@@ -18,7 +19,8 @@ class UserDetailSerializer(serializers.ModelSerializer):
         fields = (
             'id', 'email', 'username', 'full_name', 'phone_number',
             'date_of_birth', 'gender', 'avatar', 'address',
-            'longitude', 'latitude', 'tax_number', 'id_identification', 'is_verified', 'is_active',
+            'longitude', 'latitude', 'tax_number', 'tvq_number', 'id_identification',
+            'is_verified', 'is_active',
             'rating', 'rating_count',
             'groups', 'created_at', 'updated_at', 'last_login'
         )
@@ -81,6 +83,30 @@ class UserDetailSerializer(serializers.ModelSerializer):
 
     def get_rating_count(self, obj):
         return self._profile_rating_stats(obj)['rating_count']
+
+    def validate_phone_number(self, value):
+        if not value:
+            return value
+        try:
+            return validate_phone_number(value)
+        except ValueError as exc:
+            raise serializers.ValidationError(str(exc)) from exc
+
+    def validate_tax_number(self, value):
+        if not value:
+            return value
+        try:
+            return validate_canadian_tax_number(value, field_label='GST/HST number')
+        except ValueError as exc:
+            raise serializers.ValidationError(str(exc)) from exc
+
+    def validate_tvq_number(self, value):
+        if not value:
+            return value
+        try:
+            return validate_canadian_tax_number(value, field_label='TVQ number')
+        except ValueError as exc:
+            raise serializers.ValidationError(str(exc)) from exc
 
     def to_representation(self, instance):
         """

@@ -65,3 +65,18 @@ class StripeConnectCompleteSetupSerializer(serializers.Serializer):
 
 class StripeConnectBankDeleteSerializer(serializers.Serializer):
     bank_account_id = serializers.CharField(required=False, allow_blank=True, max_length=64)
+
+
+class StripeConnectWithdrawSerializer(serializers.Serializer):
+    """Withdraw available Connect balance to linked bank."""
+
+    amount_cents = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        help_text='Amount in cents. Omit to withdraw full available balance.',
+    )
+    instant = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text='Use Stripe instant payout when eligible (may include Stripe/bank fees).',
+    )
