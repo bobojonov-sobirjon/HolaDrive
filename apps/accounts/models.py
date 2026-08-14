@@ -25,7 +25,7 @@ class CustomUser(AbstractUser):
         help_text="Required. Enter a valid email address."
     )
     phone_number = models.CharField(
-        max_length=15,
+        max_length=20,
         blank=True,
         null=True,
         verbose_name="Phone Number",
@@ -205,7 +205,7 @@ class VerificationCode(models.Model):
         verbose_name="Verification Code"
     )
     phone_number = models.CharField(
-        max_length=15,
+        max_length=20,
         blank=True,
         null=True,
         verbose_name="Phone Number"

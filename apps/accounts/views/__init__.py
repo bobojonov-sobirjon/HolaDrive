@@ -52,6 +52,11 @@ from .driver_identification import (
     DriverIdentificationUploadSubmitView,
     DriverIdentificationUploadTypeDetailView,
 )
+from .contact_link import (
+    ContactLinkConfirmView,
+    ContactLinkRequestView,
+    DriverReadinessView,
+)
 
 __all__ = [
     'RegistrationView',
@@ -96,4 +101,7 @@ __all__ = [
     'LoginLegalDocumentsListView',
     'LoginLegalDocumentDetailView',
     'LoginLegalDocumentViewPage',
+    'ContactLinkRequestView',
+    'ContactLinkConfirmView',
+    'DriverReadinessView',
 ]

@@ -27,6 +27,9 @@ from .views import (
     LoginLegalDocumentsListView,
     LoginLegalDocumentDetailView,
     LoginLegalDocumentViewPage,
+    ContactLinkRequestView,
+    ContactLinkConfirmView,
+    DriverReadinessView,
 )
 
 app_name = 'accounts'
@@ -59,11 +62,14 @@ urlpatterns = [
 
     path('me/', UserDetailView.as_view(), name='user-detail'),
     path('me/avatar/', UserAvatarUpdateView.as_view(), name='user-avatar-update'),
+    path('me/contact/request/', ContactLinkRequestView.as_view(), name='me-contact-request'),
+    path('me/contact/confirm/', ContactLinkConfirmView.as_view(), name='me-contact-confirm'),
 
     path('preferences/', UserPreferencesView.as_view(), name='user-preferences'),
     path('preferences/delete/', UserPreferencesDeleteView.as_view(), name='user-preferences-delete'),
 
     path('driver/preferences/', DriverPreferencesView.as_view(), name='driver-preferences'),
+    path('driver/readiness/', DriverReadinessView.as_view(), name='driver-readiness'),
 
     path('vehicle/', VehicleDetailsView.as_view(), name='vehicle-details'),
     path('vehicle/<int:pk>/', VehicleDetailView.as_view(), name='vehicle-detail'),

@@ -88,9 +88,18 @@ class UserDetailSerializer(serializers.ModelSerializer):
         if not value:
             return value
         try:
-            return validate_phone_number(value)
+            normalized = validate_phone_number(value)
         except ValueError as exc:
             raise serializers.ValidationError(str(exc)) from exc
+
+        from ..services import phone_already_taken
+
+        user = self.instance
+        if phone_already_taken(normalized, exclude_user_id=user.pk if user else None):
+            raise serializers.ValidationError(
+                'This phone number is already linked to another account.'
+            )
+        return normalized
 
     def validate_tax_number(self, value):
         if not value:

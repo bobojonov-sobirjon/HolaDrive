@@ -9,24 +9,23 @@ logger = logging.getLogger(__name__)
 
 
 def normalize_phone_number(phone_number):
+    """Normalize to E.164-like form: leading '+' + digits only."""
     if not phone_number:
         return phone_number
     cleaned = re.sub(r'[^\d+]', '', str(phone_number).strip())
     if not cleaned:
         return phone_number
     if cleaned.startswith('+'):
-        return cleaned
-    if cleaned.startswith('1') and len(cleaned) == 11:
-        return f'+{cleaned}'
-    if len(cleaned) == 10:
-        return f'+1{cleaned}'
-    return f'+{cleaned}'
+        digits = re.sub(r'\D', '', cleaned)
+        return f'+{digits}' if digits else phone_number
+    digits = re.sub(r'\D', '', cleaned)
+    return f'+{digits}' if digits else phone_number
 
 
 def validate_phone_number(phone_number, *, required=False):
     """
-    Validate and normalize phone numbers.
-    North America (+1): country code + exactly 10 national digits.
+    Validate international phone numbers (any country).
+    Expects country code; stores as +XXXXXXXX (E.164-style, 8–15 digits).
     """
     if not phone_number or not str(phone_number).strip():
         if required:
@@ -39,21 +38,48 @@ def validate_phone_number(phone_number, *, required=False):
     if not digits:
         raise ValueError('Invalid phone number format.')
 
-    if digits.startswith('1'):
-        if len(digits) != 11:
-            raise ValueError(
-                'Phone number must include country code +1 and 10 digits '
-                '(example: +1 514 555 1234).'
-            )
-        return f'+{digits}'
-
-    if len(digits) == 10:
-        return f'+1{digits}'
-
-    if len(digits) < 10 or len(digits) > 15:
-        raise ValueError('Invalid phone number length.')
+    if len(digits) < 8 or len(digits) > 15:
+        raise ValueError(
+            'Phone number must include country code and be 8-15 digits '
+            '(example: +1 514 555 1234 or +998 90 123 45 67).'
+        )
 
     return f'+{digits}'
+
+
+def phone_already_taken(phone_number, *, exclude_user_id=None) -> bool:
+    """True if another user already has this phone (normalized or raw)."""
+    from .models import CustomUser
+    from .phone_auth import find_user_by_phone
+
+    normalized = normalize_phone_number(phone_number)
+    if not normalized:
+        return False
+
+    existing = find_user_by_phone(normalized)
+    if existing and (exclude_user_id is None or existing.pk != exclude_user_id):
+        return True
+
+    digits = re.sub(r'\D', '', normalized)
+    qs = CustomUser.objects.exclude(phone_number__isnull=True).exclude(phone_number='')
+    if exclude_user_id is not None:
+        qs = qs.exclude(pk=exclude_user_id)
+    for other in qs.only('id', 'phone_number').iterator():
+        if re.sub(r'\D', '', other.phone_number or '') == digits:
+            return True
+    return False
+
+
+def email_already_taken(email, *, exclude_user_id=None) -> bool:
+    from .models import CustomUser
+
+    email = (email or '').strip().lower()
+    if not email:
+        return False
+    qs = CustomUser.objects.filter(email__iexact=email)
+    if exclude_user_id is not None:
+        qs = qs.exclude(pk=exclude_user_id)
+    return qs.exists()
 
 
 def validate_canadian_tax_number(value, *, field_label='Tax number'):
