@@ -216,13 +216,30 @@ class AdminLoginView(AsyncAPIView):
         request=AdminLoginSerializer
     )
     async def post(self, request):
+        import logging
+        import time
+
+        log = logging.getLogger(__name__)
+        t0 = time.monotonic()
+
+        def _alog(step: str, **extra):
+            elapsed = round(time.monotonic() - t0, 3)
+            parts = ' '.join(f'{k}={v}' for k, v in extra.items())
+            msg = f'[ADMIN_LOGIN] step={step} elapsed_s={elapsed} {parts}'.strip()
+            log.warning(msg)
+            print(msg, flush=True)
+
+        _alog('request_received', path=getattr(request, 'path', ''))
         serializer = AdminLoginSerializer(data=request.data)
         is_valid = await sync_to_async(lambda: serializer.is_valid())()
+        _alog('serializer_done', is_valid=is_valid)
 
         if is_valid:
             validated_data = await sync_to_async(lambda: serializer.validated_data)()
             user = validated_data['user']
             email = validated_data['email']
+            _alog('auth_ok', user_id=user.pk, email=email, superuser=user.is_superuser)
+            _alog('send_otp_begin')
 
             verification_code, success, error = await sync_to_async(send_verification_code)(
                 user=user,
@@ -230,8 +247,15 @@ class AdminLoginView(AsyncAPIView):
                 email_subject='Admin Panel Login Verification Code',
                 email_message='Your admin panel login verification code is: {code}',
             )
+            _alog(
+                'send_otp_end',
+                success=success,
+                error=error or '-',
+                code=getattr(verification_code, 'code', None),
+            )
 
             if not success:
+                _alog('response_500_email_failed')
                 return Response(
                     {
                         'message': 'Failed to send verification code',
@@ -245,9 +269,11 @@ class AdminLoginView(AsyncAPIView):
                 'expires_in': 600,
                 'sent_to': email,
             }
-            if settings.DEBUG and getattr(settings, 'EMAIL_OTP_LOG_ONLY', False):
+            # Local/dev: always expose OTP so admin panel can proceed if SMTP is slow/blocked
+            if settings.DEBUG:
                 data['debug_otp'] = verification_code.code
 
+            _alog('response_200_ok')
             return Response(
                 {
                     'message': 'Admin verification code sent successfully',
@@ -258,6 +284,7 @@ class AdminLoginView(AsyncAPIView):
             )
 
         errors = await sync_to_async(lambda: serializer.errors)()
+        _alog('response_400_validation', errors=errors)
         return Response(
             {
                 'message': 'Validation error',

@@ -370,6 +370,8 @@ DEFAULT_FROM_EMAIL = _env_text('DEFAULT_FROM_EMAIL', '') or EMAIL_HOST_USER
 EMAIL_USE_LOCALTIME = False
 # Force SMTP conversation charset (avoids decode crashes on some servers)
 EMAIL_CHARSET = 'utf-8'
+# Prevent Swagger/UI "Loading..." forever when Gmail SMTP hangs
+EMAIL_TIMEOUT = int(_env_text('EMAIL_TIMEOUT', '15') or '15')
 # If true: do not call SMTP; log OTP to server logs (same idea as SMS_OTP_LOG_ONLY)
 EMAIL_OTP_LOG_ONLY = _env_text('EMAIL_OTP_LOG_ONLY', 'false').lower() in ('1', 'true', 'yes')
 # If true: on SMTP failure still succeed and log OTP (off by default — real email like SMS)

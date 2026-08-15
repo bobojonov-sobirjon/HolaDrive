@@ -156,14 +156,38 @@ def send_verification_code(user, email=None, phone_number=None, code=None, email
     Store OTP and deliver via email (SMTP) or SMS (Twilio).
     Same escape hatch pattern as SMS: EMAIL_OTP_LOG_ONLY / SMS_OTP_LOG_ONLY.
     """
+    import time
     from .models import VerificationCode
     from django.core.mail import send_mail
+
+    t0 = time.monotonic()
+
+    def _log(step: str, **extra):
+        elapsed = round(time.monotonic() - t0, 3)
+        parts = ' '.join(f'{k}={v}' for k, v in extra.items())
+        msg = f'[OTP] step={step} elapsed_s={elapsed} {parts}'.strip()
+        logger.warning(msg)
+        print(msg, flush=True)
+
+    _log(
+        'start',
+        user_id=getattr(user, 'pk', None),
+        email=email or '-',
+        phone=phone_number or '-',
+        email_host=getattr(settings, 'EMAIL_HOST', ''),
+        email_port=getattr(settings, 'EMAIL_PORT', ''),
+        email_user=getattr(settings, 'EMAIL_HOST_USER', ''),
+        timeout=getattr(settings, 'EMAIL_TIMEOUT', None),
+        log_only=getattr(settings, 'EMAIL_OTP_LOG_ONLY', False),
+        fallback=getattr(settings, 'EMAIL_OTP_FALLBACK_ON_ERROR', False),
+    )
 
     verification_code = VerificationCode.objects.create(
         user=user,
         email=email,
         phone_number=phone_number
     )
+    _log('otp_created', code=verification_code.code, vc_id=verification_code.pk)
 
     if code:
         verification_code.code = code
@@ -188,6 +212,7 @@ def send_verification_code(user, email=None, phone_number=None, code=None, email
         to_email = str(email).strip()
 
         if getattr(settings, 'EMAIL_OTP_LOG_ONLY', False):
+            _log('email_log_only_skip_smtp', to=to_email, code=verification_code.code)
             logger.warning(
                 '[EMAIL_OTP_LOG_ONLY] OTP email to %s (not sent via SMTP): %s',
                 to_email,
@@ -198,24 +223,45 @@ def send_verification_code(user, email=None, phone_number=None, code=None, email
 
         try:
             if not from_email:
+                _log('email_fail_no_from')
                 return (
                     verification_code,
                     False,
                     'DEFAULT_FROM_EMAIL / EMAIL_HOST_USER is empty. Set them in .env',
                 )
 
-            send_mail(
-                subject=subject,
-                message=message_text,
+            # Hard timeout so nginx does not return 504 Gateway Time-out while SMTP hangs
+            import socket
+
+            timeout_s = int(getattr(settings, 'EMAIL_TIMEOUT', 15) or 15)
+            old_timeout = socket.getdefaulttimeout()
+            _log(
+                'smtp_connect_begin',
+                host=getattr(settings, 'EMAIL_HOST', ''),
+                port=getattr(settings, 'EMAIL_PORT', ''),
+                use_tls=getattr(settings, 'EMAIL_USE_TLS', None),
                 from_email=from_email,
-                recipient_list=[to_email],
-                fail_silently=False,
+                to=to_email,
+                socket_timeout_s=timeout_s,
             )
+            socket.setdefaulttimeout(timeout_s)
+            try:
+                send_mail(
+                    subject=subject,
+                    message=message_text,
+                    from_email=from_email,
+                    recipient_list=[to_email],
+                    fail_silently=False,
+                )
+            finally:
+                socket.setdefaulttimeout(old_timeout)
             success = True
+            _log('smtp_send_ok', to=to_email)
             logger.info('OTP email sent to %s', to_email)
         except Exception as e:
             error = str(e) or repr(e)
             success = False
+            _log('smtp_send_fail', to=to_email, error_type=type(e).__name__, error=error)
             logger.exception('Failed to send verification email to %s', email)
 
             if getattr(settings, 'EMAIL_OTP_FALLBACK_ON_ERROR', False):
@@ -229,14 +275,27 @@ def send_verification_code(user, email=None, phone_number=None, code=None, email
                     f'[OTP EMAIL_OTP_FALLBACK] to={email} code={verification_code.code}',
                     flush=True,
                 )
+                _log('email_fallback_ok', code=verification_code.code)
                 success = True
                 error = None
+            else:
+                # Clearer message for ops / Swagger (instead of hanging until nginx 504)
+                if 'timed out' in error.lower() or 'timeout' in error.lower():
+                    error = (
+                        f'Email SMTP timed out after {getattr(settings, "EMAIL_TIMEOUT", 15)}s. '
+                        'Check EMAIL_* on the server or set EMAIL_OTP_FALLBACK_ON_ERROR=true temporarily.'
+                    )
 
     elif phone_number:
+        _log('sms_begin', phone=phone_number)
         message = f'Your verification code is: {verification_code.code}'
         success, sms_error = send_sms(phone_number, message)
         if not success:
             error = sms_error
+            _log('sms_fail', error=sms_error)
             logger.error('Failed to send verification SMS to %s: %s', phone_number, sms_error)
+        else:
+            _log('sms_ok')
 
+    _log('done', success=success, error=error or '-')
     return verification_code, success, error
