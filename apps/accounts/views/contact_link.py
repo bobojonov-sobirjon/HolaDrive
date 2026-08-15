@@ -163,7 +163,10 @@ class DriverReadinessView(AsyncAPIView):
             '- `profile`, `profile_photo`, `identification`, `registration_terms`, '
             '`preferences`, `vehicle`, `pin`, `bank_account`\n'
             '- `ready_for_rides` is true only when all **required** steps pass '
-            '(profile, identification approved, preferences, vehicle, bank_account).'
+            '(profile, identification approved, preferences, vehicle, bank_account).\n'
+            '- When a step is false, use `incomplete_actions[step]` for navigation.\n'
+            '- For profile: `details.profile.missing_fields` + `details.profile.actions` '
+            'list exactly which fields to fill and which API/screen to open.'
         ),
     )
     async def get(self, request):

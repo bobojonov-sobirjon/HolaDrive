@@ -153,36 +153,91 @@ Role: **Driver** (Rider → `403`)
 {
   "is_driver": true,
   "ready_for_rides": false,
-  "completion_percent": 62,
+  "completion_percent": 38,
   "checks": {
-    "profile": true,
-    "profile_photo": false,
+    "profile": false,
+    "profile_photo": true,
     "identification": false,
-    "registration_terms": true,
+    "registration_terms": false,
     "preferences": true,
     "vehicle": true,
     "pin": false,
     "bank_account": false
   },
+  "incomplete_actions": {
+    "profile": {
+      "screen": "edit_profile",
+      "path": "/api/v1/accounts/me/",
+      "use_details": "details.profile.missing_fields / details.profile.actions"
+    },
+    "identification": {
+      "screen": "identification_checklist",
+      "message": "Complete identification checklist and submit documents",
+      "use_details": "details.identification.verification_status"
+    },
+    "pin": {
+      "screen": "pin_setup",
+      "method": "POST",
+      "path": "/api/v1/accounts/pin-verification/",
+      "message": "Create a PIN"
+    },
+    "bank_account": {
+      "screen": "bank_account",
+      "path": "/api/v1/payment/driver/stripe-connect/",
+      "message": "Link Stripe Connect and add a bank account"
+    }
+  },
   "details": {
     "profile": {
       "full_name": true,
-      "phone_number": true,
-      "email": false,
-      "date_of_birth": true,
-      "address": false
+      "phone_number": false,
+      "email": true,
+      "date_of_birth": false,
+      "address": false,
+      "required_fields": ["full_name", "phone_number", "date_of_birth"],
+      "missing_fields": ["phone_number", "date_of_birth"],
+      "next_screen": "edit_profile",
+      "next_path": "/api/v1/accounts/me/",
+      "next_field": "phone_number",
+      "actions": [
+        {
+          "field": "phone_number",
+          "message": "Add and verify phone number",
+          "screen": "edit_profile",
+          "method": "PUT",
+          "path": "/api/v1/accounts/me/",
+          "body_hint": { "phone_number": "+15145551234" },
+          "preferred_flow": {
+            "request": "POST /api/v1/accounts/me/contact/request/",
+            "confirm": "POST /api/v1/accounts/me/contact/confirm/"
+          }
+        },
+        {
+          "field": "date_of_birth",
+          "message": "Add date of birth",
+          "screen": "edit_profile",
+          "method": "PUT",
+          "path": "/api/v1/accounts/me/",
+          "body_hint": { "date_of_birth": "1990-01-15" }
+        }
+      ]
     },
     "identification": {
       "checklist_complete": true,
-      "verification_status": "in_review",
+      "verification_status": "not_submitted",
       "verification_approved": false,
       "steps_total": 5,
-      "steps_accepted": 5
+      "steps_accepted": 5,
+      "message": "Documents submitted — waiting for admin approval",
+      "next_screen": "identification_status"
     },
     "bank_account": {
-      "stripe_connect_linked": true,
+      "stripe_connect_linked": false,
       "bank_linked": false,
-      "payouts_enabled": false
+      "payouts_enabled": false,
+      "message": "Link Stripe Connect and add a bank account",
+      "next_screen": "bank_account",
+      "next_path": "/api/v1/payment/driver/stripe-connect/"
     },
     "required_for_rides": [
       "profile",
@@ -208,6 +263,28 @@ Role: **Driver** (Rider → `403`)
 | `pin` | PIN yaratilgan |
 | `bank_account` | Stripe Connect + bank linked (+ payouts/onboarding) |
 
+### Profile — Frontend qayerga olib boradi
+
+`checks.profile === false` bo‘lsa:
+
+1. `details.profile.missing_fields` — qaysi maydonlar yetishmayapti (`full_name` | `phone_number` | `date_of_birth`)
+2. `details.profile.actions[]` — har bir missing field uchun `screen`, `path`, `body_hint`
+3. `details.profile.next_field` — birinchi to‘ldirilishi kerak field (primary CTA)
+4. `incomplete_actions.profile` — umumiy step navigation
+
+**Majburiy** (profile ✅ uchun): `full_name`, `phone_number`, `date_of_birth`  
+**Majburiy emas:** `email`, `address` (faqat status)
+
+Misollar:
+- `missing_fields: ["phone_number"]` → Edit profile / contact OTP flow
+- `missing_fields: ["date_of_birth"]` → `PUT /me/` with `date_of_birth`
+- `missing_fields: []` va `checks.profile: true` → Profile qatoriga ✅
+
+### Identification — matn
+
+`checks.identification` faqat **approved** da `true`.  
+Matn uchun `details.identification.verification_status` + `message` ishlating — `false` ni “Not submitted” deb map qilmang.
+
 ### `ready_for_rides`
 
 `true` faqat shu `required_for_rides` hammasi `true` bo‘lsa:
@@ -224,15 +301,17 @@ Role: **Driver** (Rider → `403`)
 
 1. Driver home / “Go online” oldidan `GET …/driver/readiness/`
 2. Har bir `checks.*` uchun qator: ✅ / ❌
-3. `ready_for_rides === false` → online tugma disable + qaysi step yetishmayotganini ochish
-4. `completion_percent` — progress bar
-5. `details.identification.verification_status` — `not_submitted` | `in_review` | `approved` | `rejected`
+3. Qator bosilganda: `incomplete_actions[key]` yoki `details.profile.actions`
+4. Profile ❌ → `missing_fields` bo‘yicha form focus
+5. `ready_for_rides === false` → online tugma disable
+6. `completion_percent` — progress bar
+7. Identification subtitle: `verification_status` (`not_submitted` | `in_review` | `approved` | `rejected`)
 
 ### Qaysi ekranga olib borish
 
 | Check false | Screen / API |
 |-------------|--------------|
-| `profile` | Edit profile `/me/` |
+| `profile` | `details.profile.actions` / `PUT /me/` |
 | `profile_photo` | `PUT /me/avatar/` |
 | `identification` | Identification checklist + wait for admin |
 | `registration_terms` | Registration terms accept |
