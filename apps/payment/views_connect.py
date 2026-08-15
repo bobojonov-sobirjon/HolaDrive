@@ -1,4 +1,6 @@
 """Stripe Connect + driver payout APIs (AutoHandy-style, HolaDrive paths)."""
+import logging
+
 import stripe
 from asgiref.sync import sync_to_async
 from django.conf import settings
@@ -9,6 +11,8 @@ from rest_framework.response import Response
 
 from apps.accounts.models import CustomUser
 from apps.common.views import AsyncAPIView
+
+logger = logging.getLogger(__name__)
 
 from .serializers_connect import (
     StripeConnectBankDeleteSerializer,
@@ -189,6 +193,14 @@ class DriverStripeConnectCompleteSetupView(AsyncAPIView):
 
         ser = StripeConnectCompleteSetupSerializer(data=request.data, context={'request': request})
         if not await sync_to_async(lambda: ser.is_valid())():
+            safe_keys = sorted(str(k) for k in getattr(request.data, 'keys', lambda: [])())
+            logger.warning(
+                '[STRIPE_COMPLETE_SETUP] validation_error user_id=%s keys=%s errors=%s is_live=%s',
+                getattr(request.user, 'pk', None),
+                safe_keys,
+                ser.errors,
+                (getattr(settings, 'STRIPE_SECRET_KEY', '') or '').startswith('sk_live_'),
+            )
             return Response({'message': 'Validation error', 'status': 'error', 'errors': ser.errors}, status=400)
         vd = ser.validated_data
 
@@ -218,12 +230,20 @@ class DriverStripeConnectCompleteSetupView(AsyncAPIView):
         try:
             data = await sync_to_async(_run)()
         except ValueError as e:
+            logger.warning(
+                '[STRIPE_COMPLETE_SETUP] value_error user_id=%s msg=%s',
+                getattr(request.user, 'pk', None),
+                e,
+            )
             return Response({'message': str(e), 'status': 'error'}, status=400)
         except stripe.error.StripeError as e:
-            return Response(
-                {'message': getattr(e, 'user_message', None) or str(e), 'status': 'error'},
-                status=400,
+            msg = getattr(e, 'user_message', None) or str(e)
+            logger.warning(
+                '[STRIPE_COMPLETE_SETUP] stripe_error user_id=%s msg=%s',
+                getattr(request.user, 'pk', None),
+                msg,
             )
+            return Response({'message': msg, 'status': 'error'}, status=400)
         return Response({'message': 'Setup completed', 'status': 'success', 'data': data}, status=200)
 
 
