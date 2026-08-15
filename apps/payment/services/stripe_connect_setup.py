@@ -132,6 +132,18 @@ def _stripe_individual_phone(raw: str | None) -> str | None:
     return normalized[:20]
 
 
+def _phone_matches_connect_country(phone: str, country: str) -> bool:
+    """
+    Stripe Custom Connect for US/CA rejects many non-NANP numbers on individual.phone
+    (e.g. +998… → "is not a valid phone number").
+    """
+    country = (country or 'US').upper()
+    digits = re.sub(r'\D', '', phone or '')
+    if country in ('US', 'CA'):
+        return digits.startswith('1') and len(digits) == 11
+    return bool(re.fullmatch(r'\+\d{10,15}', phone or ''))
+
+
 def _stripe_connect_country() -> str:
     return (getattr(settings, 'STRIPE_CONNECT_COUNTRY', 'US') or 'US').upper()
 
@@ -314,7 +326,17 @@ def complete_connect_account_setup(
     }
     _apply_ssn_to_individual(individual, ssn_last4)
 
+    connect_country = _stripe_connect_country()
     phone = _stripe_individual_phone(getattr(user, 'phone_number', None))
+    if phone and not _phone_matches_connect_country(phone, connect_country):
+        if is_stripe_live_mode():
+            raise ValueError(
+                f'Profile phone_number ({phone}) is not accepted by Stripe for Connect '
+                f'country {connect_country}. Use a US/Canada number in E.164 '
+                f'(e.g. +14155552671), then retry bank setup.'
+            )
+        # Test mode: keep app phone for HolaDrive, send Stripe a valid US test phone
+        phone = None
     if not phone:
         if is_stripe_live_mode():
             raise ValueError(
