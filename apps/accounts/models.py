@@ -1495,10 +1495,11 @@ class DriverVerification(models.Model):
 
     def save(self, *args, **kwargs):
         """
-        Override save to detect status changes and create Notification.
+        On status change: notify the driver + (when submitted for review) all admins via
+        Notification list + /ws/notifications/ realtime.
         """
         from apps.notification.models import Notification
-        from apps.notification.services import send_push_to_user
+        from apps.notification.services import create_user_notification, notify_superusers
 
         old_status = None
         if self.pk:
@@ -1514,24 +1515,44 @@ class DriverVerification(models.Model):
 
         super().save(*args, **kwargs)
 
-        # Create notification on create or status change
-        if old_status != self.status:
-            title, message = self._verification_notification_copy()
-            notification = Notification.objects.create(
-                user=self.user,
-                notification_type=Notification.NotificationType.SYSTEM,
-                title=title,
-                message=message,
-                related_object_type="driver_verification",
-                related_object_id=self.pk,
-                data={"status": self.status},
+        if old_status == self.status:
+            return
+
+        title, message = self._verification_notification_copy()
+        create_user_notification(
+            user=self.user,
+            title=title,
+            message=message,
+            notification_type=Notification.NotificationType.SYSTEM,
+            related_object_type='driver_verification',
+            related_object_id=self.pk,
+            data={'status': self.status, 'driver_id': self.user_id},
+            push=True,
+        )
+
+        # Driver finished identification → admins get realtime + inbox notification
+        if self.status == self.Status.IN_REVIEW and old_status != self.Status.IN_REVIEW:
+            driver_name = (self.user.get_full_name() or '').strip() or (
+                self.user.email or f'Driver #{self.user_id}'
             )
-            # Try to send push notification (best-effort, non-blocking for main flow)
-            send_push_to_user(
-                user=self.user,
-                title=notification.title,
-                body=notification.message,
-                data=notification.data or {},
+            notify_superusers(
+                title='Driver identification submitted',
+                message=(
+                    f'{driver_name} submitted identification documents for review. '
+                    f'Open admin → Drivers → verification.'
+                ),
+                related_object_type='driver_verification',
+                related_object_id=self.pk,
+                data={
+                    'event': 'driver_identification_in_review',
+                    'status': self.status,
+                    'driver_id': self.user_id,
+                    'driver_email': self.user.email,
+                    'driver_name': driver_name,
+                    'verification_id': self.pk,
+                    'admin_path': f'/drivers/{self.user_id}/verification',
+                },
+                push=True,
             )
 
 

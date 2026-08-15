@@ -187,3 +187,106 @@ def enqueue_push_to_user_id(
         )
 
 
+def emit_notification_ws(notification) -> None:
+    """Best-effort realtime push to /ws/notifications/ for notification.user."""
+    try:
+        from asgiref.sync import async_to_sync
+        from channels.layers import get_channel_layer
+
+        channel_layer = get_channel_layer()
+        if not channel_layer or notification is None:
+            return
+        payload = {
+            'id': notification.id,
+            'user_id': notification.user_id,
+            'title': notification.title,
+            'message': notification.message,
+            'notification_type': notification.notification_type,
+            'related_object_type': notification.related_object_type,
+            'related_object_id': notification.related_object_id,
+            'data': notification.data,
+            'created_at': notification.created_at.isoformat() if notification.created_at else None,
+            'status': notification.status,
+        }
+        async_to_sync(channel_layer.group_send)(
+            f'notifications_{notification.user_id}',
+            {'type': 'notification', 'notification': payload},
+        )
+    except Exception:
+        logger.exception('emit_notification_ws failed notification_id=%s', getattr(notification, 'id', None))
+
+
+def create_user_notification(
+    *,
+    user,
+    title: str,
+    message: str,
+    notification_type: str | None = None,
+    related_object_type: str | None = None,
+    related_object_id: int | None = None,
+    data: dict | None = None,
+    push: bool = True,
+) -> object | None:
+    """Create Notification, emit WS, optionally enqueue push. Never raises."""
+    try:
+        from apps.notification.models import Notification
+
+        n = Notification.objects.create(
+            user=user,
+            notification_type=notification_type or Notification.NotificationType.SYSTEM,
+            title=title,
+            message=message,
+            related_object_type=related_object_type,
+            related_object_id=related_object_id,
+            data=data or {},
+        )
+        emit_notification_ws(n)
+        if push:
+            enqueue_push_to_user_id(
+                user.id,
+                title=title,
+                body=message,
+                data=n.data or {},
+            )
+        return n
+    except Exception:
+        logger.exception('create_user_notification failed user_id=%s', getattr(user, 'id', None))
+        return None
+
+
+def notify_superusers(
+    *,
+    title: str,
+    message: str,
+    related_object_type: str | None = None,
+    related_object_id: int | None = None,
+    data: dict | None = None,
+    push: bool = True,
+) -> int:
+    """
+    Create in-app + WS (+ optional push) notifications for every superuser.
+    Returns number of admins notified.
+    """
+    try:
+        from apps.accounts.models import CustomUser
+
+        admins = list(CustomUser.objects.filter(is_superuser=True).only('id'))
+    except Exception:
+        logger.exception('notify_superusers: failed loading admins')
+        return 0
+
+    count = 0
+    for admin in admins:
+        n = create_user_notification(
+            user=admin,
+            title=title,
+            message=message,
+            related_object_type=related_object_type,
+            related_object_id=related_object_id,
+            data=data,
+            push=push,
+        )
+        if n:
+            count += 1
+    return count
+
