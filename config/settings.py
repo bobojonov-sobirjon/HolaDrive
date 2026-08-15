@@ -380,6 +380,9 @@ EMAIL_OTP_FALLBACK_ON_ERROR = _env_text('EMAIL_OTP_FALLBACK_ON_ERROR', 'false').
     'true',
     'yes',
 )
+# Temporary: force every OTP to this value and skip SMTP/SMS (VPS blocks outbound SMTP).
+# Example: FIXED_OTP_CODE=1111 — remove when real email/SMS works again.
+FIXED_OTP_CODE = (_env_text('FIXED_OTP_CODE', '') or '').strip()
 
 FCM_SERVER_KEY = os.getenv('FCM_SERVER_KEY', '')
 

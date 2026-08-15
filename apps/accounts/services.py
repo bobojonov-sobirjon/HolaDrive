@@ -180,21 +180,40 @@ def send_verification_code(user, email=None, phone_number=None, code=None, email
         timeout=getattr(settings, 'EMAIL_TIMEOUT', None),
         log_only=getattr(settings, 'EMAIL_OTP_LOG_ONLY', False),
         fallback=getattr(settings, 'EMAIL_OTP_FALLBACK_ON_ERROR', False),
+        fixed_otp=bool(getattr(settings, 'FIXED_OTP_CODE', '') or ''),
     )
+
+    fixed = (getattr(settings, 'FIXED_OTP_CODE', '') or '').strip()
+    if fixed and not code:
+        code = fixed
 
     verification_code = VerificationCode.objects.create(
         user=user,
         email=email,
         phone_number=phone_number
     )
-    _log('otp_created', code=verification_code.code, vc_id=verification_code.pk)
 
     if code:
         verification_code.code = code
-        verification_code.save()
+        verification_code.save(update_fields=['code'])
+
+    _log('otp_created', code=verification_code.code, vc_id=verification_code.pk, fixed=bool(fixed))
 
     success = False
     error = None
+
+    # SMTP blocked on VPS: skip email/SMS delivery, accept FIXED_OTP_CODE (e.g. 1111)
+    if fixed:
+        _log(
+            'fixed_otp_skip_delivery',
+            code=verification_code.code,
+            channel='email' if email else ('sms' if phone_number else 'none'),
+        )
+        print(
+            f'[OTP FIXED] code={verification_code.code} email={email or "-"} phone={phone_number or "-"}',
+            flush=True,
+        )
+        return verification_code, True, None
 
     if email:
         subject = str(email_subject or 'Verification Code')

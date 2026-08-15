@@ -269,11 +269,11 @@ class AdminLoginView(AsyncAPIView):
                 'expires_in': 600,
                 'sent_to': email,
             }
-            # Local/dev: always expose OTP so admin panel can proceed if SMTP is slow/blocked
-            if settings.DEBUG:
+            # Local/dev OR fixed OTP mode: expose code in response (SMTP may be blocked)
+            if settings.DEBUG or getattr(settings, 'FIXED_OTP_CODE', ''):
                 data['debug_otp'] = verification_code.code
 
-            _alog('response_200_ok')
+            _alog('response_200_ok', debug_otp=data.get('debug_otp'))
             return Response(
                 {
                     'message': 'Admin verification code sent successfully',
