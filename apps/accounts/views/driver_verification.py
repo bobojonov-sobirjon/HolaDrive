@@ -82,8 +82,7 @@ class DriverVerificationCompletedIdentificationView(DriverVerificationBaseView):
         summary='Mark identification checklist finished',
         description=(
             'Creates or updates **`DriverVerification`** for **`request.user`** with '
-            '**`status=not_submitted`**. Use when the driver has finished the in-app identification '
-            'steps before staff review.\n\n'
+            '**`status=in_review`** so admin can review submitted documents.\n\n'
             '**Role:** Driver (JWT). No request body.'
         ),
         request=None,
@@ -97,10 +96,14 @@ class DriverVerificationCompletedIdentificationView(DriverVerificationBaseView):
         user = request.user
 
         def upsert():
-            verification, _ = DriverVerification.objects.update_or_create(
-                user=user,
-                defaults={'status': DriverVerification.Status.NOT_SUBMITTED},
-            )
+            verification, created = DriverVerification.objects.get_or_create(user=user)
+            # New submit or resubmit after reject / not_submitted → in review for admin
+            if created or verification.status in (
+                DriverVerification.Status.NOT_SUBMITTED,
+                DriverVerification.Status.REJECTED,
+            ):
+                verification.status = DriverVerification.Status.IN_REVIEW
+                verification.save(update_fields=['status', 'updated_at'])
             return verification
 
         verification = await sync_to_async(upsert)()

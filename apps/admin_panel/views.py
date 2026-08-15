@@ -61,11 +61,12 @@ from .serializers import (
     AdminDriverCashoutSerializer,
     AdminOrderFullSerializer,
     AdminPanelDriverVerificationSerializer,
+    AdminPanelDriverVerificationWriteSerializer,
+    AdminPanelDriverVerificationStatusSerializer,
     AdminPanelUploadTypeSerializer,
     AdminPanelLegalTypeSerializer,
     AdminPanelRegistrationTypeSerializer,
     AdminPanelTermsTypeSerializer,
-    AdminPanelDriverVerificationWriteSerializer,
     AdminPanelUploadTypeWriteSerializer,
     AdminPanelLegalTypeWriteSerializer,
     AdminPanelRegistrationTypeWriteSerializer,
@@ -2198,6 +2199,184 @@ class AdminPanelDriverVerificationDetailView(_AdminPanelSuperuserView):
                 status=status.HTTP_409_CONFLICT,
             )
         return Response({'message': 'Driver verification deleted successfully', 'status': 'success'}, status=status.HTTP_200_OK)
+
+
+class AdminPanelDriverVerificationByDriverView(_AdminPanelSuperuserView):
+    """
+    GET/PATCH /api/v1/admin-panel/drivers/<driver_id>/verification/
+
+    Admin reviews identification + sees registration-terms completion,
+    then sets DriverVerification.status (approved / rejected / in_review / …).
+    This flips driver readiness `checks.identification` when status=approved.
+    """
+
+    @extend_schema(
+        tags=['Admin Panel'],
+        summary='Driver verification + readiness (by driver id)',
+        description=(
+            'Returns verification status, identification checklist progress, '
+            'registration terms completion, and the same readiness checks as the mobile app.'
+        ),
+    )
+    async def get(self, request, driver_id):
+        if not request.user.is_superuser:
+            return self._forbidden_response()
+
+        def _load():
+            from apps.accounts.driver_readiness import build_driver_readiness
+            from apps.accounts.driver_identification_services import build_checklist_payload
+            from apps.accounts.models import (
+                DriverIdentificationRegistrationAgreementsUserAccepted,
+                DriverIdentificationRegistrationType,
+            )
+
+            try:
+                driver_group = Group.objects.get(name='Driver')
+            except Group.DoesNotExist:
+                return None
+
+            user = (
+                CustomUser.objects.filter(groups=driver_group, id=driver_id)
+                .select_related('driver_verification', 'driver_verification__reviewer')
+                .prefetch_related('groups')
+                .first()
+            )
+            if not user:
+                return None
+
+            dv = getattr(user, 'driver_verification', None)
+            verification = (
+                AdminPanelDriverVerificationSerializer(dv).data
+                if dv
+                else {
+                    'id': None,
+                    'user': user.id,
+                    'user_email': user.email,
+                    'status': DriverVerification.Status.NOT_SUBMITTED,
+                    'status_display': 'Not submitted',
+                    'reviewer': None,
+                    'reviewer_email': None,
+                    'comment': None,
+                    'estimated_review_hours': None,
+                    'created_at': None,
+                    'updated_at': None,
+                    'reviewed_at': None,
+                }
+            )
+
+            steps = build_checklist_payload(user)
+            checklist_complete = bool(steps) and all(bool(s.get('is_accepted')) for s in steps)
+
+            active_reg = list(
+                DriverIdentificationRegistrationType.objects.filter(is_active=True).values_list('id', flat=True)
+            )
+            accepted_reg = set(
+                DriverIdentificationRegistrationAgreementsUserAccepted.objects.filter(
+                    user=user,
+                    driver_identification_registration_agreements_id__in=active_reg,
+                    is_accepted=True,
+                ).values_list('driver_identification_registration_agreements_id', flat=True)
+            )
+            registration_terms_complete = (not active_reg) or all(i in accepted_reg for i in active_reg)
+
+            readiness = build_driver_readiness(user)
+            return {
+                'driver_id': user.id,
+                'email': user.email,
+                'full_name': user.get_full_name(),
+                'verification': verification,
+                'identification': {
+                    'checklist_complete': checklist_complete,
+                    'steps_total': len(steps),
+                    'steps_accepted': sum(1 for s in steps if s.get('is_accepted')),
+                    'steps': steps,
+                    'verification_status': verification.get('status'),
+                    'verification_approved': verification.get('status') == DriverVerification.Status.APPROVED,
+                },
+                'registration_terms': {
+                    'required_complete': registration_terms_complete,
+                    'required_active_count': len(active_reg),
+                    'accepted_count': len(accepted_reg),
+                },
+                'readiness': {
+                    'ready_for_rides': readiness.get('ready_for_rides'),
+                    'completion_percent': readiness.get('completion_percent'),
+                    'checks': readiness.get('checks'),
+                    'details': readiness.get('details'),
+                },
+            }
+
+        payload = await sync_to_async(_load)()
+        if not payload:
+            return Response({'message': 'Driver not found.', 'status': 'error'}, status=status.HTTP_404_NOT_FOUND)
+        return Response(
+            {'message': 'Driver verification retrieved successfully', 'status': 'success', 'data': payload},
+            status=status.HTTP_200_OK,
+        )
+
+    @extend_schema(
+        tags=['Admin Panel'],
+        summary='Set driver verification status (approve / reject / in review)',
+        description=(
+            'Creates `DriverVerification` if missing, then sets `status`.\n\n'
+            'Statuses: `not_submitted` | `in_review` | `approved` | `rejected`.\n'
+            'When `approved`, mobile readiness `checks.identification` becomes **true**.'
+        ),
+        request=AdminPanelDriverVerificationStatusSerializer,
+        responses=AdminPanelDriverVerificationSerializer,
+    )
+    async def patch(self, request, driver_id):
+        if not request.user.is_superuser:
+            return self._forbidden_response()
+
+        serializer = AdminPanelDriverVerificationStatusSerializer(data=request.data)
+        is_valid = await sync_to_async(lambda: serializer.is_valid())()
+        if not is_valid:
+            errors = await sync_to_async(lambda: serializer.errors)()
+            return Response(
+                {'message': 'Validation error', 'status': 'error', 'errors': errors},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        vd = serializer.validated_data
+
+        def _save():
+            try:
+                driver_group = Group.objects.get(name='Driver')
+            except Group.DoesNotExist:
+                return None, 'not_found'
+
+            user = CustomUser.objects.filter(groups=driver_group, id=driver_id).first()
+            if not user:
+                return None, 'not_found'
+
+            verification, _ = DriverVerification.objects.get_or_create(user=user)
+            verification.status = vd['status']
+            if 'comment' in vd:
+                verification.comment = vd.get('comment') or None
+            if 'estimated_review_hours' in vd and vd['estimated_review_hours'] is not None:
+                verification.estimated_review_hours = vd['estimated_review_hours']
+            verification.reviewer = request.user
+            verification.save()
+            return verification, 'ok'
+
+        instance, code = await sync_to_async(_save)()
+        if code == 'not_found':
+            return Response({'message': 'Driver not found.', 'status': 'error'}, status=status.HTTP_404_NOT_FOUND)
+
+        data = await sync_to_async(lambda: AdminPanelDriverVerificationSerializer(instance).data)()
+        return Response(
+            {'message': 'Driver verification updated successfully', 'status': 'success', 'data': data},
+            status=status.HTTP_200_OK,
+        )
+
+    @extend_schema(
+        tags=['Admin Panel'],
+        summary='Set driver verification status (PUT)',
+        request=AdminPanelDriverVerificationStatusSerializer,
+        responses=AdminPanelDriverVerificationSerializer,
+    )
+    async def put(self, request, driver_id):
+        return await self.patch(request, driver_id)
 
 
 class _AdminPanelModelListView(_AdminPanelSuperuserView):

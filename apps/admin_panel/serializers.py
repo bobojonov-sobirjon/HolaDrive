@@ -221,10 +221,23 @@ class AdminPanelDriverListSerializer(serializers.ModelSerializer):
         }
 
     def get_registration_agreements(self, obj):
+        from apps.accounts.models import DriverIdentificationRegistrationType
+
+        active_ids = list(
+            DriverIdentificationRegistrationType.objects.filter(is_active=True).values_list('id', flat=True)
+        )
         rows = obj.driver_registration_agreement_acceptances.all()
+        accepted_ids = {
+            r.driver_identification_registration_agreements_id
+            for r in rows
+            if r.is_accepted
+        }
+        required_complete = (not active_ids) or all(i in accepted_ids for i in active_ids)
         return {
-            'total': rows.count(),
-            'accepted': rows.filter(is_accepted=True).count(),
+            'total': rows.count() if hasattr(rows, 'count') else len(rows),
+            'accepted': sum(1 for r in rows if r.is_accepted),
+            'required_active_count': len(active_ids),
+            'required_complete': required_complete,
             'items': [
                 {
                     'id': row.id,
@@ -716,12 +729,23 @@ class AdminOrderFullSerializer(serializers.Serializer):
         }
 
     def get_registration_agreements(self, obj):
+        active_ids = list(
+            DriverIdentificationRegistrationType.objects.filter(is_active=True).values_list('id', flat=True)
+        )
         rows = DriverIdentificationRegistrationAgreementsUserAccepted.objects.filter(user=obj).select_related(
             'driver_identification_registration_agreements'
         )
+        accepted_ids = set(
+            rows.filter(is_accepted=True).values_list(
+                'driver_identification_registration_agreements_id', flat=True
+            )
+        )
+        required_complete = (not active_ids) or all(i in accepted_ids for i in active_ids)
         return {
             'total': rows.count(),
             'accepted': rows.filter(is_accepted=True).count(),
+            'required_active_count': len(active_ids),
+            'required_complete': required_complete,
             'items': [
                 {
                     'id': row.id,
@@ -776,6 +800,14 @@ class AdminPanelDriverVerificationWriteSerializer(serializers.ModelSerializer):
     class Meta:
         model = DriverVerification
         fields = ('user', 'status', 'comment', 'estimated_review_hours')
+
+
+class AdminPanelDriverVerificationStatusSerializer(serializers.Serializer):
+    """Approve / reject / set review status for a driver (by driver_id in URL)."""
+
+    status = serializers.ChoiceField(choices=DriverVerification.Status.choices)
+    comment = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    estimated_review_hours = serializers.IntegerField(required=False, min_value=1, max_value=720)
 
 
 class AdminPanelUploadQuestionSerializer(serializers.ModelSerializer):
