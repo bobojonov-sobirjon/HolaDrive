@@ -125,6 +125,17 @@ class DriverLocationUpdateSerializer(serializers.Serializer):
     longitude = serializers.DecimalField(max_digits=22, decimal_places=14)
 
 
+class RiderLocationUpdateSerializer(serializers.Serializer):
+    """Rider live GPS — stored on CustomUser; broadcast to order tracking WS."""
+
+    latitude = serializers.DecimalField(max_digits=22, decimal_places=14)
+    longitude = serializers.DecimalField(max_digits=22, decimal_places=14)
+    order_id = serializers.IntegerField(
+        required=False,
+        help_text='Optional. Limit broadcast to this active order; otherwise all active rider orders.',
+    )
+
+
 class DriverLocationSerializer(serializers.Serializer):
     """
     Serializer for returning driver's current location to rider.
@@ -134,6 +145,13 @@ class DriverLocationSerializer(serializers.Serializer):
     latitude = serializers.DecimalField(max_digits=22, decimal_places=14)
     longitude = serializers.DecimalField(max_digits=22, decimal_places=14)
     updated_at = serializers.DateTimeField()
+
+
+class RiderLocationSerializer(serializers.Serializer):
+    rider_id = serializers.IntegerField()
+    latitude = serializers.DecimalField(max_digits=22, decimal_places=14, allow_null=True)
+    longitude = serializers.DecimalField(max_digits=22, decimal_places=14, allow_null=True)
+    updated_at = serializers.DateTimeField(allow_null=True)
 
 
 class DriverInfoSerializer(serializers.Serializer):

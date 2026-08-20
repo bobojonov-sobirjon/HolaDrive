@@ -28,6 +28,8 @@ from .serializers import (
     DriverCompleteSerializer,
     DriverLocationUpdateSerializer,
     DriverLocationSerializer,
+    RiderLocationUpdateSerializer,
+    RiderLocationSerializer,
     DriverInfoSerializer,
     DriverOnlineStatusSerializer,
     DriverEarningsSerializer,
@@ -1304,14 +1306,32 @@ class DriverCancelOrderView(AsyncAPIView):
         try:
             from apps.notification.services import enqueue_push_to_user_id
 
+            reason_display = ''
+            try:
+                reason_display = dict(CancelOrder.CancelReason.choices).get(reason, reason) or ''
+            except Exception:
+                reason_display = str(reason or '')
+            reason_text = (
+                other_reason
+                if reason == CancelOrder.CancelReason.OTHER and other_reason
+                else reason_display
+            )
+            body = 'Your ride has been cancelled by the driver.'
+            if reason_text:
+                body = f'{body} Reason: {reason_text}'
+
             enqueue_push_to_user_id(
                 order.user_id,
                 title="Ride cancelled",
-                body="Your ride has been cancelled by the driver.",
+                body=body,
                 data={
                     "order_id": order.id,
                     "order_code": order.order_code,
                     "type": "ride_cancelled_by_driver",
+                    "cancelled_by": "driver",
+                    "reason": reason or '',
+                    "other_reason": other_reason if reason == CancelOrder.CancelReason.OTHER else '',
+                    "reason_display": reason_display,
                 },
             )
         except Exception as e:
@@ -1321,17 +1341,31 @@ class DriverCancelOrderView(AsyncAPIView):
             )
 
         try:
-            from apps.order.services.rider_orders_websocket import async_notify_rider_order_updated
-
-            await async_notify_rider_order_updated(
-                order.id,
-                'cancelled_driver',
-                'Your ride has been cancelled by the driver.',
+            from apps.order.services.rider_orders_websocket import (
+                async_notify_rider_order_cancelled_by_driver,
             )
+
+            await async_notify_rider_order_cancelled_by_driver(order.id)
         except Exception as e:
             import logging
             logging.getLogger(__name__).error(
                 'Failed to send rider WebSocket driver cancel for order %s: %s', order.id, e
+            )
+
+        try:
+            from apps.order.services.order_tracking_websocket import (
+                notify_order_cancelled_on_tracking,
+            )
+
+            await sync_to_async(notify_order_cancelled_on_tracking)(
+                order.id,
+                change='cancelled_driver',
+                message='Your ride has been cancelled by the driver.',
+            )
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).error(
+                'Failed to send tracking cancel for order %s: %s', order.id, e
             )
 
         return Response({'message': 'Order cancelled successfully', 'status': 'success'}, status=status.HTTP_200_OK)
@@ -1408,6 +1442,135 @@ class DriverLocationUpdateView(AsyncAPIView):
             },
             status=status.HTTP_200_OK,
         )
+
+
+class RiderLocationUpdateView(AsyncAPIView):
+    """
+    Rider pushes live GPS during an active trip so the driver can see the passenger on the map.
+    Broadcasts to ws/order/{id}/tracking/ as rider_location_update.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    async def _check_rider_role(self, user):
+        groups = await sync_to_async(list)(user.groups.all())
+        return 'Rider' in [g.name for g in groups]
+
+    @extend_schema(
+        tags=['Rider: Live tracking'],
+        summary='Update rider location (for driver map)',
+        description=(
+            'Body: `latitude`, `longitude`, optional `order_id`.\n'
+            'Saves location on the user and pushes `rider_location_update` to '
+            '`ws/order/{order_id}/tracking/` for the assigned driver.\n'
+            'Role: Rider.'
+        ),
+        request=RiderLocationUpdateSerializer,
+    )
+    async def post(self, request):
+        user = request.user
+        if not await self._check_rider_role(user):
+            return Response(
+                {'message': 'Only riders can access this endpoint', 'status': 'error'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        serializer = RiderLocationUpdateSerializer(data=request.data)
+        is_valid = await sync_to_async(lambda: serializer.is_valid())()
+        if not is_valid:
+            errors = await sync_to_async(lambda: serializer.errors)()
+            return Response(
+                {'message': 'Validation error', 'status': 'error', 'errors': errors},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        data = await sync_to_async(lambda: serializer.validated_data)()
+        order_id = data.get('order_id')
+
+        user.latitude = data['latitude']
+        user.longitude = data['longitude']
+        await sync_to_async(user.save)(update_fields=['latitude', 'longitude', 'updated_at'])
+
+        try:
+            from .services.order_tracking_websocket import notify_rider_location_updated
+
+            await sync_to_async(notify_rider_location_updated)(
+                user.id,
+                user.latitude,
+                user.longitude,
+                user.updated_at,
+                order_id=order_id,
+            )
+        except Exception:
+            pass
+
+        out = RiderLocationSerializer(
+            {
+                'rider_id': user.id,
+                'latitude': user.latitude,
+                'longitude': user.longitude,
+                'updated_at': user.updated_at,
+            }
+        )
+        serialized = await sync_to_async(lambda: out.data)()
+        return Response(
+            {
+                'message': 'Location updated successfully',
+                'status': 'success',
+                'data': serialized,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class RiderLocationForOrderView(AsyncAPIView):
+    """Driver (or rider) HTTP snapshot of passenger location for an order."""
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        tags=['Driver: Location'],
+        summary='Rider location for order',
+        description='Assigned driver (or the rider) can fetch the passenger live location for an active order.',
+    )
+    async def get(self, request, order_id: int):
+        user = request.user
+        try:
+            order = await Order.objects.select_related('user').aget(id=order_id)
+        except Order.DoesNotExist:
+            return Response({'message': 'Order not found', 'status': 'error'}, status=status.HTTP_404_NOT_FOUND)
+
+        is_rider = order.user_id == user.id
+        is_driver = await OrderDriver.objects.filter(
+            order=order,
+            driver_id=user.id,
+            status=OrderDriver.DriverRequestStatus.ACCEPTED,
+        ).aexists()
+        if not is_rider and not is_driver:
+            return Response(
+                {'message': 'You do not have permission to view this order', 'status': 'error'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        rider = order.user
+        out = RiderLocationSerializer(
+            {
+                'rider_id': rider.id,
+                'latitude': rider.latitude,
+                'longitude': rider.longitude,
+                'updated_at': rider.updated_at,
+            }
+        )
+        serialized = await sync_to_async(lambda: out.data)()
+        return Response(
+            {
+                'message': 'Rider location retrieved successfully',
+                'status': 'success',
+                'data': serialized,
+            },
+            status=status.HTTP_200_OK,
+        )
+
 
 class DriverLocationForOrderView(AsyncAPIView):
     permission_classes = [IsAuthenticated]
@@ -2023,6 +2186,22 @@ class OrderCancelView(AsyncAPIView):
                     'Failed to send driver WebSocket rider cancel for order %s: %s',
                     order.id,
                     e,
+                )
+
+            try:
+                from apps.order.services.order_tracking_websocket import (
+                    notify_order_cancelled_on_tracking,
+                )
+
+                await sync_to_async(notify_order_cancelled_on_tracking)(
+                    order.id,
+                    change='cancelled_rider',
+                    message='The rider cancelled this ride.',
+                )
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).error(
+                    'Failed to send tracking cancel for order %s: %s', order.id, e
                 )
 
             order = await Order.objects.select_related('user').prefetch_related(

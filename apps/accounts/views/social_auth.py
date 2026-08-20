@@ -14,6 +14,7 @@ from apps.common.views import AsyncAPIView
 
 from ..serializers.social_auth import FirebaseSocialSignInSerializer
 from ..firebase_social_auth import SocialAuthError, get_or_create_user_from_firebase
+from ..phone_auth import AppRoleMismatchError
 
 logger = logging.getLogger(__name__)
 
@@ -94,6 +95,8 @@ class FirebaseSocialSignInView(AsyncAPIView):
                 },
                 status=status_code,
             )
+        except AppRoleMismatchError as exc:
+            return Response(exc.as_api_payload(), status=status.HTTP_403_FORBIDDEN)
 
         if not user.is_active:
             return Response(
@@ -137,7 +140,8 @@ class GoogleSignInView(FirebaseSocialSignInView):
             'The server verifies the token with Firebase Admin SDK and returns **JWT** '
             '`access_token` / `refresh_token` (same as `verify-code`).\n\n'
             'On first sign-in, creates a user with `is_verified=true`. '
-            'Optional `role`: `rider` or `driver` (assigns Rider/Driver group).'
+            '**Required `role`:** `rider` or `driver` — must match the account. '
+            'A Rider cannot sign in from the Driver app and vice versa.'
         ),
         request=FirebaseSocialSignInSerializer,
         examples=[

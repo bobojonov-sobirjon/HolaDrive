@@ -217,7 +217,18 @@ class RiderOrdersConsumer(AsyncWebsocketConsumer):
             payload['rejected_driver_id'] = event['rejected_driver_id']
         if 'reassigned' in event:
             payload['reassigned'] = event['reassigned']
+        if 'cancel' in event:
+            payload['cancel'] = event.get('cancel')
         await self.send(text_data=json.dumps(payload))
+
+    async def order_cancelled_by_driver(self, event):
+        await self.send(text_data=json.dumps({
+            'type': 'order_cancelled_by_driver',
+            'change': event.get('change', 'cancelled_driver'),
+            'message': event.get('message', 'Your ride has been cancelled by the driver.'),
+            'order': event.get('order', {}),
+            'cancel': event.get('cancel'),
+        }))
 
     async def active_ride_snapshot(self, event):
         await self.send(text_data=json.dumps({
@@ -352,8 +363,12 @@ class DriverSurgeZonesConsumer(AsyncWebsocketConsumer):
 
 class OrderTrackingConsumer(AsyncWebsocketConsumer):
     """
-    Real-time location stream for one order.
+    Real-time location stream for one order (driver + rider).
     Group: order_tracking_<order_id>
+
+    Events:
+    - driver_location_update  (rider listens; also driver may ignore)
+    - rider_location_update   (driver listens)
     """
 
     async def connect(self):
@@ -383,11 +398,18 @@ class OrderTrackingConsumer(AsyncWebsocketConsumer):
             "order_id": self.order_id,
         }))
 
-        initial_payload = await self._initial_driver_location(self.order_id)
-        if initial_payload:
+        initial_driver = await self._initial_driver_location(self.order_id)
+        if initial_driver:
             await self.send(text_data=json.dumps({
                 "type": "driver_location_update",
-                **initial_payload,
+                **initial_driver,
+            }))
+
+        initial_rider = await self._initial_rider_location(self.order_id)
+        if initial_rider:
+            await self.send(text_data=json.dumps({
+                "type": "rider_location_update",
+                **initial_rider,
             }))
 
     async def disconnect(self, close_code):
@@ -397,10 +419,22 @@ class OrderTrackingConsumer(AsyncWebsocketConsumer):
     async def receive(self, text_data):
         try:
             payload = json.loads(text_data)
-            if payload.get("type") == "ping":
-                await self.send(text_data=json.dumps({"type": "pong"}))
         except json.JSONDecodeError:
-            pass
+            return
+
+        msg_type = payload.get("type")
+        if msg_type == "ping":
+            await self.send(text_data=json.dumps({"type": "pong"}))
+            return
+
+        # Rider can push live GPS over the same tracking socket
+        if msg_type in ("rider_location", "rider_location_update"):
+            ok = await self._publish_rider_location_from_ws(payload)
+            if not ok:
+                await self.send(text_data=json.dumps({
+                    "type": "error",
+                    "message": "Only the order rider can publish rider_location",
+                }))
 
     async def driver_location_update(self, event):
         await self.send(text_data=json.dumps({
@@ -414,6 +448,16 @@ class OrderTrackingConsumer(AsyncWebsocketConsumer):
             "eta_to_pickup_minutes": event.get("eta_to_pickup_minutes"),
             "eta_to_destination_minutes": event.get("eta_to_destination_minutes"),
             "tracking_phase": event.get("tracking_phase"),
+        }))
+
+    async def rider_location_update(self, event):
+        await self.send(text_data=json.dumps({
+            "type": "rider_location_update",
+            "order_id": event.get("order_id"),
+            "rider_id": event.get("rider_id"),
+            "latitude": event.get("latitude"),
+            "longitude": event.get("longitude"),
+            "updated_at": event.get("updated_at"),
         }))
 
     @database_sync_to_async
@@ -436,6 +480,61 @@ class OrderTrackingConsumer(AsyncWebsocketConsumer):
         from .services.order_tracking_websocket import get_initial_tracking_payload
 
         return get_initial_tracking_payload(order_id)
+
+    @database_sync_to_async
+    def _initial_rider_location(self, order_id: int):
+        from .services.order_tracking_websocket import get_initial_rider_location_payload
+
+        return get_initial_rider_location_payload(order_id)
+
+    @database_sync_to_async
+    def _publish_rider_location_from_ws(self, payload: dict) -> bool:
+        from django.utils import timezone
+
+        from .models import Order
+        from .services.order_tracking_websocket import (
+            ACTIVE_TRACKING_STATUSES,
+            notify_rider_location_updated,
+        )
+
+        order = Order.objects.filter(id=self.order_id).only("id", "user_id", "status").first()
+        if not order or order.user_id != self.user.id:
+            return False
+        if order.status not in ACTIVE_TRACKING_STATUSES:
+            return False
+
+        try:
+            lat = payload.get("latitude")
+            lng = payload.get("longitude")
+            if lat is None or lng is None:
+                return False
+        except (TypeError, ValueError):
+            return False
+
+        user = self.user
+        user.latitude = lat
+        user.longitude = lng
+        user.save(update_fields=["latitude", "longitude", "updated_at"])
+        notify_rider_location_updated(
+            user.id,
+            user.latitude,
+            user.longitude,
+            user.updated_at or timezone.now(),
+            order_id=self.order_id,
+        )
+        return True
+
+
+    async def order_cancelled(self, event):
+        """Ride cancelled while tracking socket is open — includes cancel reason."""
+        await self.send(text_data=json.dumps({
+            "type": "order_cancelled",
+            "order_id": event.get("order_id", getattr(self, "order_id", None)),
+            "change": event.get("change"),
+            "message": event.get("message", "This ride has been cancelled."),
+            "cancel": event.get("cancel"),
+            "order": event.get("order"),
+        }))
 
 
 class OrderChatConsumer(AsyncWebsocketConsumer):

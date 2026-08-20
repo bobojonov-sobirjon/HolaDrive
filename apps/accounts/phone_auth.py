@@ -21,6 +21,41 @@ ROLE_GROUP_NAMES = {
     'driver': 'Driver',
 }
 
+WRONG_APP_ROLE_CODE = 'wrong_app_role'
+MIXED_APP_ROLES_CODE = 'mixed_app_roles'
+
+
+class AppRoleMismatchError(ValueError):
+    """Existing account belongs to the other app (Rider vs Driver)."""
+
+    def __init__(self, account_role: str, requested_role: str, *, code: str = WRONG_APP_ROLE_CODE):
+        self.account_role = account_role
+        self.requested_role = requested_role
+        self.code = code
+        if code == MIXED_APP_ROLES_CODE:
+            msg = (
+                'This account has both Rider and Driver roles. Contact support to fix the account.'
+            )
+        else:
+            app_name = (account_role or 'the correct').title()
+            msg = (
+                f'This account is registered as a {app_name}. '
+                f'Please sign in with the {app_name} app.'
+            )
+        super().__init__(msg)
+
+    def as_api_payload(self) -> dict:
+        return {
+            'message': str(self),
+            'status': 'error',
+            'code': self.code,
+            'errors': {'role': [str(self)]},
+            'data': {
+                'account_role': self.account_role,
+                'requested_role': self.requested_role,
+            },
+        }
+
 
 def _unique_username(base: str) -> str:
     base = re.sub(r'[^a-zA-Z0-9_@.+-]', '', base)[:120] or 'user'
@@ -82,6 +117,47 @@ def user_app_roles(user: CustomUser) -> list[str]:
     return list(user.groups.filter(name__in=ROLE_GROUP_NAMES.values()).values_list('name', flat=True))
 
 
+def normalize_app_role(role: Optional[str]) -> Optional[str]:
+    value = (role or '').strip().lower()
+    return value if value in ROLE_GROUP_NAMES else None
+
+
+def user_exclusive_app_role(user: CustomUser, *, requested_role: Optional[str] = None) -> Optional[str]:
+    """
+    Return 'rider' or 'driver' when the user has exactly one app group.
+    None if unassigned. Raises AppRoleMismatchError if both groups are set.
+    """
+    names = set(user_app_roles(user))
+    if not names:
+        return None
+    if names == {'Rider', 'Driver'}:
+        raise AppRoleMismatchError('both', requested_role or '', code=MIXED_APP_ROLES_CODE)
+    if 'Driver' in names:
+        return 'driver'
+    if 'Rider' in names:
+        return 'rider'
+    return None
+
+
+def assert_login_app_role(user: CustomUser, role: Optional[str], *, assign_if_missing: bool = True) -> str:
+    """
+    Rider app may only sign in Rider accounts; Driver app may only sign in Driver accounts.
+    Assigns the role when the account has none yet (first sign-in).
+    """
+    requested = normalize_app_role(role)
+    if not requested:
+        raise ValueError('role is required (rider or driver).')
+
+    current = user_exclusive_app_role(user, requested_role=requested)
+    if current is None:
+        if assign_if_missing:
+            _assign_role_group(user, requested)
+        return requested
+    if current != requested:
+        raise AppRoleMismatchError(current, requested)
+    return current
+
+
 def _ensure_stripe_customer(user: CustomUser) -> None:
     try:
         from django.conf import settings
@@ -119,7 +195,7 @@ def get_or_create_user_for_phone(
         if existing.phone_number != normalized:
             existing.phone_number = normalized
             existing.save(update_fields=['phone_number'])
-        ensure_user_app_role(existing, role, only_if_missing=True)
+        assert_login_app_role(existing, role, assign_if_missing=True)
         return existing, False
 
     email = _placeholder_email(normalized)

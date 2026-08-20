@@ -1,5 +1,5 @@
 """
-Driver location tracking WebSocket helpers.
+Order live tracking WebSocket helpers (driver + rider locations).
 """
 import logging
 import math
@@ -30,6 +30,15 @@ def _driver_active_order_ids(driver_id: int):
         )
         .values_list("order_id", flat=True)
         .distinct()
+    )
+
+
+def _rider_active_order_ids(rider_id: int):
+    return list(
+        Order.objects.filter(
+            user_id=rider_id,
+            status__in=ACTIVE_TRACKING_STATUSES,
+        ).values_list("id", flat=True)
     )
 
 
@@ -159,9 +168,61 @@ def notify_driver_location_updated(driver_id: int, latitude, longitude, updated_
             )
 
 
+def notify_rider_location_updated(rider_id: int, latitude, longitude, updated_at=None, order_id: int | None = None):
+    """
+    Push rider live location to order tracking room(s) so the assigned driver can see the passenger.
+    If order_id is set, only that order is notified (must belong to rider and be active).
+    """
+    channel_layer = get_channel_layer()
+    if not channel_layer:
+        return
+
+    if order_id is not None:
+        order = (
+            Order.objects.filter(
+                id=order_id,
+                user_id=rider_id,
+                status__in=ACTIVE_TRACKING_STATUSES,
+            )
+            .only("id")
+            .first()
+        )
+        order_ids = [order.id] if order else []
+    else:
+        order_ids = _rider_active_order_ids(rider_id)
+
+    if not order_ids:
+        return
+
+    payload = {
+        "type": "rider_location_update",
+        "rider_id": rider_id,
+        "latitude": str(latitude) if latitude is not None else None,
+        "longitude": str(longitude) if longitude is not None else None,
+        "updated_at": updated_at.isoformat() if updated_at else None,
+    }
+
+    for oid in order_ids:
+        try:
+            async_to_sync(channel_layer.group_send)(
+                f"order_tracking_{oid}",
+                {
+                    **payload,
+                    "order_id": oid,
+                },
+            )
+        except Exception as e:
+            logger.warning(
+                "Failed sending rider tracking update (rider=%s, order=%s): %s",
+                rider_id,
+                oid,
+                e,
+            )
+
+
 def get_initial_tracking_payload(order_id: int):
     """
-    Snapshot payload for tracking socket immediately after connect.
+    Snapshot payload for tracking socket immediately after connect (driver location).
     """
     od = (
         OrderDriver.objects.filter(
@@ -197,3 +258,77 @@ def get_initial_tracking_payload(order_id: int):
         "updated_at": driver.updated_at.isoformat() if driver.updated_at else None,
         **eta_payload,
     }
+
+
+def get_initial_rider_location_payload(order_id: int):
+    """Snapshot of passenger location for tracking socket (for driver map)."""
+    order = (
+        Order.objects.filter(id=order_id, status__in=ACTIVE_TRACKING_STATUSES)
+        .select_related("user")
+        .first()
+    )
+    if not order or not order.user:
+        return None
+
+    rider = order.user
+    if rider.latitude is None or rider.longitude is None:
+        return {
+            "order_id": order_id,
+            "rider_id": rider.id,
+            "latitude": None,
+            "longitude": None,
+            "updated_at": rider.updated_at.isoformat() if rider.updated_at else None,
+        }
+
+    return {
+        "order_id": order_id,
+        "rider_id": rider.id,
+        "latitude": str(rider.latitude),
+        "longitude": str(rider.longitude),
+        "updated_at": rider.updated_at.isoformat() if rider.updated_at else None,
+    }
+
+
+def notify_order_cancelled_on_tracking(
+    order_id: int,
+    *,
+    change: str,
+    message: str | None = None,
+) -> None:
+    """
+    Broadcast cancel reason to ws/order/{order_id}/tracking/ so both parties
+    still connected to the live map get the cancellation + reason.
+    """
+    from .cancel_ws import build_cancel_ws_payload
+    from .rider_orders_websocket import build_rider_order_payload, _fetch_order_for_rider_ws
+
+    channel_layer = get_channel_layer()
+    if not channel_layer:
+        return
+
+    order = _fetch_order_for_rider_ws(order_id)
+    if not order:
+        return
+
+    cancel = build_cancel_ws_payload(order)
+    order_payload = build_rider_order_payload(order)
+    event = {
+        "type": "order_cancelled",
+        "order_id": order_id,
+        "change": change,
+        "message": message or "This ride has been cancelled.",
+        "cancel": cancel,
+        "order": order_payload,
+    }
+    try:
+        async_to_sync(channel_layer.group_send)(f"order_tracking_{order_id}", event)
+        logger.info(
+            "tracking ws: order_cancelled order=%s change=%s cancel=%s",
+            order_id,
+            change,
+            cancel,
+        )
+    except Exception as e:
+        logger.warning(
+            "Failed tracking order_cancelled for order %s: %s", order_id, e
+        )

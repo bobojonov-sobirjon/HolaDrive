@@ -10,6 +10,7 @@ from django.contrib.auth.models import Group
 from django.db import transaction
 
 from apps.accounts.models import CustomUser, UserDeviceToken
+from apps.accounts.phone_auth import assert_login_app_role
 
 logger = logging.getLogger(__name__)
 
@@ -135,6 +136,7 @@ def get_or_create_user_from_firebase(
             user.save(update_fields=['first_name', 'last_name'])
         if device_token and device_type:
             UserDeviceToken.upsert_token(user=user, token=device_token, mobile=device_type)
+        assert_login_app_role(user, role, assign_if_missing=True)
         return user, False
 
     if email:
@@ -158,6 +160,7 @@ def get_or_create_user_from_firebase(
             existing.save(update_fields=['firebase_uid', 'is_verified', 'first_name', 'last_name'])
             if device_token and device_type:
                 UserDeviceToken.upsert_token(user=existing, token=device_token, mobile=device_type)
+            assert_login_app_role(existing, role, assign_if_missing=True)
             return existing, False
 
     if not email:
@@ -180,6 +183,8 @@ def get_or_create_user_from_firebase(
     user.save()
 
     _assign_role_group(user, role)
+    if not role:
+        raise SocialAuthError('role is required (rider or driver).', code='role_required')
     _ensure_stripe_customer(user)
 
     if device_token and device_type:

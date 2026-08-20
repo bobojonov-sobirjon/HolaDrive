@@ -155,9 +155,9 @@ class LoginSerializer(serializers.Serializer):
     )
     role = serializers.ChoiceField(
         write_only=True,
-        required=False,
+        required=True,
         choices=[('rider', 'Rider'), ('driver', 'Driver')],
-        help_text="For new phone sign-up only: assign Rider or Driver group (like Google sign-in).",
+        help_text="Which app is signing in: rider or driver. Must match the account role.",
     )
 
     def validate(self, attrs):
@@ -172,7 +172,7 @@ class LoginSerializer(serializers.Serializer):
             raise serializers.ValidationError("Provide either email or phone number, not both.")
 
         if phone_number:
-            from apps.accounts.phone_auth import get_or_create_user_for_phone
+            from apps.accounts.phone_auth import AppRoleMismatchError, get_or_create_user_for_phone
             from apps.accounts.services import normalize_phone_number
 
             normalized = normalize_phone_number(phone_number)
@@ -180,17 +180,19 @@ class LoginSerializer(serializers.Serializer):
                 raise serializers.ValidationError({"phone_number": ["Invalid phone number format."]})
 
             role = (attrs.get('role') or '').strip() or None
+            if not role:
+                raise serializers.ValidationError(
+                    {"role": ["This field is required. Send role=rider or role=driver."]}
+                )
             try:
                 user, is_new_user = get_or_create_user_for_phone(normalized, role=role)
+            except AppRoleMismatchError as exc:
+                self.app_role_error = exc
+                raise serializers.ValidationError({'role': [str(exc)]}) from exc
             except ValueError as exc:
                 raise serializers.ValidationError(
                     {"phone_number": [str(exc)]} if 'phone' in str(exc).lower() else {"role": [str(exc)]}
                 ) from exc
-
-            if is_new_user and not role:
-                raise serializers.ValidationError(
-                    {"role": ["This field is required for new phone sign-up (rider or driver)."]}
-                )
 
             attrs['user'] = user
             attrs['phone_number'] = normalized
@@ -206,6 +208,22 @@ class LoginSerializer(serializers.Serializer):
             raise serializers.ValidationError("Invalid email or password.")
         if not user.check_password(password):
             raise serializers.ValidationError("Invalid email or password.")
+
+        from apps.accounts.phone_auth import AppRoleMismatchError, assert_login_app_role
+
+        role = (attrs.get('role') or '').strip() or None
+        if not role:
+            raise serializers.ValidationError(
+                {"role": ["This field is required. Send role=rider or role=driver."]}
+            )
+        try:
+            assert_login_app_role(user, role, assign_if_missing=True)
+        except AppRoleMismatchError as exc:
+            self.app_role_error = exc
+            raise serializers.ValidationError({'role': [str(exc)]}) from exc
+        except ValueError as exc:
+            raise serializers.ValidationError({'role': [str(exc)]}) from exc
+
         attrs['user'] = user
         attrs['email'] = email
         return attrs
@@ -251,9 +269,9 @@ class SendVerificationCodeSerializer(serializers.Serializer):
     email = serializers.EmailField(required=False, help_text="Email address")
     phone_number = serializers.CharField(required=False, max_length=15, help_text="Phone number")
     role = serializers.ChoiceField(
-        required=False,
+        required=True,
         choices=[('rider', 'Rider'), ('driver', 'Driver')],
-        help_text="For new phone sign-up only (when user does not exist yet).",
+        help_text="Which app is requesting the code: rider or driver. Must match the account role.",
     )
 
     def validate(self, attrs):
@@ -263,14 +281,23 @@ class SendVerificationCodeSerializer(serializers.Serializer):
         if not email and not phone_number:
             raise serializers.ValidationError("Either email or phone number is required.")
 
+        from apps.accounts.phone_auth import AppRoleMismatchError, assert_login_app_role, find_user_by_phone, get_or_create_user_for_phone
+
+        role = (attrs.get('role') or '').strip() or None
         user = None
         if email:
             try:
                 user = CustomUser.objects.get(email=email)
             except CustomUser.DoesNotExist:
                 raise serializers.ValidationError("User with this email does not exist.")
+            try:
+                assert_login_app_role(user, role, assign_if_missing=True)
+            except AppRoleMismatchError as exc:
+                self.app_role_error = exc
+                raise serializers.ValidationError({'role': [str(exc)]}) from exc
+            except ValueError as exc:
+                raise serializers.ValidationError({'role': [str(exc)]}) from exc
         elif phone_number:
-            from apps.accounts.phone_auth import find_user_by_phone, get_or_create_user_for_phone
             from apps.accounts.services import normalize_phone_number
 
             normalized = normalize_phone_number(phone_number)
@@ -279,12 +306,25 @@ class SendVerificationCodeSerializer(serializers.Serializer):
 
             user = find_user_by_phone(normalized)
             if not user:
-                role = (attrs.get('role') or '').strip() or None
                 if not role:
                     raise serializers.ValidationError(
                         {"role": ["This field is required for new phone sign-up (rider or driver)."]}
                     )
-                user, _ = get_or_create_user_for_phone(normalized, role=role)
+                try:
+                    user, _ = get_or_create_user_for_phone(normalized, role=role)
+                except AppRoleMismatchError as exc:
+                    self.app_role_error = exc
+                    raise serializers.ValidationError({'role': [str(exc)]}) from exc
+                except ValueError as exc:
+                    raise serializers.ValidationError({'role': [str(exc)]}) from exc
+            else:
+                try:
+                    assert_login_app_role(user, role, assign_if_missing=True)
+                except AppRoleMismatchError as exc:
+                    self.app_role_error = exc
+                    raise serializers.ValidationError({'role': [str(exc)]}) from exc
+                except ValueError as exc:
+                    raise serializers.ValidationError({'role': [str(exc)]}) from exc
             attrs['phone_number'] = user.phone_number or normalized
 
         attrs['user'] = user
@@ -304,9 +344,9 @@ class VerifyCodeSerializer(serializers.Serializer):
         help_text="4-digit verification code"
     )
     role = serializers.ChoiceField(
-        required=False,
+        required=True,
         choices=[('rider', 'Rider'), ('driver', 'Driver')],
-        help_text='Required if account has no Rider/Driver group yet.',
+        help_text='Which app is verifying: rider or driver. Must match the account role.',
     )
 
     def validate(self, attrs):
@@ -317,6 +357,8 @@ class VerifyCodeSerializer(serializers.Serializer):
 
         if not email and not phone_number:
             raise serializers.ValidationError("Either email or phone number is required.")
+
+        from apps.accounts.phone_auth import AppRoleMismatchError, assert_login_app_role
 
         # Find user
         user = None
@@ -335,18 +377,13 @@ class VerifyCodeSerializer(serializers.Serializer):
                 raise serializers.ValidationError("User with this phone number does not exist.")
             attrs['phone_number'] = user.phone_number or normalized
 
-            from apps.accounts.phone_auth import ensure_user_app_role, user_has_app_role
-
-            if role:
-                ensure_user_app_role(user, role)
-            elif not user_has_app_role(user):
-                raise serializers.ValidationError(
-                    {
-                        'role': [
-                            'Account has no Rider/Driver role. Send role=rider or role=driver.'
-                        ]
-                    }
-                )
+        try:
+            assert_login_app_role(user, role, assign_if_missing=True)
+        except AppRoleMismatchError as exc:
+            self.app_role_error = exc
+            raise serializers.ValidationError({'role': [str(exc)]}) from exc
+        except ValueError as exc:
+            raise serializers.ValidationError({'role': [str(exc)]}) from exc
 
         # Find valid verification code with optimized query
         try:

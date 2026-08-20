@@ -359,6 +359,8 @@ def build_rider_order_payload(order: Order, accepted_assignment: OrderDriver | N
     """
     Full order JSON for rider WebSocket (no nested rider user — client already is the rider).
     """
+    from .cancel_ws import build_cancel_ws_payload
+
     driver_assignment = accepted_assignment
     # Include assigned driver on terminal statuses too (completed / cancelled) for rider UI.
     if driver_assignment is None and order.status in (
@@ -379,7 +381,7 @@ def build_rider_order_payload(order: Order, accepted_assignment: OrderDriver | N
     if driver_assignment and driver_assignment.driver_id:
         driver_payload = build_driver_for_rider(driver_assignment.driver)
 
-    return {
+    payload = {
         'id': order.id,
         'order_code': order.order_code,
         'status': order.status,
@@ -394,6 +396,9 @@ def build_rider_order_payload(order: Order, accepted_assignment: OrderDriver | N
         'driver': driver_payload,
         'order_driver': _order_driver_row(driver_assignment),
     }
+    if order.status == Order.OrderStatus.CANCELLED:
+        payload['cancel'] = build_cancel_ws_payload(order)
+    return payload
 
 
 def _fetch_order_for_rider_ws(order_id: int) -> Order | None:
@@ -407,6 +412,7 @@ def _fetch_order_for_rider_ws(order_id: int) -> Order | None:
                 'applied_promo_codes__promo_code',
                 'order_drivers__driver',
                 'order_drivers__driver__vehicle_details__images',
+                'cancel_orders',
             )
             .first()
         )
@@ -473,6 +479,8 @@ def _build_rider_order_updated_event(
     reassigned: bool | None = None,
 ) -> tuple[int, dict] | None:
     """Returns (rider_user_id, channel_layer message dict) or None if order missing."""
+    from .cancel_ws import build_cancel_ws_payload
+
     order_full = _fetch_order_for_rider_ws(order_id)
     if not order_full:
         return None
@@ -487,7 +495,50 @@ def _build_rider_order_updated_event(
         event['rejected_driver_id'] = rejected_driver_id
     if reassigned is not None:
         event['reassigned'] = reassigned
+    if change in ('cancelled_driver', 'cancelled_rider') or order_full.status == Order.OrderStatus.CANCELLED:
+        cancel = build_cancel_ws_payload(order_full)
+        event['cancel'] = cancel
+        if cancel and 'cancel' not in payload:
+            payload['cancel'] = cancel
     return order_full.user_id, event
+
+
+async def async_notify_rider_order_cancelled_by_driver(order_id: int, message: str | None = None) -> None:
+    """Dedicated cancel event for rider WS (includes reason), plus rider_order_updated."""
+    built = await _load_rider_order_updated_event(
+        order_id,
+        'cancelled_driver',
+        message or 'Your ride has been cancelled by the driver.',
+        None,
+        None,
+    )
+    if not built:
+        return
+    rider_id, updated_event = built
+    channel_layer = get_channel_layer()
+    if not channel_layer:
+        return
+
+    cancel = updated_event.get('cancel')
+    cancel_event = {
+        'type': 'order_cancelled_by_driver',
+        'change': 'cancelled_driver',
+        'message': updated_event.get('message'),
+        'order': updated_event.get('order', {}),
+        'cancel': cancel,
+    }
+    try:
+        await channel_layer.group_send(f'rider_orders_{rider_id}', cancel_event)
+        await channel_layer.group_send(f'rider_orders_{rider_id}', updated_event)
+    except Exception as e:
+        logger.warning('rider ws cancel_by_driver send failed: %s', e)
+        return
+    logger.info(
+        'rider ws: order_cancelled_by_driver order=%s rider=%s cancel=%s',
+        order_id,
+        rider_id,
+        cancel,
+    )
 
 
 @database_sync_to_async

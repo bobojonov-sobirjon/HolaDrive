@@ -25,6 +25,8 @@ from .views import (
     DriverCompleteView,
     DriverCancelOrderView,
     DriverLocationUpdateView,
+    RiderLocationUpdateView,
+    RiderLocationForOrderView,
     DriverLocationForOrderView,
     DriverDashboardView,
     DriverEarningsView,
@@ -79,7 +81,9 @@ urlpatterns = [
 
     # Real-time tracking
     path('driver/location/update/', DriverLocationUpdateView.as_view(), name='driver-location-update'),
+    path('rider/location/update/', RiderLocationUpdateView.as_view(), name='rider-location-update'),
     path('<int:order_id>/driver/location/', DriverLocationForOrderView.as_view(), name='driver-location-for-order'),
+    path('<int:order_id>/rider/location/', RiderLocationForOrderView.as_view(), name='rider-location-for-order'),
 
     # Driver dashboard (Figma Earnings: overview, cash_history, ride_history)
     path('driver/dashboard/', DriverDashboardView.as_view(), name='driver-dashboard'),

@@ -227,17 +227,13 @@ def notify_drivers_order_cancelled_by_rider(order_id: int, request=None):
     ctx = {'request': request} if request is not None else {}
     order_data = OrderDetailSerializer(order, context=ctx).data
 
-    cancel = order.cancel_orders.first()
-    cancel_data = None
-    if cancel:
-        cancel_data = {
-            'cancelled_by': cancel.cancelled_by,
-            'reason': cancel.reason,
-            'other_reason': cancel.other_reason,
-            'created_at': cancel.created_at.isoformat() if cancel.created_at else None,
-        }
-        if cancel.driver_id:
-            cancel_data['order_driver_id'] = cancel.driver_id
+    from .cancel_ws import build_cancel_ws_payload
+
+    cancel_data = build_cancel_ws_payload(order)
+    if cancel_data:
+        # Serializer may omit cancel; attach for clients that read order.cancel
+        order_data = dict(order_data)
+        order_data['cancel'] = cancel_data
 
     driver_ids = list(
         OrderDriver.objects.filter(
@@ -270,6 +266,13 @@ def notify_drivers_order_cancelled_by_rider(order_id: int, request=None):
         'cancel': cancel_data,
     }
 
+    reason_text = ''
+    if cancel_data:
+        reason_text = cancel_data.get('other_reason') or cancel_data.get('reason_display') or cancel_data.get('reason') or ''
+    body = 'The rider cancelled this ride.'
+    if reason_text:
+        body = f'The rider cancelled this ride. Reason: {reason_text}'
+
     for did in driver_ids:
         try:
             async_to_sync(channel_layer.group_send)(f'driver_orders_{did}', message)
@@ -290,11 +293,15 @@ def notify_drivers_order_cancelled_by_rider(order_id: int, request=None):
             enqueue_push_to_user_id(
                 did,
                 title='Ride cancelled',
-                body='The rider cancelled this ride.',
+                body=body,
                 data={
                     'type': 'ride_cancelled_by_rider',
                     'order_id': order.id,
                     'order_code': order.order_code or '',
+                    'cancelled_by': 'rider',
+                    'reason': (cancel_data or {}).get('reason') or '',
+                    'other_reason': (cancel_data or {}).get('other_reason') or '',
+                    'reason_display': (cancel_data or {}).get('reason_display') or '',
                 },
             )
     except Exception as e:

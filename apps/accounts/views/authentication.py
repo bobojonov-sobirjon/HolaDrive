@@ -16,6 +16,14 @@ from ..serializers import (
 )
 from ..models import VerificationCode, PasswordResetToken, InvitationGenerate, InvitationUsers, UserDeviceToken
 from ..services import send_verification_code
+from ..phone_auth import AppRoleMismatchError
+
+
+def _role_mismatch_response(serializer) -> Response | None:
+    err = getattr(serializer, 'app_role_error', None)
+    if isinstance(err, AppRoleMismatchError):
+        return Response(err.as_api_payload(), status=status.HTTP_403_FORBIDDEN)
+    return None
 
 
 class RegistrationView(AsyncAPIView):
@@ -134,7 +142,18 @@ class LoginView(AsyncAPIView):
     permission_classes = [AllowAny]
     throttle_classes = [LoginRateThrottle]
 
-    @extend_schema(tags=['Authentication'], summary='Login', description='Login with email+password OR phone only. Phone: send phone_number (password not required), then verify-code. Email: send email and password. Optional: device_token, device_type.', request=LoginSerializer)
+    @extend_schema(
+        tags=['Authentication'],
+        summary='Login',
+        description=(
+            'Login with email+password OR phone only. Phone: send `phone_number` (no password), then verify-code. '
+            'Email: send email and password.\n\n'
+            '**Required `role`:** `rider` or `driver` — must match the account. '
+            'A Rider cannot sign in from the Driver app and a Driver cannot sign in from the Rider app.\n\n'
+            'Optional: `device_token`, `device_type`.'
+        ),
+        request=LoginSerializer,
+    )
     async def post(self, request):
         """
         Login user with email/phone and password, then send verification code - ASYNC VERSION
@@ -194,6 +213,9 @@ class LoginView(AsyncAPIView):
             
             return Response(response_data, status=status.HTTP_200_OK)
         
+        mismatch = _role_mismatch_response(serializer)
+        if mismatch:
+            return mismatch
         errors = await sync_to_async(lambda: serializer.errors)()
         return Response(
             {
@@ -344,6 +366,9 @@ class SendVerificationCodeView(AsyncAPIView):
                 status=status.HTTP_200_OK
             )
         
+        mismatch = _role_mismatch_response(serializer)
+        if mismatch:
+            return mismatch
         errors = await sync_to_async(lambda: serializer.errors)()
         return Response(
             {
@@ -361,7 +386,14 @@ class VerifyCodeView(AsyncAPIView):
     """
     permission_classes = [AllowAny]
 
-    @extend_schema(tags=['Authentication'], summary='Verify code', description='Verify code and login user.', request=VerifyCodeSerializer)
+    @extend_schema(
+        tags=['Authentication'],
+        summary='Verify code',
+        description=(
+            'Verify OTP and issue JWT. **Required `role`:** `rider` or `driver` — must match the account.'
+        ),
+        request=VerifyCodeSerializer,
+    )
     async def post(self, request):
         """
         Verify code and login user - ASYNC VERSION
@@ -424,6 +456,9 @@ class VerifyCodeView(AsyncAPIView):
                 status=status.HTTP_200_OK
             )
         
+        mismatch = _role_mismatch_response(serializer)
+        if mismatch:
+            return mismatch
         errors = await sync_to_async(lambda: serializer.errors)()
         return Response(
             {

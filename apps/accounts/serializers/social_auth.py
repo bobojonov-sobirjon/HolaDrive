@@ -14,9 +14,8 @@ class FirebaseSocialSignInSerializer(serializers.Serializer):
     )
     role = serializers.ChoiceField(
         choices=[('rider', 'Rider'), ('driver', 'Driver')],
-        required=False,
-        allow_blank=True,
-        help_text='Assign app role on first sign-up only (Rider or Driver group).',
+        required=True,
+        help_text='Which app is signing in: rider or driver. Must match the account role.',
     )
     full_name = serializers.CharField(
         required=False,
