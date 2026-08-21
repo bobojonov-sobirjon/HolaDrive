@@ -2,6 +2,7 @@ from rest_framework import status
 from apps.common.views import AsyncAPIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
+from apps.common.permissions import IsDriver
 from asgiref.sync import sync_to_async
 from drf_spectacular.utils import extend_schema
 
@@ -18,7 +19,7 @@ class DriverPreferencesView(AsyncAPIView):
     - Preferred working hours (morning, afternoon, evening, night, any)
     - Notification intensity (minimal, moderate, high)
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsDriver]
 
     @extend_schema(tags=['Driver Preferences'], summary='Get preferences', description='Get current driver ride preferences (trip type, max pickup distance, working hours, notification intensity). Role: Driver.')
     async def get(self, request):

@@ -14,6 +14,36 @@ from apps.order.services.active_ride import (
 logger = logging.getLogger(__name__)
 
 
+@shared_task(name='apps.order.tasks.handle_offer_timeout')
+def handle_offer_timeout(order_driver_id):
+    try:
+        order_driver = OrderDriver.objects.select_related('order', 'driver').get(pk=order_driver_id)
+    except OrderDriver.DoesNotExist:
+        return {'status': 'missing'}
+
+    if order_driver.status != OrderDriver.DriverRequestStatus.REQUESTED:
+        return {'status': 'already_handled', 'order_driver_id': order_driver_id}
+    if order_driver.order.status != Order.OrderStatus.PENDING:
+        return {'status': 'order_not_pending'}
+
+    timed_out_driver_id = order_driver.driver_id
+    order_driver.status = OrderDriver.DriverRequestStatus.TIMEOUT
+    order_driver.save(update_fields=['status'])
+
+    try:
+        from apps.order.services.driver_orders_websocket import send_order_timeout_to_driver
+        send_order_timeout_to_driver(timed_out_driver_id, order_driver.order_id)
+    except Exception:
+        logger.warning('Failed to send WebSocket order_timeout', extra={'driver_id': timed_out_driver_id}, exc_info=True)
+
+    try:
+        DriverAssignmentService.assign_to_next_driver(order_driver.order)
+    except Exception:
+        logger.exception('Failed to reassign order %s after offer timeout', order_driver.order_id)
+
+    return {'status': 'timeout', 'order_driver_id': order_driver_id}
+
+
 @shared_task(name='apps.order.tasks.check_order_timeouts')
 def check_order_timeouts():
     logger.info("Starting check_order_timeouts task...")

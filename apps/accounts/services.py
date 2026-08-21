@@ -105,11 +105,7 @@ def send_sms(phone_number, message):
     normalized_phone = normalize_phone_number(phone_number)
 
     if getattr(settings, 'SMS_OTP_LOG_ONLY', False):
-        logger.warning(
-            '[SMS_OTP_LOG_ONLY] OTP SMS to %s (not sent via Twilio): %s',
-            normalized_phone,
-            message,
-        )
+        logger.warning('[SMS_OTP_LOG_ONLY] OTP SMS skipped for %s', normalized_phone)
         return True, 'log_only'
 
     try:
@@ -163,11 +159,11 @@ def send_verification_code(user, email=None, phone_number=None, code=None, email
     t0 = time.monotonic()
 
     def _log(step: str, **extra):
+        extra = {k: v for k, v in extra.items() if k != 'code'}
         elapsed = round(time.monotonic() - t0, 3)
         parts = ' '.join(f'{k}={v}' for k, v in extra.items())
         msg = f'[OTP] step={step} elapsed_s={elapsed} {parts}'.strip()
-        logger.warning(msg)
-        print(msg, flush=True)
+        logger.info(msg)
 
     _log(
         'start',
@@ -197,7 +193,7 @@ def send_verification_code(user, email=None, phone_number=None, code=None, email
         verification_code.code = code
         verification_code.save(update_fields=['code'])
 
-    _log('otp_created', code=verification_code.code, vc_id=verification_code.pk, fixed=bool(fixed))
+    _log('otp_created', vc_id=verification_code.pk, fixed=bool(fixed))
 
     success = False
     error = None
@@ -206,12 +202,7 @@ def send_verification_code(user, email=None, phone_number=None, code=None, email
     if fixed:
         _log(
             'fixed_otp_skip_delivery',
-            code=verification_code.code,
             channel='email' if email else ('sms' if phone_number else 'none'),
-        )
-        print(
-            f'[OTP FIXED] code={verification_code.code} email={email or "-"} phone={phone_number or "-"}',
-            flush=True,
         )
         return verification_code, True, None
 
@@ -231,13 +222,8 @@ def send_verification_code(user, email=None, phone_number=None, code=None, email
         to_email = str(email).strip()
 
         if getattr(settings, 'EMAIL_OTP_LOG_ONLY', False):
-            _log('email_log_only_skip_smtp', to=to_email, code=verification_code.code)
-            logger.warning(
-                '[EMAIL_OTP_LOG_ONLY] OTP email to %s (not sent via SMTP): %s',
-                to_email,
-                message_text,
-            )
-            print(f'[OTP EMAIL_OTP_LOG_ONLY] to={to_email} code={verification_code.code}', flush=True)
+            _log('email_log_only_skip_smtp', to=to_email)
+            logger.warning('[EMAIL_OTP_LOG_ONLY] OTP email skipped for %s', to_email)
             return verification_code, True, None
 
         try:
@@ -284,17 +270,8 @@ def send_verification_code(user, email=None, phone_number=None, code=None, email
             logger.exception('Failed to send verification email to %s', email)
 
             if getattr(settings, 'EMAIL_OTP_FALLBACK_ON_ERROR', False):
-                logger.warning(
-                    '[EMAIL_OTP_FALLBACK] to=%s code=%s error=%s',
-                    email,
-                    verification_code.code,
-                    error,
-                )
-                print(
-                    f'[OTP EMAIL_OTP_FALLBACK] to={email} code={verification_code.code}',
-                    flush=True,
-                )
-                _log('email_fallback_ok', code=verification_code.code)
+                logger.warning('[EMAIL_OTP_FALLBACK] to=%s error=%s', email, error)
+                _log('email_fallback_ok')
                 success = True
                 error = None
             else:
@@ -318,3 +295,35 @@ def send_verification_code(user, email=None, phone_number=None, code=None, email
 
     _log('done', success=success, error=error or '-')
     return verification_code, success, error
+
+
+def _otp_fail_key(user_id: int) -> str:
+    return f'otp:fail:{user_id}'
+
+
+def _otp_lock_key(user_id: int) -> str:
+    return f'otp:lock:{user_id}'
+
+
+def otp_is_locked(user_id: int) -> bool:
+    from django.core.cache import cache
+    return bool(cache.get(_otp_lock_key(user_id)))
+
+
+def otp_register_failure(user_id: int) -> None:
+    from django.conf import settings
+    from django.core.cache import cache
+
+    max_attempts = int(getattr(settings, 'OTP_MAX_ATTEMPTS', 5) or 5)
+    lock_s = int(getattr(settings, 'OTP_LOCKOUT_SECONDS', 900) or 900)
+    key = _otp_fail_key(user_id)
+    n = int(cache.get(key) or 0) + 1
+    cache.set(key, n, timeout=lock_s)
+    if n >= max_attempts:
+        cache.set(_otp_lock_key(user_id), 1, timeout=lock_s)
+
+
+def otp_clear_failures(user_id: int) -> None:
+    from django.core.cache import cache
+    cache.delete(_otp_fail_key(user_id))
+    cache.delete(_otp_lock_key(user_id))

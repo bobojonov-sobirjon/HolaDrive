@@ -215,6 +215,8 @@ class DriverStripeConnectCompleteSetupView(AsyncAPIView):
         from .services.stripe_connect_bank import build_driver_payout_profile
 
         def _run():
+            from apps.common.client_ip import client_ip
+
             u = CustomUser.objects.get(pk=request.user.pk)
             complete_connect_account_setup(
                 acct_id,
@@ -224,6 +226,7 @@ class DriverStripeConnectCompleteSetupView(AsyncAPIView):
                 dob_month=vd.get('dob_month'),
                 dob_day=vd.get('dob_day'),
                 ssn_last4=vd.get('ssn_last4') or None,
+                tos_ip=client_ip(request),
             )
             return build_driver_payout_profile(u)
 

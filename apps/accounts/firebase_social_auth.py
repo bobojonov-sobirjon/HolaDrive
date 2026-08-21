@@ -145,6 +145,11 @@ def get_or_create_user_from_firebase(
             existing.delete()
             existing = None
         if existing:
+            if not email_verified:
+                raise SocialAuthError(
+                    'This email is already registered. Verify the email with the provider or use email login.',
+                    code='email_unverified_link',
+                )
             if existing.firebase_uid and existing.firebase_uid != firebase_uid:
                 raise SocialAuthError(
                     'This email is linked to another account. Use email login or contact support.',

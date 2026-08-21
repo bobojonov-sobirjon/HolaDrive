@@ -45,14 +45,18 @@ def get_driver_current_orders(driver):
 def _order_to_dict(order, driver=None, requested_at=None):
     """
     Build order dict for WebSocket.
-    Includes: vaqt (time), client (rider) info, net_price.
+    Includes: vaqt (time), client (rider) info, net_price, order_items (multi-stop).
     """
-    first_item = order.order_items.first()
+    from .rider_orders_websocket import _order_items_payload
+
+    items = list(order.order_items.all().order_by('stop_sequence', 'id'))
+    first_item = items[0] if items else None
     if not first_item:
         return None
+    final_item = next((it for it in items if it.is_final_stop), items[-1])
 
     net_price = 0
-    for item in order.order_items.all():
+    for item in items:
         price = item.adjusted_price or item.calculated_price or item.original_price
         if price is not None:
             net_price += float(price)
@@ -124,12 +128,13 @@ def _order_to_dict(order, driver=None, requested_at=None):
         'requested_at': requested_at.isoformat() if requested_at else None,
         'estimated_time': first_item.estimated_time,
         'address_from': first_item.address_from,
-        'address_to': first_item.address_to,
+        'address_to': final_item.address_to,
         'latitude_from': str(first_item.latitude_from) if first_item.latitude_from else None,
         'longitude_from': str(first_item.longitude_from) if first_item.longitude_from else None,
-        'latitude_to': str(first_item.latitude_to) if first_item.latitude_to else None,
-        'longitude_to': str(first_item.longitude_to) if first_item.longitude_to else None,
+        'latitude_to': str(final_item.latitude_to) if final_item.latitude_to else None,
+        'longitude_to': str(final_item.longitude_to) if final_item.longitude_to else None,
         'distance_to_pickup_km': None,
+        'order_items': _order_items_payload(order),
         'net_price': net_price,
         'client': client_info,
         'client_rating': client_rating,
@@ -311,3 +316,43 @@ def notify_drivers_order_cancelled_by_rider(order_id: int, request=None):
             driver_ids,
             e,
         )
+
+
+def notify_driver_stops_updated(order):
+    """Mid-ride route change — not a new nearby offer overlay."""
+    from channels.layers import get_channel_layer
+    from ..models import OrderDriver
+
+    try:
+        channel_layer = get_channel_layer()
+        if not channel_layer:
+            return
+
+        driver_ids = list(
+            OrderDriver.objects.filter(
+                order=order,
+                status=OrderDriver.DriverRequestStatus.ACCEPTED,
+            ).values_list('driver_id', flat=True)
+        )
+        if not driver_ids:
+            return
+
+        order_data = _order_to_dict(order)
+        if not order_data:
+            return
+
+        message = {
+            'type': 'driver_order_updated',
+            'change': 'stops_updated',
+            'order': order_data,
+            'message': 'Ride stops updated',
+        }
+        for did in driver_ids:
+            async_to_sync(channel_layer.group_send)(f'driver_orders_{did}', message)
+            logger.info(
+                'WebSocket stops_updated sent to driver %s for order %s',
+                did,
+                order.id,
+            )
+    except Exception as e:
+        logger.warning('Failed to send WebSocket stops_updated to driver: %s', e)

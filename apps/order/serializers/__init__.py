@@ -8,6 +8,7 @@ from .order import (
     PriceEstimateManagePriceSerializer,
     OrderItemUpdateSerializer,
     OrderItemManagePriceSerializer,
+    OrderStopsUpdateSerializer,
 )
 from .order_preferences import OrderPreferencesSerializer, UserOrderPreferencesSerializer
 from .additional_passenger import AdditionalPassengerSerializer
@@ -45,6 +46,7 @@ __all__ = [
     'PriceEstimateManagePriceSerializer',
     'OrderItemUpdateSerializer',
     'OrderItemManagePriceSerializer',
+    'OrderStopsUpdateSerializer',
     'OrderPreferencesSerializer',
     'UserOrderPreferencesSerializer',
     'AdditionalPassengerSerializer',

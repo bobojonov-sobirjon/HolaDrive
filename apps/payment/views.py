@@ -109,7 +109,6 @@ class SavedCardListCreateView(AsyncAPIView):
         holder_role = await sync_to_async(holder_role_for_user)(request.user)
 
         def _do_save():
-            # If frontend already created a customer (mobile SDK flows), store it on user and reuse.
             if incoming_customer:
                 from apps.accounts.models import CustomUser
 
@@ -120,8 +119,9 @@ class SavedCardListCreateView(AsyncAPIView):
                         'Stripe customer mismatch for this account. Please clear saved cards and re-add.'
                     )
                 if not current:
-                    u.stripe_customer_id = incoming_customer
-                    u.save(update_fields=['stripe_customer_id'])
+                    raise ValueError(
+                        'stripe_customer_id cannot be bound from the client. Save the card without it.'
+                    )
 
             return stripe_cards.save_card_for_user(
                 request.user,

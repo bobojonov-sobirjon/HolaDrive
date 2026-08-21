@@ -1,10 +1,11 @@
 from rest_framework import status
 from rest_framework.response import Response
 from apps.common.views import AsyncAPIView
-from apps.common.throttles import LoginRateThrottle
-from rest_framework.permissions import AllowAny
+from apps.common.throttles import LoginRateThrottle, OtpSendThrottle, OtpVerifyThrottle
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.exceptions import TokenError, InvalidToken
+from rest_framework.exceptions import ValidationError
 from drf_spectacular.utils import extend_schema, OpenApiExample
 from django.conf import settings
 from asgiref.sync import sync_to_async
@@ -245,11 +246,11 @@ class AdminLoginView(AsyncAPIView):
         t0 = time.monotonic()
 
         def _alog(step: str, **extra):
+            extra.pop('code', None)
             elapsed = round(time.monotonic() - t0, 3)
             parts = ' '.join(f'{k}={v}' for k, v in extra.items())
             msg = f'[ADMIN_LOGIN] step={step} elapsed_s={elapsed} {parts}'.strip()
-            log.warning(msg)
-            print(msg, flush=True)
+            log.info(msg)
 
         _alog('request_received', path=getattr(request, 'path', ''))
         serializer = AdminLoginSerializer(data=request.data)
@@ -273,7 +274,6 @@ class AdminLoginView(AsyncAPIView):
                 'send_otp_end',
                 success=success,
                 error=error or '-',
-                code=getattr(verification_code, 'code', None),
             )
 
             if not success:
@@ -291,11 +291,8 @@ class AdminLoginView(AsyncAPIView):
                 'expires_in': 600,
                 'sent_to': email,
             }
-            # Local/dev OR fixed OTP mode: expose code in response (SMTP may be blocked)
-            if settings.DEBUG or getattr(settings, 'FIXED_OTP_CODE', ''):
-                data['debug_otp'] = verification_code.code
 
-            _alog('response_200_ok', debug_otp=data.get('debug_otp'))
+            _alog('response_200_ok')
             return Response(
                 {
                     'message': 'Admin verification code sent successfully',
@@ -318,10 +315,8 @@ class AdminLoginView(AsyncAPIView):
 
 
 class SendVerificationCodeView(AsyncAPIView):
-    """
-    Send verification code endpoint
-    """
     permission_classes = [AllowAny]
+    throttle_classes = [OtpSendThrottle]
 
     @extend_schema(tags=['Authentication'], summary='Send verification code', description='Send verification code to email or phone.', request=SendVerificationCodeSerializer)
     async def post(self, request):
@@ -381,10 +376,8 @@ class SendVerificationCodeView(AsyncAPIView):
 
 
 class VerifyCodeView(AsyncAPIView):
-    """
-    Verify code endpoint
-    """
     permission_classes = [AllowAny]
+    throttle_classes = [OtpVerifyThrottle]
 
     @extend_schema(
         tags=['Authentication'],
@@ -507,20 +500,23 @@ class TokenRefreshView(AsyncAPIView):
             )
 
         try:
-            refresh = RefreshToken(refresh_str)
-            access_token = str(refresh.access_token)
+            from rest_framework_simplejwt.serializers import TokenRefreshSerializer
+
+            ser = TokenRefreshSerializer(data={'refresh': refresh_str})
+            ser.is_valid(raise_exception=True)
+            payload = ser.validated_data
             return Response(
                 {
                     'message': 'Token refreshed successfully',
                     'status': 'success',
                     'data': {
-                        'access_token': access_token,
-                        'refresh_token': refresh_str,
+                        'access_token': payload.get('access'),
+                        'refresh_token': payload.get('refresh') or refresh_str,
                     },
                 },
                 status=status.HTTP_200_OK,
             )
-        except (TokenError, InvalidToken) as e:
+        except (TokenError, InvalidToken, ValidationError) as e:
             return Response(
                 {
                     'message': 'Invalid or expired refresh token',
@@ -532,10 +528,8 @@ class TokenRefreshView(AsyncAPIView):
 
 
 class ResetPasswordRequestView(AsyncAPIView):
-    """
-    Request password reset endpoint
-    """
     permission_classes = [AllowAny]
+    throttle_classes = [OtpSendThrottle]
 
     @extend_schema(tags=['Authentication'], summary='Request password reset', description='Request password reset. Sends code via email or SMS.', request=ResetPasswordRequestSerializer)
     async def post(self, request):
@@ -551,6 +545,17 @@ class ResetPasswordRequestView(AsyncAPIView):
             user = validated_data['user']
             email = validated_data.get('email')
             phone_number = validated_data.get('phone_number')
+
+            generic = {
+                'message': 'If an account exists, a password reset code was sent.',
+                'status': 'success',
+                'data': {
+                    'expires_in': 600,
+                    'message': 'Enter the verification code to reset your password',
+                },
+            }
+            if not user:
+                return Response(generic, status=status.HTTP_200_OK)
             
             contact_email = email or user.email
             contact_phone = phone_number or user.phone_number
@@ -570,18 +575,7 @@ class ResetPasswordRequestView(AsyncAPIView):
                     status=status.HTTP_500_INTERNAL_SERVER_ERROR
                 )
             
-            return Response(
-                {
-                    'message': 'Password reset code sent successfully',
-                    'status': 'success',
-                    'data': {
-                        'expires_in': 600,
-                        'sent_to': contact_email if (email or (not phone_number and user.email)) else contact_phone,
-                        'message': 'Enter the verification code to reset your password'
-                    }
-                },
-                status=status.HTTP_200_OK
-            )
+            return Response(generic, status=status.HTTP_200_OK)
         
         errors = await sync_to_async(lambda: serializer.errors)()
         return Response(
@@ -595,10 +589,8 @@ class ResetPasswordRequestView(AsyncAPIView):
 
 
 class VerifyResetCodeView(AsyncAPIView):
-    """
-    Verify reset password code endpoint
-    """
     permission_classes = [AllowAny]
+    throttle_classes = [OtpVerifyThrottle]
 
     @extend_schema(tags=['Authentication'], summary='Verify reset code', description='Verify reset password code. After this, call reset-password-confirm with email or phone + new_password + confirm_password (no token).', request=VerifyResetCodeSerializer)
     async def post(self, request):
@@ -620,19 +612,12 @@ class VerifyResetCodeView(AsyncAPIView):
             # Create password reset token so reset-password-confirm can allow password change (by email/phone, no token in request)
             await sync_to_async(PasswordResetToken.objects.create)(user=user)
             
-            # Generate JWT tokens (same as login)
-            refresh = await sync_to_async(RefreshToken.for_user)(user)
-            access_token = str(refresh.access_token)
-            refresh_token = str(refresh)
-            
             return Response(
                 {
-                    'message': 'Code verified successfully',
+                    'message': 'Code verified successfully. Set a new password to continue.',
                     'status': 'success',
                     'data': {
-                        'access_token': access_token,
-                        'refresh_token': refresh_token,
-                        'expires_in': 86400  # 24 hours
+                        'reset_allowed': True,
                     }
                 },
                 status=status.HTTP_200_OK
@@ -695,5 +680,49 @@ class ResetPasswordConfirmView(AsyncAPIView):
                 'errors': errors
             },
             status=status.HTTP_400_BAD_REQUEST
+        )
+
+
+class LogoutView(AsyncAPIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        tags=['Authentication'],
+        summary='Logout',
+        description='Blacklist the refresh token so it cannot be reused.',
+        request={
+            'application/json': {
+                'type': 'object',
+                'properties': {
+                    'refresh_token': {'type': 'string'},
+                    'refresh': {'type': 'string'},
+                },
+            }
+        },
+    )
+    async def post(self, request):
+        refresh_str = request.data.get('refresh_token') or request.data.get('refresh')
+        if not refresh_str:
+            return Response(
+                {
+                    'message': 'refresh_token or refresh is required',
+                    'status': 'error',
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            token = RefreshToken(refresh_str)
+            await sync_to_async(token.blacklist)()
+        except Exception:
+            return Response(
+                {
+                    'message': 'Invalid or expired refresh token',
+                    'status': 'error',
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(
+            {'message': 'Logged out successfully', 'status': 'success'},
+            status=status.HTTP_200_OK,
         )
 

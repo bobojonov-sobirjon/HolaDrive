@@ -12,6 +12,41 @@ from ..models import (
 )
 from apps.accounts.serializers.user import UserDetailSerializer
 from apps.payment.serializers import SavedCardSerializer
+from apps.order.services.multi_stop import MultiStopError, parse_stops_payload
+
+
+class RideStopInputSerializer(serializers.Serializer):
+    """One waypoint in create / estimate ``stops[]`` (pickup | stop | dropoff)."""
+
+    address = serializers.CharField(max_length=255)
+    lat = serializers.DecimalField(max_digits=24, decimal_places=18, coerce_to_string=False)
+    lng = serializers.DecimalField(max_digits=24, decimal_places=18, coerce_to_string=False)
+    type = serializers.ChoiceField(choices=['pickup', 'stop', 'dropoff'])
+
+    def to_internal_value(self, data):
+        if isinstance(data, dict):
+            data = dict(data)
+            if 'lat' not in data and data.get('latitude') is not None:
+                data['lat'] = data['latitude']
+            if 'lng' not in data and data.get('longitude') is not None:
+                data['lng'] = data['longitude']
+        return super().to_internal_value(data)
+
+
+class OrderStopsUpdateSerializer(serializers.Serializer):
+    action = serializers.ChoiceField(choices=['add', 'replace_destination'])
+    address = serializers.CharField(max_length=255)
+    latitude = serializers.DecimalField(max_digits=24, decimal_places=18, coerce_to_string=False)
+    longitude = serializers.DecimalField(max_digits=24, decimal_places=18, coerce_to_string=False)
+
+    def to_internal_value(self, data):
+        if isinstance(data, dict):
+            data = dict(data)
+            if 'latitude' not in data and data.get('lat') is not None:
+                data['latitude'] = data['lat']
+            if 'longitude' not in data and data.get('lng') is not None:
+                data['longitude'] = data['lng']
+        return super().to_internal_value(data)
 
 
 class OrderCreateSerializer(serializers.Serializer):
@@ -67,6 +102,11 @@ class OrderCreateSerializer(serializers.Serializer):
             "(must be between min_price and max_price)."
         ),
     )
+    stops = RideStopInputSerializer(
+        many=True,
+        required=False,
+        help_text='Optional multi-stop waypoints: pickup, one or more stop, dropoff. Omit for a 1-leg trip.',
+    )
 
     def validate_order_type(self, value):
         if value not in [1, 2]:
@@ -80,6 +120,27 @@ class OrderCreateSerializer(serializers.Serializer):
             raise serializers.ValidationError("Ride type not found or inactive.")
         return value
 
+    def validate(self, data):
+        raw_stops = data.get('stops')
+        if raw_stops:
+            try:
+                data['_waypoints'] = parse_stops_payload(
+                    [dict(s) for s in raw_stops],
+                    pickup={
+                        'address': data['address_from'],
+                        'lat': float(data['latitude_from']),
+                        'lng': float(data['longitude_from']),
+                    },
+                    dropoff={
+                        'address': data['address_to'],
+                        'lat': float(data['latitude_to']),
+                        'lng': float(data['longitude_to']),
+                    },
+                )
+            except MultiStopError as e:
+                raise serializers.ValidationError({'stops': str(e)})
+        return data
+
     @transaction.atomic
     def create(self, validated_data):
         user = self.context['request'].user
@@ -89,6 +150,8 @@ class OrderCreateSerializer(serializers.Serializer):
         ride_type_id = validated_data.pop('ride_type_id', None)
         payment_type = validated_data.pop('payment_type', 'card')
         adjusted_price = validated_data.pop('adjusted_price', None)
+        validated_data.pop('stops', None)
+        waypoints = validated_data.pop('_waypoints', None)
 
         order = Order.objects.create(
             user=user,
@@ -112,41 +175,54 @@ class OrderCreateSerializer(serializers.Serializer):
                 favorite_driver_preference=template.favorite_driver_preference,
             )
 
-        order_item = OrderItem.objects.create(
-            order=order,
-            address_from=validated_data['address_from'],
-            address_to=validated_data['address_to'],
-            latitude_from=validated_data['latitude_from'],
-            longitude_from=validated_data['longitude_from'],
-            latitude_to=validated_data['latitude_to'],
-            longitude_to=validated_data['longitude_to'],
-            stop_sequence=1,
-            is_final_stop=True
-        )
-        # ride_type so distance_km, estimated_time, calculated_price, min_price, max_price etc. are filled in response
         ride_type = None
         if ride_type_id:
             ride_type = RideType.objects.filter(id=ride_type_id, is_active=True).first()
         if not ride_type:
             ride_type = RideType.objects.filter(is_active=True).order_by('sort_order', 'id').first()
-        if ride_type:
-            order_item.ride_type = ride_type
-            order_item.save()
-        if adjusted_price is not None:
-            order_item.refresh_from_db()
-            if not order_item.original_price:
-                raise serializers.ValidationError(
-                    {'adjusted_price': 'Prices not computed; check ride_type and coordinates.'}
-                )
-            if not order_item.min_price or not order_item.max_price:
-                min_p, max_p = order_item.calculate_price_range()
-                order_item.min_price = min_p
-                order_item.max_price = max_p
-                order_item.save(update_fields=['min_price', 'max_price'])
+
+        if waypoints:
+            from apps.order.services.multi_stop import create_items_from_waypoints
+
             try:
-                order_item.adjust_price(float(adjusted_price))
+                create_items_from_waypoints(
+                    order,
+                    waypoints,
+                    ride_type=ride_type,
+                    adjusted_price=adjusted_price,
+                )
             except ValueError as e:
                 raise serializers.ValidationError({'adjusted_price': str(e)})
+        else:
+            order_item = OrderItem.objects.create(
+                order=order,
+                address_from=validated_data['address_from'],
+                address_to=validated_data['address_to'],
+                latitude_from=validated_data['latitude_from'],
+                longitude_from=validated_data['longitude_from'],
+                latitude_to=validated_data['latitude_to'],
+                longitude_to=validated_data['longitude_to'],
+                stop_sequence=1,
+                is_final_stop=True
+            )
+            if ride_type:
+                order_item.ride_type = ride_type
+                order_item.save()
+            if adjusted_price is not None:
+                order_item.refresh_from_db()
+                if not order_item.original_price:
+                    raise serializers.ValidationError(
+                        {'adjusted_price': 'Prices not computed; check ride_type and coordinates.'}
+                    )
+                if not order_item.min_price or not order_item.max_price:
+                    min_p, max_p = order_item.calculate_price_range()
+                    order_item.min_price = min_p
+                    order_item.max_price = max_p
+                    order_item.save(update_fields=['min_price', 'max_price'])
+                try:
+                    order_item.adjust_price(float(adjusted_price))
+                except ValueError as e:
+                    raise serializers.ValidationError({'adjusted_price': str(e)})
         try:
             from apps.chat.models import ChatRoom
             ChatRoom.objects.create(
@@ -279,10 +355,9 @@ class OrderSerializer(serializers.ModelSerializer):
         ]
 
     def get_client_rating(self, obj):
-        """
-        Average rating (1-5) that drivers have given to this order's rider (user).
-        Only approved ratings are counted.
-        """
+        cached = getattr(obj, '_client_rating', None)
+        if cached is not None:
+            return round(float(cached), 2)
         if not obj.user_id:
             return None
         agg = TripRating.objects.filter(
@@ -293,9 +368,9 @@ class OrderSerializer(serializers.ModelSerializer):
         return round(float(avg), 2) if avg is not None else None
 
     def get_client_tip_count(self, obj):
-        """
-        Total number of times this rider has tipped any driver (approved ratings with tip_amount > 0).
-        """
+        cached = getattr(obj, '_client_tip_count', None)
+        if cached is not None:
+            return int(cached)
         if not obj.user_id:
             return 0
         return TripRating.objects.filter(
@@ -362,6 +437,11 @@ class PriceEstimateSerializer(serializers.Serializer):
         required=True,
         coerce_to_string=False
     )
+    stops = RideStopInputSerializer(
+        many=True,
+        required=False,
+        help_text='Optional multi-stop waypoints. When present, distance is the full route.',
+    )
 
     def validate(self, data):
         """
@@ -387,6 +467,16 @@ class PriceEstimateSerializer(serializers.Serializer):
             raise serializers.ValidationError(
                 {'longitude_to': 'Longitude must be between -180 and 180.'}
             )
+        raw_stops = data.get('stops')
+        if raw_stops:
+            try:
+                data['_waypoints'] = parse_stops_payload(
+                    [dict(s) for s in raw_stops],
+                    pickup={'address': '', 'lat': lat_from, 'lng': lon_from},
+                    dropoff={'address': '', 'lat': lat_to, 'lng': lon_to},
+                )
+            except MultiStopError as e:
+                raise serializers.ValidationError({'stops': str(e)})
         return data
 
 

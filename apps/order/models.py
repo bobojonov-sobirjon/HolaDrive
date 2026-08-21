@@ -98,6 +98,8 @@ class Order(models.Model):
             models.Index(fields=['user'], name='order_user_idx'),
             models.Index(fields=['status'], name='order_status_idx'),
             models.Index(fields=['created_at'], name='order_created_idx'),
+            models.Index(fields=['user', 'status'], name='order_user_status_idx'),
+            models.Index(fields=['status', 'created_at'], name='order_status_created_idx'),
         ]
 
 
@@ -751,6 +753,15 @@ class OrderDriver(models.Model):
             models.Index(fields=['driver'], name='order_driver_driver_idx'),
             models.Index(fields=['status'], name='order_driver_status_idx'),
             models.Index(fields=['created_at'], name='order_driver_created_idx'),
+            models.Index(fields=['driver', 'status'], name='order_driver_drv_st_idx'),
+            models.Index(fields=['order', 'status'], name='order_driver_ord_st_idx'),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=['order'],
+                condition=models.Q(status='accepted'),
+                name='unique_accepted_driver_per_order',
+            ),
         ]
 
 

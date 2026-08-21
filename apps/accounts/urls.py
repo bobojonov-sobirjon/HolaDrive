@@ -1,8 +1,8 @@
 from django.urls import path
 from .views import (
     RegistrationView, LoginView, AdminLoginView, TokenRefreshView, SendVerificationCodeView,
-    VerifyCodeView, ResetPasswordRequestView, VerifyResetCodeView,
-    ResetPasswordConfirmView,
+    VerifyCodeView,     ResetPasswordRequestView, VerifyResetCodeView,
+    ResetPasswordConfirmView, LogoutView,
     GoogleSignInView, AppleSignInView, FacebookSignInView,
     UserDetailView, UserAvatarUpdateView,
     UserPreferencesView, UserPreferencesDeleteView,
@@ -42,6 +42,7 @@ urlpatterns = [
     path('auth/facebook/', FacebookSignInView.as_view(), name='auth-facebook'),
     path('admin/login/', AdminLoginView.as_view(), name='admin-login'),
     path('token/refresh/', TokenRefreshView.as_view(), name='token-refresh'),
+    path('logout/', LogoutView.as_view(), name='logout'),
     path('send-verification-code/', SendVerificationCodeView.as_view(), name='send-verification-code'),
     path('verify-code/', VerifyCodeView.as_view(), name='verify-code'),
     path('reset-password/', ResetPasswordRequestView.as_view(), name='reset-password'),

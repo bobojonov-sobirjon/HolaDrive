@@ -2,7 +2,7 @@ import logging
 from django.utils import timezone
 from datetime import timedelta
 from math import radians, cos, sin, asin, sqrt
-from django.db.models import Prefetch
+from django.db.models import Prefetch, Q
 from apps.accounts.models import CustomUser, DriverPreferences, VehicleDetails
 from apps.order.models import Order, OrderItem, OrderDriver, RideType
 
@@ -93,39 +93,64 @@ class DriverAssignmentService:
         from django.contrib.auth.models import Group
         try:
             driver_group = Group.objects.get(name='Driver')
-            all_drivers = CustomUser.objects.filter(
-                groups=driver_group,
-                is_active=True,
-                is_online=True,
-                latitude__isnull=False,
-                longitude__isnull=False
-            ).exclude(id__in=exclude_driver_ids).prefetch_related(
-                Prefetch(
-                    'vehicle_details',
-                    queryset=VehicleDetails.objects.all(),
-                    to_attr='vehicle_list'
-                ),
-                Prefetch(
-                    'driver_preferences',
-                    queryset=DriverPreferences.objects.all(),
-                    to_attr='prefs_list'
-                ),
-                Prefetch(
-                    'order_drivers',
-                    queryset=OrderDriver.objects.filter(
-                        status=OrderDriver.DriverRequestStatus.ACCEPTED
-                    ).select_related('order').prefetch_related(
-                        Prefetch(
-                            'order__order_items',
-                            queryset=OrderItem.objects.all(),
-                            to_attr='order_items_list'
-                        )
-                    ),
-                    to_attr='active_order_drivers'
-                ),
-            )
         except Group.DoesNotExist:
             return None
+
+        search_km = float(max_radius_km or max(DriverAssignmentService.SEARCH_RADIUSES))
+        search_km = max(search_km, DriverAssignmentService.MAX_DESTINATION_DISTANCE_KM)
+        pad_km = search_km * 1.3
+        lat_delta = pad_km / 111.0
+        lon_scale = max(abs(cos(radians(pickup_lat))), 0.01)
+        lon_delta = pad_km / (111.0 * lon_scale)
+
+        geo_q = Q(
+            latitude__gte=pickup_lat - lat_delta,
+            latitude__lte=pickup_lat + lat_delta,
+            longitude__gte=pickup_lon - lon_delta,
+            longitude__lte=pickup_lon + lon_delta,
+        )
+        active_driver_ids = OrderDriver.objects.filter(
+            status=OrderDriver.DriverRequestStatus.ACCEPTED,
+            order__status__in=[
+                Order.OrderStatus.PENDING,
+                Order.OrderStatus.ACCEPTED,
+                Order.OrderStatus.ON_THE_WAY,
+                Order.OrderStatus.ARRIVED,
+                Order.OrderStatus.IN_PROGRESS,
+            ],
+        ).values_list('driver_id', flat=True)
+
+        all_drivers = CustomUser.objects.filter(
+            groups=driver_group,
+            is_active=True,
+            is_online=True,
+            latitude__isnull=False,
+            longitude__isnull=False,
+        ).filter(geo_q | Q(id__in=active_driver_ids)).exclude(id__in=exclude_driver_ids).prefetch_related(
+            Prefetch(
+                'vehicle_details',
+                queryset=VehicleDetails.objects.all(),
+                to_attr='vehicle_list'
+            ),
+            Prefetch(
+                'driver_preferences',
+                queryset=DriverPreferences.objects.all(),
+                to_attr='prefs_list'
+            ),
+            Prefetch(
+                'order_drivers',
+                queryset=OrderDriver.objects.filter(
+                    status=OrderDriver.DriverRequestStatus.ACCEPTED
+                ).select_related('order').prefetch_related(
+                    Prefetch(
+                        'order__order_items',
+                        queryset=OrderItem.objects.all(),
+                        to_attr='order_items_list'
+                    )
+                ),
+                to_attr='active_order_drivers'
+            ),
+        )
         
         all_drivers_list = list(all_drivers)
         
@@ -205,6 +230,15 @@ class DriverAssignmentService:
             order_driver.status = OrderDriver.DriverRequestStatus.REQUESTED
             order_driver.requested_at = timezone.now()
             order_driver.save()
+
+        try:
+            from apps.order.tasks import handle_offer_timeout
+            handle_offer_timeout.apply_async(
+                args=[order_driver.id],
+                countdown=DriverAssignmentService.TIMEOUT_SECONDS,
+            )
+        except Exception as e:
+            logger.warning('Failed to schedule offer timeout for order_driver %s: %s', order_driver.id, e)
         
         try:
             from apps.notification.tasks import send_push_notification_async

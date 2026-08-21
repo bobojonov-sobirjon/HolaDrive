@@ -2,9 +2,10 @@ from ckeditor.fields import RichTextField
 from django.contrib.auth.models import AbstractUser
 from django.contrib.contenttypes.fields import GenericForeignKey, GenericRelation
 from django.contrib.contenttypes.models import ContentType
+from django.contrib.auth.hashers import check_password, make_password
 from django.db import models
 from decimal import Decimal
-import random
+import secrets
 from datetime import timedelta
 from django.utils import timezone
 
@@ -151,6 +152,8 @@ class CustomUser(AbstractUser):
             models.Index(fields=['created_at'], name='user_created_idx'),
             models.Index(fields=['email', 'is_active'], name='user_email_act_idx'),
             models.Index(fields=['firebase_uid'], name='user_firebase_uid_idx'),
+            models.Index(fields=['is_online', 'is_active'], name='user_online_active_idx'),
+            models.Index(fields=['latitude', 'longitude'], name='user_lat_lon_idx'),
         ]
 
     def __str__(self):
@@ -201,7 +204,7 @@ class VerificationCode(models.Model):
         verbose_name="User"
     )
     code = models.CharField(
-        max_length=4,
+        max_length=8,
         verbose_name="Verification Code"
     )
     phone_number = models.CharField(
@@ -251,10 +254,8 @@ class VerificationCode(models.Model):
 
     @staticmethod
     def generate_code():
-        """
-        Generate a 4-digit verification code
-        """
-        return str(random.randint(1000, 9999))
+        """Generate a 4-digit OTP using a CSPRNG (mobile clients expect 4 digits)."""
+        return f'{secrets.randbelow(9000) + 1000:04d}'
 
     def save(self, *args, **kwargs):
         if not self.code:
@@ -542,9 +543,9 @@ class PinVerificationForUser(models.Model):
         help_text="User who owns the PIN"
     )
     pin = models.CharField(
-        max_length=4,
+        max_length=128,
         verbose_name="PIN",
-        help_text="4-digit PIN code"
+        help_text="Hashed 4-digit PIN"
     )
     created_at = models.DateTimeField(
         auto_now_add=True,
@@ -561,13 +562,25 @@ class PinVerificationForUser(models.Model):
         ordering = ['-updated_at']
         indexes = [
             models.Index(fields=['user'], name='pin_user_idx'),
-            models.Index(fields=['pin'], name='pin_code_idx'),
             models.Index(fields=['created_at'], name='pin_created_idx'),
             models.Index(fields=['updated_at'], name='pin_updated_idx'),
         ]
 
     def __str__(self):
         return f"PIN for {self.user.email}"
+
+    def set_pin(self, raw: str) -> None:
+        self.pin = make_password(raw)
+
+    def check_pin(self, raw: str) -> bool:
+        stored = self.pin or ''
+        if stored.isdigit() and len(stored) == 4:
+            ok = secrets.compare_digest(stored, str(raw))
+            if ok:
+                self.set_pin(raw)
+                self.save(update_fields=['pin'])
+            return ok
+        return check_password(str(raw), stored)
 
 
 class DriverPreferences(models.Model):

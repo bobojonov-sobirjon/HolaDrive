@@ -374,7 +374,7 @@ class AdminPanelRiderListSerializer(serializers.ModelSerializer):
             return None
         return {
             'id': pin.id,
-            'pin': pin.pin,
+            'has_pin': True,
             'created_at': pin.created_at,
         }
 
@@ -723,7 +723,7 @@ class AdminOrderFullSerializer(serializers.Serializer):
         if not pin_row:
             return None
         return {
-            'pin': pin_row.pin,
+            'has_pin': True,
             'created_at': pin_row.created_at,
             'updated_at': pin_row.updated_at,
         }

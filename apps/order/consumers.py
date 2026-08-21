@@ -99,6 +99,14 @@ class DriverOrdersConsumer(AsyncWebsocketConsumer):
             'cancel': event.get('cancel'),
         }))
 
+    async def driver_order_updated(self, event):
+        await self.send(text_data=json.dumps({
+            'type': 'driver_order_updated',
+            'change': event.get('change'),
+            'order': event.get('order', {}),
+            'message': event.get('message', ''),
+        }))
+
     async def active_ride_snapshot(self, event):
         await self.send(text_data=json.dumps({
             'type': 'active_ride_snapshot',

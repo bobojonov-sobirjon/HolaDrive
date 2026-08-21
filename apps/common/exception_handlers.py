@@ -15,12 +15,6 @@ def holadrive_exception_handler(exc, context):
             {
                 'message': 'Failed to read request or email settings text encoding',
                 'status': 'error',
-                'errors': {
-                    'encoding': [
-                        'Use UTF-8 JSON. On the server, re-save .env EMAIL_HOST_PASSWORD '
-                        'and DEFAULT_FROM_EMAIL as plain UTF-8 (no smart quotes).'
-                    ]
-                },
             },
             status=500,
         )

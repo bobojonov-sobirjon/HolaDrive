@@ -297,6 +297,7 @@ def complete_connect_account_setup(
     dob_month: int | None = None,
     dob_day: int | None = None,
     ssn_last4: str | None = None,
+    tos_ip: str | None = None,
 ) -> dict[str, Any]:
     if not accept_agreement:
         raise ValueError('You must accept the Stripe Connected Account Agreement.')
@@ -375,7 +376,7 @@ def complete_connect_account_setup(
         },
         'tos_acceptance': {
             'date': int(__import__('time').time()),
-            'ip': '127.0.0.1',
+            'ip': (tos_ip or '').strip() or '0.0.0.0',
         },
     }
 

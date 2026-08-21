@@ -1,6 +1,9 @@
 import os
 from datetime import timedelta
 from pathlib import Path
+from urllib.parse import urlparse
+
+from django.core.exceptions import ImproperlyConfigured
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -23,11 +26,23 @@ try:
 except ImportError:
     load_dotenv = None
 
-SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-dev-only-key-change-in-production')
+_DEBUG_RAW = (os.getenv('DEBUG', 'False') or 'False').strip().lower()
+DEBUG = _DEBUG_RAW in ('1', 'true', 'yes', 'on')
 
-DEBUG = True
+SECRET_KEY = (os.getenv('SECRET_KEY') or '').strip()
+if not SECRET_KEY:
+    if DEBUG:
+        SECRET_KEY = 'django-insecure-dev-only-key-change-in-production'
+    else:
+        raise ImproperlyConfigured('SECRET_KEY must be set when DEBUG is False.')
 
-ALLOWED_HOSTS = ['*']
+_default_hosts = 'localhost,127.0.0.1,api.holadrive.app,apiss.firepole.ru'
+_hosts_raw = os.getenv('ALLOWED_HOSTS', _default_hosts)
+ALLOWED_HOSTS = [h.strip() for h in _hosts_raw.split(',') if h.strip()]
+if DEBUG and not ALLOWED_HOSTS:
+    ALLOWED_HOSTS = ['localhost', '127.0.0.1']
+elif not ALLOWED_HOSTS:
+    raise ImproperlyConfigured('ALLOWED_HOSTS must be set when DEBUG is False.')
 
 # WebSocket Configuration
 WEBSOCKET_HOST = os.getenv('WEBSOCKET_HOST', None)
@@ -52,6 +67,7 @@ LOCAL_APPS = [
 THIRD_PARTY_APPS = [
     'rest_framework',
     'rest_framework_simplejwt',
+    'rest_framework_simplejwt.token_blacklist',
     'drf_spectacular',
     'corsheaders',
     'django_filters',
@@ -119,10 +135,11 @@ DATABASES = {
         'ENGINE': 'django.db.backends.postgresql',
         'NAME': os.getenv('DB_NAME', 'holo-drive'),
         'USER': os.getenv('DB_USER', 'postgres'),
-        'PASSWORD': os.getenv('DB_PASSWORD', '0576'),
+        'PASSWORD': os.getenv('DB_PASSWORD', ''),
         'HOST': os.getenv('DB_HOST', 'localhost'),
         'PORT': os.getenv('DB_PORT', '5432'),
-        'CONN_MAX_AGE': 600,
+        'CONN_MAX_AGE': int(os.getenv('DB_CONN_MAX_AGE', '60') or '60'),
+        'CONN_HEALTH_CHECKS': True,
         'OPTIONS': {
             'connect_timeout': 10,
         }
@@ -170,6 +187,9 @@ MEDIA_ROOT = os.getenv('MEDIA_ROOT', '/var/www/media')
 
 # Prepended to MEDIA paths in WebSocket/API payloads (e.g. https://api.example.com — no trailing slash)
 PUBLIC_BASE_URL = os.getenv('PUBLIC_BASE_URL', '').rstrip('/')
+_public_host = urlparse(PUBLIC_BASE_URL).hostname if PUBLIC_BASE_URL else None
+if _public_host and _public_host not in ALLOWED_HOSTS:
+    ALLOWED_HOSTS.append(_public_host)
 # Mobile app deep link (custom scheme), e.g. holadrive → holadrive://trip/share/<token>
 APP_DEEP_LINK_SCHEME = (os.getenv('APP_DEEP_LINK_SCHEME', 'holadrive') or 'holadrive').strip().rstrip(':/')
 # Optional HTTPS universal / App Link host for share (defaults to PUBLIC_BASE_URL)
@@ -231,10 +251,12 @@ REST_FRAMEWORK = {
         'rest_framework.throttling.UserRateThrottle',
     ],
     'DEFAULT_THROTTLE_RATES': {
-        'anon': '100/minute',
-        'user': '1000/minute',
+        'anon': '60/minute',
+        'user': '300/minute',
         'login': '5/minute',
-        'order_create': '30/minute',
+        'otp': '5/minute',
+        'otp_verify': '10/minute',
+        'order_create': '20/minute',
         'burst': '60/minute',
         'sustained': '1000/day',
     },
@@ -275,19 +297,21 @@ SPECTACULAR_SETTINGS = {
     'SWAGGER_UI_SETTINGS': {
         'persistAuthorization': True,
     },
+    'SERVE_PERMISSIONS': [
+        'rest_framework.permissions.AllowAny' if DEBUG else 'rest_framework.permissions.IsAdminUser'
+    ],
 }
 
 SIMPLE_JWT = {
-    # Mobile: access practically does not expire; refresh must outlive access.
-    # (Previously refresh was 1 day while access was 7 days → refresh failed after ~1 day.)
     "ACCESS_TOKEN_LIFETIME": timedelta(
-        days=int(os.getenv("JWT_ACCESS_TOKEN_LIFETIME_DAYS", "3650"))
+        days=int(os.getenv("JWT_ACCESS_TOKEN_LIFETIME_DAYS", "7"))
     ),
     "REFRESH_TOKEN_LIFETIME": timedelta(
-        days=int(os.getenv("JWT_REFRESH_TOKEN_LIFETIME_DAYS", "3650"))
+        days=int(os.getenv("JWT_REFRESH_TOKEN_LIFETIME_DAYS", "30"))
     ),
-    "ROTATE_REFRESH_TOKENS": False,
-    "UPDATE_LAST_LOGIN": False,
+    "ROTATE_REFRESH_TOKENS": True,
+    "BLACKLIST_AFTER_ROTATION": True,
+    "UPDATE_LAST_LOGIN": True,
 }
 
 CSRF_TRUSTED_ORIGINS = [
@@ -326,7 +350,9 @@ CORS_ALLOWED_ORIGINS = [origin.strip() for origin in _cors_origins.split(',') if
 if DEBUG and 'null' not in CORS_ALLOWED_ORIGINS:
     CORS_ALLOWED_ORIGINS = list(CORS_ALLOWED_ORIGINS) + ['null']
 
-CORS_ALLOW_ALL_ORIGINS = os.getenv('CORS_ALLOW_ALL_ORIGINS', 'True' if DEBUG else 'False').lower() == 'true'
+CORS_ALLOW_ALL_ORIGINS = (
+    DEBUG and os.getenv('CORS_ALLOW_ALL_ORIGINS', 'false').lower() == 'true'
+)
 CORS_ALLOW_CREDENTIALS = True
 
 AUTHENTICATION_BACKENDS = (
@@ -374,16 +400,15 @@ EMAIL_CHARSET = 'utf-8'
 # Prevent Swagger/UI "Loading..." forever when Gmail SMTP hangs
 EMAIL_TIMEOUT = int(_env_text('EMAIL_TIMEOUT', '15') or '15')
 # If true: do not call SMTP; log OTP to server logs (same idea as SMS_OTP_LOG_ONLY)
-EMAIL_OTP_LOG_ONLY = _env_text('EMAIL_OTP_LOG_ONLY', 'false').lower() in ('1', 'true', 'yes')
+EMAIL_OTP_LOG_ONLY = DEBUG and _env_text('EMAIL_OTP_LOG_ONLY', 'false').lower() in ('1', 'true', 'yes')
 # If true: on SMTP failure still succeed and log OTP (off by default — real email like SMS)
-EMAIL_OTP_FALLBACK_ON_ERROR = _env_text('EMAIL_OTP_FALLBACK_ON_ERROR', 'false').lower() in (
+EMAIL_OTP_FALLBACK_ON_ERROR = DEBUG and _env_text('EMAIL_OTP_FALLBACK_ON_ERROR', 'false').lower() in (
     '1',
     'true',
     'yes',
 )
-# Temporary: force every OTP to this value and skip SMTP/SMS (VPS blocks outbound SMTP).
-# Example: FIXED_OTP_CODE=1111 — remove when real email/SMS works again.
-FIXED_OTP_CODE = (_env_text('FIXED_OTP_CODE', '') or '').strip()
+# Temporary: force every OTP to this value and skip SMTP/SMS. Ignored when DEBUG is False.
+FIXED_OTP_CODE = (_env_text('FIXED_OTP_CODE', '') or '').strip() if DEBUG else ''
 
 FCM_SERVER_KEY = os.getenv('FCM_SERVER_KEY', '')
 
@@ -392,11 +417,12 @@ TWILIO_ACCOUNT_SID = (os.getenv('TWILIO_ACCOUNT_SID') or '').strip() or None
 TWILIO_AUTH_TOKEN = (os.getenv('TWILIO_AUTH_TOKEN') or '').strip() or None
 TWILIO_PHONE_NUMBER = (os.getenv('TWILIO_PHONE_NUMBER') or '').strip() or None
 # Dev/staging only: log OTP to server logs instead of Twilio SMS (never enable on production).
-SMS_OTP_LOG_ONLY = os.getenv('SMS_OTP_LOG_ONLY', 'False').lower() == 'true'
+SMS_OTP_LOG_ONLY = DEBUG and os.getenv('SMS_OTP_LOG_ONLY', 'False').lower() == 'true'
 
 # Stripe (saved cards, payments). Keys from https://dashboard.stripe.com/apikeys
 STRIPE_SECRET_KEY = os.getenv('STRIPE_SECRET_KEY', '')
 STRIPE_PUBLISHABLE_KEY = os.getenv('STRIPE_PUBLISHABLE_KEY', '')
+STRIPE_WEBHOOK_SECRET = os.getenv('STRIPE_WEBHOOK_SECRET', '')
 # Trip card charges (PaymentIntent): ISO currency, platform fee % when using Stripe Connect destination
 STRIPE_CHARGE_CURRENCY = os.getenv('STRIPE_CHARGE_CURRENCY', 'cad').strip().lower() or 'cad'
 STRIPE_APPLICATION_FEE_PERCENT = os.getenv('STRIPE_APPLICATION_FEE_PERCENT', '0').strip() or '0'
@@ -447,6 +473,43 @@ CHANNEL_LAYERS = {
     },
 }
 
+_redis_cache_url = os.getenv('CACHE_URL') or os.getenv('REDIS_URL', 'redis://localhost:6379/2')
+if _use_redis:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.redis.RedisCache',
+            'LOCATION': _redis_cache_url,
+            'TIMEOUT': 300,
+        }
+    }
+else:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+            'LOCATION': 'holadrive-local',
+        }
+    }
+
+SUPPORT_USER_EMAIL = os.getenv('SUPPORT_USER_EMAIL', '').strip()
+LOCATION_DB_THROTTLE_SECONDS = int(os.getenv('LOCATION_DB_THROTTLE_SECONDS', '10') or '10')
+OTP_MAX_ATTEMPTS = int(os.getenv('OTP_MAX_ATTEMPTS', '5') or '5')
+OTP_LOCKOUT_SECONDS = int(os.getenv('OTP_LOCKOUT_SECONDS', '900') or '900')
+
+if not DEBUG:
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SESSION_COOKIE_HTTPONLY = True
+    CSRF_COOKIE_HTTPONLY = True
+    SECURE_CONTENT_TYPE_NOSNIFF = True
+    SECURE_REFERRER_POLICY = 'same-origin'
+    X_FRAME_OPTIONS = 'DENY'
+    if (PUBLIC_BASE_URL or '').startswith('https://'):
+        SECURE_SSL_REDIRECT = os.getenv('SECURE_SSL_REDIRECT', 'false').lower() == 'true'
+        SECURE_HSTS_SECONDS = int(os.getenv('SECURE_HSTS_SECONDS', '31536000') or '0')
+        SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+        SECURE_HSTS_PRELOAD = False
+
 LOGS_DIR = os.path.join(BASE_DIR, 'logs')
 if not os.path.exists(LOGS_DIR):
     try:
@@ -466,11 +529,14 @@ LOGGING = {
             'format': '{levelname} {message}',
             'style': '{',
         },
+        'json': {
+            '()': 'config.json_logging.JsonFormatter',
+        },
     },
     'handlers': {
         'console': {
             'class': 'logging.StreamHandler',
-            'formatter': 'verbose',
+            'formatter': 'verbose' if DEBUG else 'json',
         },
     },
     'root': {
@@ -510,7 +576,7 @@ if os.path.exists(LOGS_DIR):
     LOGGING['handlers']['file'] = {
         'class': 'logging.FileHandler',
         'filename': os.path.join(LOGS_DIR, 'django.log'),
-        'formatter': 'verbose',
+        'formatter': 'verbose' if DEBUG else 'json',
     }
     LOGGING['loggers']['django']['handlers'].append('file')
     LOGGING['loggers']['apps.accounts']['handlers'].append('file')

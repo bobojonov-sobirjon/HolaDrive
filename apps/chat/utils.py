@@ -2,13 +2,15 @@ from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
 from django.db import models
 import base64
+import logging
 import uuid
 from datetime import datetime
 import os
 
+logger = logging.getLogger(__name__)
 
-# Cache for support user to avoid repeated database queries
 _support_user_cache = None
+
 
 def get_support_admin_random():
     """
@@ -21,7 +23,6 @@ def get_support_admin_random():
 
         g = Group.objects.filter(name='Admin').first()
         if g:
-            # Only active staff/superusers from the group
             qs = (
                 CustomUser.objects.filter(groups=g, is_active=True)
                 .filter(models.Q(is_staff=True) | models.Q(is_superuser=True))
@@ -31,48 +32,42 @@ def get_support_admin_random():
             if u:
                 return u
     except Exception:
-        pass
+        logger.exception('Failed to pick random support admin')
     return get_support_user()
 
 
 def get_support_user():
     """
-    Get or create the support user (admin@admin.com)
-    Uses caching to avoid repeated database queries
+    Resolve the support mailbox user. Never creates accounts or resets passwords.
     """
     global _support_user_cache
-    
-    # Return cached user if available
+
     if _support_user_cache is not None:
         try:
-            # Verify user still exists
             _support_user_cache.refresh_from_db()
-            return _support_user_cache
+            if _support_user_cache.is_active:
+                return _support_user_cache
         except Exception:
-            # User was deleted, clear cache
             _support_user_cache = None
-    
+
+    from django.conf import settings
     from apps.accounts.models import CustomUser
-    
-    try:
-        support_user, created = CustomUser.objects.get_or_create(
-            email='admin@admin.com',
-            defaults={
-                'username': 'admin',
-                'is_staff': True,
-                'is_superuser': True,
-            }
-        )
-        
-        if created or not support_user.check_password('1'):
-            support_user.set_password('1')
-            support_user.save()
-        
-        # Cache the user
-        _support_user_cache = support_user
-        return support_user
-    except Exception:
-        return None
+
+    email = (getattr(settings, 'SUPPORT_USER_EMAIL', '') or '').strip()
+    if email:
+        user = CustomUser.objects.filter(email__iexact=email, is_active=True).first()
+        if not user:
+            logger.error('SUPPORT_USER_EMAIL %s is not an active user', email)
+        _support_user_cache = user
+        return user
+
+    user = (
+        CustomUser.objects.filter(is_superuser=True, is_active=True)
+        .order_by('id')
+        .first()
+    )
+    _support_user_cache = user
+    return user
 
 
 def save_base64_file(base64_string, file_type='file', file_name=None):

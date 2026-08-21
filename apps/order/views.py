@@ -18,6 +18,7 @@ from .serializers import (
     OrderItemUpdateSerializer,
     OrderItemSerializer,
     OrderItemManagePriceSerializer,
+    OrderStopsUpdateSerializer,
     UserOrderPreferencesSerializer,
     AdditionalPassengerSerializer,
     OrderScheduleSerializer,
@@ -338,13 +339,22 @@ class DriverNearbyOrdersView(AsyncAPIView):
                 status=status.HTTP_403_FORBIDDEN,
             )
 
+        from django.db.models import Prefetch
+
         order_drivers_qs = (
             OrderDriver.objects.filter(
                 driver=user,
                 status=OrderDriver.DriverRequestStatus.REQUESTED
             )
             .select_related('order', 'order__user')
-            .prefetch_related('order__order_items')
+            .prefetch_related(
+                Prefetch(
+                    'order__order_items',
+                    queryset=OrderItem.objects.select_related('ride_type').order_by(
+                        'stop_sequence', 'id'
+                    ),
+                )
+            )
             .order_by('-requested_at')
         )
         order_drivers = await sync_to_async(list)(order_drivers_qs)
@@ -449,40 +459,24 @@ class DriverOrderActionView(AsyncAPIView):
         order_id = data['order_id']
         action = data['action']
 
-        order = await Order.objects.select_related('user').aget(id=order_id)
-
-        order_driver = await OrderDriver.objects.filter(
-            order=order,
-            driver=user,
-            status=OrderDriver.DriverRequestStatus.REQUESTED
-        ).afirst()
-
-        if not order_driver:
-            return Response(
-                {
-                    'message': 'This order is not assigned to you or has already been processed',
-                    'status': 'error',
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        if order.status != Order.OrderStatus.PENDING and action == 'accept':
-            return Response(
-                {
-                    'message': 'Order is not available for accepting',
-                    'status': 'error',
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        from django.utils import timezone
-
         if action == 'accept':
-            order_driver.status = OrderDriver.DriverRequestStatus.ACCEPTED
-            order.status = Order.OrderStatus.ACCEPTED
-            order_driver.responded_at = timezone.now()
-            await sync_to_async(order_driver.save)()
-            await sync_to_async(order.save)()
+            from apps.order.services.order_accept import OrderAcceptError, accept_order_for_driver
+
+            def _accept():
+                return accept_order_for_driver(order_id, user.id)
+
+            try:
+                order, order_driver = await sync_to_async(_accept)()
+            except Order.DoesNotExist:
+                return Response(
+                    {'message': 'Order not found', 'status': 'error'},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+            except OrderAcceptError as exc:
+                return Response(
+                    {'message': exc.message, 'status': 'error'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
             def _attach_driver_pin():
                 from apps.order.services.order_pin import attach_driver_pin_to_order_driver
@@ -552,6 +546,23 @@ class DriverOrderActionView(AsyncAPIView):
                     'Failed to send rider WebSocket accept for order %s: %s', order.id, e
                 )
         else:
+            from django.utils import timezone
+
+            order = await Order.objects.select_related('user').aget(id=order_id)
+            order_driver = await OrderDriver.objects.filter(
+                order=order,
+                driver=user,
+                status=OrderDriver.DriverRequestStatus.REQUESTED,
+            ).afirst()
+            if not order_driver:
+                return Response(
+                    {
+                        'message': 'This order is not assigned to you or has already been processed',
+                        'status': 'error',
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
             order_driver.status = OrderDriver.DriverRequestStatus.REJECTED
             order_driver.responded_at = timezone.now()
             await sync_to_async(order_driver.save)()
@@ -1408,9 +1419,9 @@ class DriverLocationUpdateView(AsyncAPIView):
 
         data = await sync_to_async(lambda: serializer.validated_data)()
 
-        user.latitude = data['latitude']
-        user.longitude = data['longitude']
-        await sync_to_async(user.save)(update_fields=['latitude', 'longitude'])
+        from .services.location_persist import persist_user_location
+
+        await sync_to_async(persist_user_location)(user, data['latitude'], data['longitude'])
 
         try:
             from .services.order_tracking_websocket import notify_driver_location_updated
@@ -1422,8 +1433,10 @@ class DriverLocationUpdateView(AsyncAPIView):
                 user.updated_at,
             )
         except Exception:
-            # Location update API should still succeed even if websocket push fails.
-            pass
+            import logging
+            logging.getLogger(__name__).warning(
+                'driver location websocket notify failed for user %s', user.id, exc_info=True
+            )
 
         response_data = {
             'driver_id': user.id,
@@ -1487,9 +1500,9 @@ class RiderLocationUpdateView(AsyncAPIView):
         data = await sync_to_async(lambda: serializer.validated_data)()
         order_id = data.get('order_id')
 
-        user.latitude = data['latitude']
-        user.longitude = data['longitude']
-        await sync_to_async(user.save)(update_fields=['latitude', 'longitude', 'updated_at'])
+        from .services.location_persist import persist_user_location
+
+        await sync_to_async(persist_user_location)(user, data['latitude'], data['longitude'])
 
         try:
             from .services.order_tracking_websocket import notify_rider_location_updated
@@ -1502,7 +1515,10 @@ class RiderLocationUpdateView(AsyncAPIView):
                 order_id=order_id,
             )
         except Exception:
-            pass
+            import logging
+            logging.getLogger(__name__).warning(
+                'rider location websocket notify failed for user %s', user.id, exc_info=True
+            )
 
         out = RiderLocationSerializer(
             {
@@ -1707,12 +1723,12 @@ class PriceEstimateView(AsyncAPIView):
         if is_valid:
             validated_data = await sync_to_async(lambda: serializer.validated_data)()
             
+            from apps.order.services.multi_stop import distance_km_from_validated
+
             lat_from = float(validated_data['latitude_from'])
             lon_from = float(validated_data['longitude_from'])
-            lat_to = float(validated_data['latitude_to'])
-            lon_to = float(validated_data['longitude_to'])
             
-            distance_km = await sync_to_async(calculate_distance)(lat_from, lon_from, lat_to, lon_to)
+            distance_km = await sync_to_async(distance_km_from_validated)(validated_data)
             if math.isnan(distance_km) or math.isinf(distance_km) or distance_km < 0:
                 return Response(
                     {
@@ -1835,12 +1851,12 @@ class PriceEstimateManagePriceView(AsyncAPIView):
         data = await sync_to_async(lambda: serializer.validated_data)()
         lat_from = float(data['latitude_from'])
         lon_from = float(data['longitude_from'])
-        lat_to = float(data['latitude_to'])
-        lon_to = float(data['longitude_to'])
         ride_type_id = data['ride_type_id']
         adjusted = Decimal(str(data['adjusted_price']))
 
-        distance_km = await sync_to_async(calculate_distance)(lat_from, lon_from, lat_to, lon_to)
+        from apps.order.services.multi_stop import distance_km_from_validated
+
+        distance_km = await sync_to_async(distance_km_from_validated)(data)
         surge_multiplier = await sync_to_async(SurgePricingService.get_multiplier)(lat_from, lon_from)
 
         try:
@@ -2072,6 +2088,119 @@ class OrderItemManagePriceView(AsyncAPIView):
             status=status.HTTP_400_BAD_REQUEST
         )
 
+
+class OrderStopsUpdateView(AsyncAPIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        tags=['Rider: Orders'],
+        summary='Add stop or replace destination',
+        description=(
+            'Mid-ride: ``action=add`` inserts an intermediate stop before the final dropoff; '
+            '``action=replace_destination`` changes only the last dropoff. '
+            'Allowed when order status is accepted, on_the_way, arrived, or in_progress. '
+            'Max 3 intermediate stops. Reprices the full route and notifies rider + driver WS '
+            'with ``change: stops_updated``.'
+        ),
+        request=OrderStopsUpdateSerializer,
+    )
+    async def post(self, request, order_id):
+        from apps.order.services.multi_stop import (
+            MultiStopError,
+            add_intermediate_stop,
+            replace_final_destination,
+        )
+
+        try:
+            order = await Order.objects.select_related('user').prefetch_related(
+                'order_items__ride_type'
+            ).aget(id=order_id)
+        except Order.DoesNotExist:
+            return Response(
+                {'message': 'Order not found', 'status': 'error'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if order.user_id != request.user.id:
+            return Response(
+                {'message': 'Permission denied', 'status': 'error'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        serializer = OrderStopsUpdateSerializer(data=request.data)
+        is_valid = await sync_to_async(lambda: serializer.is_valid())()
+        if not is_valid:
+            errors = await sync_to_async(lambda: serializer.errors)()
+            return Response(
+                {'message': 'Validation error', 'status': 'error', 'errors': errors},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        data = await sync_to_async(lambda: serializer.validated_data)()
+
+        def _apply():
+            kwargs = {
+                'address': data['address'],
+                'latitude': data['latitude'],
+                'longitude': data['longitude'],
+            }
+            if data['action'] == 'add':
+                return add_intermediate_stop(order, **kwargs)
+            return replace_final_destination(order, **kwargs)
+
+        try:
+            new_fare = await sync_to_async(_apply)()
+        except MultiStopError as e:
+            return Response(
+                {'message': str(e), 'status': 'error'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except ValueError as e:
+            return Response(
+                {'message': str(e), 'status': 'error'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        order = await Order.objects.select_related('user', 'saved_card').prefetch_related(
+            'order_items__ride_type',
+            'order_drivers__driver',
+            'order_drivers__driver__vehicle_details__images',
+            'order_preferences',
+            'applied_promo_codes__promo_code',
+        ).aget(pk=order.pk)
+
+        order_serializer = OrderDetailSerializer(order, context={'request': request})
+        order_data = await sync_to_async(lambda: order_serializer.data)()
+
+        from apps.order.services.rider_orders_websocket import async_notify_rider_order_updated
+        from apps.order.services.driver_orders_websocket import notify_driver_stops_updated
+
+        await async_notify_rider_order_updated(
+            order.id,
+            'stops_updated',
+            'Ride stops updated',
+        )
+        await sync_to_async(notify_driver_stops_updated)(order)
+
+        return Response(
+            {
+                'message': 'Stops updated successfully',
+                'status': 'success',
+                'fare_preview': {
+                    'calculated_price': str(new_fare),
+                },
+                'order': order_data,
+                'data': {
+                    'fare_preview': {
+                        'calculated_price': str(new_fare),
+                    },
+                    'order': order_data,
+                },
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
 class OrderCancelView(AsyncAPIView):
     permission_classes = [IsAuthenticated]
 
@@ -2248,6 +2377,8 @@ class MyOrderListView(AsyncAPIView):
     async def get(self, request):
         from rest_framework.pagination import PageNumberPagination
         
+        from django.db.models import Avg, Count, Q
+
         orders_queryset = Order.objects.filter(user=request.user).select_related(
             'user', 'saved_card'
         ).prefetch_related(
@@ -2255,6 +2386,16 @@ class MyOrderListView(AsyncAPIView):
             'order_preferences',
             'order_drivers__driver',
             'additional_passengers',
+            'user__groups',
+        ).annotate(
+            _client_rating=Avg(
+                'user__ratings_given__rating',
+                filter=Q(user__ratings_given__status='approved'),
+            ),
+            _client_tip_count=Count(
+                'user__ratings_given',
+                filter=Q(user__ratings_given__status='approved', user__ratings_given__tip_amount__gt=0),
+            ),
         ).order_by('-created_at')
         
         status_filter = request.query_params.get('status', None)

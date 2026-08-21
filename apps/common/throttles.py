@@ -5,6 +5,14 @@ class LoginRateThrottle(AnonRateThrottle):
     scope = 'login'
 
 
+class OtpSendThrottle(AnonRateThrottle):
+    scope = 'otp'
+
+
+class OtpVerifyThrottle(AnonRateThrottle):
+    scope = 'otp_verify'
+
+
 class OrderCreateThrottle(UserRateThrottle):
     scope = 'order_create'
 

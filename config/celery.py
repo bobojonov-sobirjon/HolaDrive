@@ -26,7 +26,7 @@ if sys.platform == 'win32':
 app.conf.beat_schedule = {
     'check-order-timeouts': {
         'task': 'apps.order.tasks.check_order_timeouts',
-        'schedule': 5.0,  # Har 5 soniyada ishlaydi
+        'schedule': 30.0,
     },
 }
 

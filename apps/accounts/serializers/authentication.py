@@ -60,10 +60,13 @@ class RegistrationSerializer(serializers.ModelSerializer):
             'email': {'required': True}
         }
 
+    def validate_groups(self, groups):
+        for group in groups:
+            if group.name not in ('Rider', 'Driver'):
+                raise serializers.ValidationError('Only Rider or Driver groups can be assigned at registration.')
+        return groups
+
     def validate_email(self, value):
-        """
-        Check if email already exists
-        """
         if CustomUser.objects.filter(email=value).exists():
             raise serializers.ValidationError("A user with this email already exists.")
         return value
@@ -102,7 +105,9 @@ class RegistrationSerializer(serializers.ModelSerializer):
         )
         
         if groups:
-            user.groups.set(groups)
+            allowed = {g for g in groups if getattr(g, 'name', '') in ('Rider', 'Driver')}
+            if allowed:
+                user.groups.set(allowed)
 
         # Store device token if provided
         if device_token and device_type:
@@ -359,14 +364,14 @@ class VerifyCodeSerializer(serializers.Serializer):
             raise serializers.ValidationError("Either email or phone number is required.")
 
         from apps.accounts.phone_auth import AppRoleMismatchError, assert_login_app_role
+        from apps.accounts.services import otp_clear_failures, otp_is_locked, otp_register_failure
 
-        # Find user
         user = None
         if email:
             try:
                 user = CustomUser.objects.get(email=email)
             except CustomUser.DoesNotExist:
-                raise serializers.ValidationError("User with this email does not exist.")
+                raise serializers.ValidationError("Invalid verification code.")
         elif phone_number:
             from apps.accounts.phone_auth import find_user_by_phone
             from apps.accounts.services import normalize_phone_number
@@ -374,8 +379,11 @@ class VerifyCodeSerializer(serializers.Serializer):
             normalized = normalize_phone_number(phone_number)
             user = find_user_by_phone(normalized or phone_number)
             if not user:
-                raise serializers.ValidationError("User with this phone number does not exist.")
+                raise serializers.ValidationError("Invalid verification code.")
             attrs['phone_number'] = user.phone_number or normalized
+
+        if otp_is_locked(user.pk):
+            raise serializers.ValidationError("Too many attempts. Try again later.")
 
         try:
             assert_login_app_role(user, role, assign_if_missing=True)
@@ -385,9 +393,7 @@ class VerifyCodeSerializer(serializers.Serializer):
         except ValueError as exc:
             raise serializers.ValidationError({'role': [str(exc)]}) from exc
 
-        # Find valid verification code with optimized query
         try:
-            # Use select_related to fetch user in same query, and only() to select needed fields
             verification_code = VerificationCode.objects.filter(
                 user=user,
                 code=code,
@@ -397,12 +403,15 @@ class VerifyCodeSerializer(serializers.Serializer):
             ).latest('created_at')
             
             if not verification_code.is_valid():
+                otp_register_failure(user.pk)
                 raise serializers.ValidationError("Verification code has expired.")
             
+            otp_clear_failures(user.pk)
             attrs['user'] = user
             attrs['verification_code'] = verification_code
             return attrs
         except VerificationCode.DoesNotExist:
+            otp_register_failure(user.pk)
             raise serializers.ValidationError("Invalid verification code.")
 
 
@@ -422,15 +431,10 @@ class ResetPasswordRequestSerializer(serializers.Serializer):
 
         user = None
         if email:
-            try:
-                user = CustomUser.objects.get(email=email)
-            except CustomUser.DoesNotExist:
-                raise serializers.ValidationError({"email": "User with this email does not exist."})
+            user = CustomUser.objects.filter(email=email).first()
         elif phone_number:
-            try:
-                user = CustomUser.objects.get(phone_number=phone_number)
-            except CustomUser.DoesNotExist:
-                raise serializers.ValidationError({"phone_number": "User with this phone number does not exist."})
+            from apps.accounts.phone_auth import find_user_by_phone
+            user = find_user_by_phone(phone_number)
 
         attrs['user'] = user
         return attrs

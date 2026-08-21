@@ -16,7 +16,7 @@ from ..services.surge_pricing_service import calculate_distance
 class DriverNearbyOrderSerializer(serializers.ModelSerializer):
     """
     Serializer for showing nearby orders to drivers.
-    Includes distance from driver and basic route info.
+    Includes distance from driver, flat pickup/final dropoff, and full order_items (multi-stop).
     """
 
     address_from = serializers.SerializerMethodField()
@@ -26,6 +26,7 @@ class DriverNearbyOrderSerializer(serializers.ModelSerializer):
     latitude_to = serializers.SerializerMethodField()
     longitude_to = serializers.SerializerMethodField()
     distance_to_pickup_km = serializers.FloatField(read_only=True)
+    order_items = serializers.SerializerMethodField()
 
     class Meta:
         model = Order
@@ -42,30 +43,53 @@ class DriverNearbyOrderSerializer(serializers.ModelSerializer):
             'latitude_to',
             'longitude_to',
             'distance_to_pickup_km',
+            'order_items',
         ]
 
+    def _items(self, obj):
+        cached = getattr(obj, '_prefetched_objects_cache', {}).get('order_items')
+        if cached is not None:
+            return list(cached)
+        return list(obj.order_items.all().order_by('stop_sequence', 'id'))
+
+    def _first_item(self, obj):
+        items = self._items(obj)
+        return items[0] if items else None
+
+    def _final_item(self, obj):
+        items = self._items(obj)
+        for it in items:
+            if it.is_final_stop:
+                return it
+        return items[-1] if items else None
+
+    def get_order_items(self, obj):
+        from .order import OrderItemSerializer
+
+        return OrderItemSerializer(self._items(obj), many=True).data
+
     def get_address_from(self, obj):
-        item = obj.order_items.first()
+        item = self._first_item(obj)
         return item.address_from if item else None
 
     def get_address_to(self, obj):
-        item = obj.order_items.first()
+        item = self._final_item(obj)
         return item.address_to if item else None
 
     def get_latitude_from(self, obj):
-        item = obj.order_items.first()
+        item = self._first_item(obj)
         return item.latitude_from if item else None
 
     def get_longitude_from(self, obj):
-        item = obj.order_items.first()
+        item = self._first_item(obj)
         return item.longitude_from if item else None
 
     def get_latitude_to(self, obj):
-        item = obj.order_items.first()
+        item = self._final_item(obj)
         return item.latitude_to if item else None
 
     def get_longitude_to(self, obj):
-        item = obj.order_items.first()
+        item = self._final_item(obj)
         return item.longitude_to if item else None
 
 

@@ -1,4 +1,5 @@
 from datetime import time
+from django.core.cache import cache
 from django.utils import timezone
 from math import radians, cos, sin, asin, sqrt
 from decimal import Decimal
@@ -36,8 +37,10 @@ class SurgePricingService:
         current_time = now.time()
         current_day = now.weekday()
         
-        # Get all active surge pricing rules
-        surge_pricings = SurgePricing.objects.filter(is_active=True).order_by('-priority')
+        surge_pricings = cache.get('surge:active_rules')
+        if surge_pricings is None:
+            surge_pricings = list(SurgePricing.objects.filter(is_active=True).order_by('-priority'))
+            cache.set('surge:active_rules', surge_pricings, 60)
         
         multiplier = Decimal('1.00')  # Default
         
