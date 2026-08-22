@@ -389,7 +389,8 @@ class VerifyCodeView(AsyncAPIView):
     )
     async def post(self, request):
         """
-        Verify code and login user - ASYNC VERSION
+        Verify OTP and issue JWT.
+        Rider/Driver apps: send ``role``. Admin panel (superuser): email + code is enough.
         """
         serializer = VerifyCodeSerializer(data=request.data)
         

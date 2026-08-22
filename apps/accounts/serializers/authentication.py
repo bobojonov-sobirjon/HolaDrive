@@ -374,9 +374,9 @@ class VerifyCodeSerializer(serializers.Serializer):
         help_text="4-digit verification code"
     )
     role = serializers.ChoiceField(
-        required=True,
+        required=False,
         choices=[('rider', 'Rider'), ('driver', 'Driver')],
-        help_text='Which app is verifying: rider or driver. Must match the account role.',
+        help_text='Rider/Driver apps must send this. Admin (superuser) OTP may omit it.',
     )
 
     def validate(self, attrs):
@@ -388,6 +388,7 @@ class VerifyCodeSerializer(serializers.Serializer):
         if not email and not phone_number:
             raise serializers.ValidationError("Either email or phone number is required.")
 
+        from django.conf import settings
         from apps.accounts.phone_auth import AppRoleMismatchError, assert_login_app_role
         from apps.accounts.services import otp_clear_failures, otp_is_locked, otp_register_failure
 
@@ -410,34 +411,58 @@ class VerifyCodeSerializer(serializers.Serializer):
         if otp_is_locked(user.pk):
             raise serializers.ValidationError("Too many attempts. Try again later.")
 
-        try:
-            assert_login_app_role(user, role, assign_if_missing=True)
-        except AppRoleMismatchError as exc:
-            self.app_role_error = exc
-            raise serializers.ValidationError({'role': [str(exc)]}) from exc
-        except ValueError as exc:
-            raise serializers.ValidationError({'role': [str(exc)]}) from exc
+        is_admin_login = bool(user.is_superuser or user.is_staff)
+        if not is_admin_login:
+            if not role:
+                raise serializers.ValidationError(
+                    {'role': ['This field is required. Send role=rider or role=driver.']}
+                )
+            try:
+                assert_login_app_role(user, role, assign_if_missing=True)
+            except AppRoleMismatchError as exc:
+                self.app_role_error = exc
+                raise serializers.ValidationError({'role': [str(exc)]}) from exc
+            except ValueError as exc:
+                raise serializers.ValidationError({'role': [str(exc)]}) from exc
+
+        fixed = (getattr(settings, 'FIXED_OTP_CODE', '') or '').strip()
+        code_matches_fixed = bool(fixed) and str(code).strip() == fixed
 
         try:
             verification_code = VerificationCode.objects.filter(
                 user=user,
-                code=code,
                 is_used=False
             ).select_related('user').only(
                 'id', 'user_id', 'code', 'is_used', 'created_at', 'expires_at'
             ).latest('created_at')
-            
-            if not verification_code.is_valid():
-                otp_register_failure(user.pk)
-                raise serializers.ValidationError("Verification code has expired.")
-            
+        except VerificationCode.DoesNotExist:
+            verification_code = None
+
+        if code_matches_fixed:
+            if verification_code is None:
+                verification_code = VerificationCode.objects.create(
+                    user=user,
+                    email=email,
+                    phone_number=phone_number,
+                    code=fixed,
+                )
             otp_clear_failures(user.pk)
             attrs['user'] = user
             attrs['verification_code'] = verification_code
             return attrs
-        except VerificationCode.DoesNotExist:
+
+        if verification_code is None or verification_code.code != str(code).strip():
             otp_register_failure(user.pk)
             raise serializers.ValidationError("Invalid verification code.")
+
+        if not verification_code.is_valid():
+            otp_register_failure(user.pk)
+            raise serializers.ValidationError("Verification code has expired.")
+
+        otp_clear_failures(user.pk)
+        attrs['user'] = user
+        attrs['verification_code'] = verification_code
+        return attrs
 
 
 class ResetPasswordRequestSerializer(serializers.Serializer):

@@ -183,15 +183,14 @@ def send_verification_code(user, email=None, phone_number=None, code=None, email
     if fixed and not code:
         code = fixed
 
-    verification_code = VerificationCode.objects.create(
+    verification_code = VerificationCode(
         user=user,
         email=email,
-        phone_number=phone_number
+        phone_number=phone_number,
     )
-
     if code:
         verification_code.code = code
-        verification_code.save(update_fields=['code'])
+    verification_code.save()
 
     _log('otp_created', vc_id=verification_code.pk, fixed=bool(fixed))
 
