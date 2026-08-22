@@ -179,7 +179,7 @@ class CustomUser(AbstractUser):
         """
         while True:
             # Generate 9-digit number (100000000 to 999999999)
-            id_number = str(random.randint(100000000, 999999999))
+            id_number = str(secrets.randbelow(900000000) + 100000000)
             # Check if it already exists
             if not CustomUser.objects.filter(id_identification=id_number).exists():
                 return id_number
