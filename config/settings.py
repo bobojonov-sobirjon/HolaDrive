@@ -297,9 +297,13 @@ SPECTACULAR_SETTINGS = {
     'SWAGGER_UI_SETTINGS': {
         'persistAuthorization': True,
     },
+    # Schema/Swagger/ReDoc are docs, not data. Default REST permission is
+    # IsAuthenticated; without this, /swagger/ returns 401 in the browser
+    # (JWT-only auth, no session cookie).
     'SERVE_PERMISSIONS': [
-        'rest_framework.permissions.AllowAny' if DEBUG else 'rest_framework.permissions.IsAdminUser'
+        'rest_framework.permissions.AllowAny',
     ],
+    'SERVE_AUTHENTICATION': [],
 }
 
 SIMPLE_JWT = {
