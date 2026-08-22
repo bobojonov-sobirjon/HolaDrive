@@ -24,7 +24,13 @@ class RegistrationSerializer(serializers.ModelSerializer):
         queryset=Group.objects.all(),
         many=True,
         required=False,
-        help_text="List of group IDs to assign to the user"
+        help_text="Optional. Rider/Driver group IDs. Prefer ``role`` instead of a hardcoded id like [1].",
+    )
+    role = serializers.ChoiceField(
+        write_only=True,
+        required=False,
+        choices=[('rider', 'Rider'), ('driver', 'Driver')],
+        help_text="Which app is registering: rider or driver. Assigns the Rider or Driver group.",
     )
     invitation_code = serializers.CharField(
         required=False,
@@ -52,6 +58,7 @@ class RegistrationSerializer(serializers.ModelSerializer):
             'email',
             'password',
             'groups',
+            'role',
             'invitation_code',
             'device_token',
             'device_type',
@@ -61,10 +68,23 @@ class RegistrationSerializer(serializers.ModelSerializer):
         }
 
     def validate_groups(self, groups):
-        for group in groups:
-            if group.name not in ('Rider', 'Driver'):
-                raise serializers.ValidationError('Only Rider or Driver groups can be assigned at registration.')
         return groups
+
+    def validate(self, data):
+        groups = list(data.get('groups') or [])
+        role = (data.get('role') or '').strip()
+        allowed = [g for g in groups if getattr(g, 'name', '') in ('Rider', 'Driver')]
+        if groups and not allowed and not role:
+            raise serializers.ValidationError(
+                {
+                    'groups': (
+                        'groups must be Rider or Driver ids, or send role=rider / role=driver. '
+                        'Do not send Admin (often id=1).'
+                    )
+                }
+            )
+        data['groups'] = allowed
+        return data
 
     def validate_email(self, value):
         if CustomUser.objects.filter(email=value).exists():
@@ -77,6 +97,7 @@ class RegistrationSerializer(serializers.ModelSerializer):
         """
         full_name = validated_data.pop('full_name', '')
         groups = validated_data.pop('groups', [])
+        role = (validated_data.pop('role', None) or '').strip()
         password = validated_data.pop('password')
         # Remove non-model fields
         invitation_code = validated_data.pop('invitation_code', None)
@@ -104,7 +125,11 @@ class RegistrationSerializer(serializers.ModelSerializer):
             **validated_data
         )
         
-        if groups:
+        if role:
+            group_name = 'Driver' if role == 'driver' else 'Rider'
+            g, _ = Group.objects.get_or_create(name=group_name)
+            user.groups.set([g])
+        elif groups:
             allowed = {g for g in groups if getattr(g, 'name', '') in ('Rider', 'Driver')}
             if allowed:
                 user.groups.set(allowed)

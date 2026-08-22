@@ -399,16 +399,18 @@ EMAIL_USE_LOCALTIME = False
 EMAIL_CHARSET = 'utf-8'
 # Prevent Swagger/UI "Loading..." forever when Gmail SMTP hangs
 EMAIL_TIMEOUT = int(_env_text('EMAIL_TIMEOUT', '15') or '15')
-# If true: do not call SMTP; log OTP to server logs (same idea as SMS_OTP_LOG_ONLY)
-EMAIL_OTP_LOG_ONLY = DEBUG and _env_text('EMAIL_OTP_LOG_ONLY', 'false').lower() in ('1', 'true', 'yes')
-# If true: on SMTP failure still succeed and log OTP (off by default — real email like SMS)
-EMAIL_OTP_FALLBACK_ON_ERROR = DEBUG and _env_text('EMAIL_OTP_FALLBACK_ON_ERROR', 'false').lower() in (
-    '1',
-    'true',
-    'yes',
-)
-# Temporary: force every OTP to this value and skip SMTP/SMS. Ignored when DEBUG is False.
-FIXED_OTP_CODE = (_env_text('FIXED_OTP_CODE', '') or '').strip() if DEBUG else ''
+_otp_flag = lambda key, default='false': _env_text(key, default).lower() in ('1', 'true', 'yes', 'on')
+# Env flags (work even when DEBUG=False). DigitalOcean often blocks SMTP 587/465;
+# until SendGrid/DO unblock, set FIXED_OTP_CODE or EMAIL_OTP_FALLBACK_ON_ERROR.
+EMAIL_OTP_LOG_ONLY = _otp_flag('EMAIL_OTP_LOG_ONLY')
+EMAIL_OTP_FALLBACK_ON_ERROR = _otp_flag('EMAIL_OTP_FALLBACK_ON_ERROR')
+FIXED_OTP_CODE = (_env_text('FIXED_OTP_CODE', '') or '').strip()
+if not DEBUG and (FIXED_OTP_CODE or EMAIL_OTP_LOG_ONLY or EMAIL_OTP_FALLBACK_ON_ERROR):
+    import logging as _logging
+    _logging.getLogger(__name__).warning(
+        'OTP bypass is enabled in production (FIXED_OTP_CODE / EMAIL_OTP_LOG_ONLY / '
+        'EMAIL_OTP_FALLBACK_ON_ERROR). Real SMTP is not used for every login.'
+    )
 
 FCM_SERVER_KEY = os.getenv('FCM_SERVER_KEY', '')
 
@@ -416,8 +418,8 @@ FCM_SERVER_KEY = os.getenv('FCM_SERVER_KEY', '')
 TWILIO_ACCOUNT_SID = (os.getenv('TWILIO_ACCOUNT_SID') or '').strip() or None
 TWILIO_AUTH_TOKEN = (os.getenv('TWILIO_AUTH_TOKEN') or '').strip() or None
 TWILIO_PHONE_NUMBER = (os.getenv('TWILIO_PHONE_NUMBER') or '').strip() or None
-# Dev/staging only: log OTP to server logs instead of Twilio SMS (never enable on production).
-SMS_OTP_LOG_ONLY = DEBUG and os.getenv('SMS_OTP_LOG_ONLY', 'False').lower() == 'true'
+# Dev/staging: log OTP to server logs instead of Twilio SMS.
+SMS_OTP_LOG_ONLY = os.getenv('SMS_OTP_LOG_ONLY', 'False').lower() == 'true'
 
 # Stripe (saved cards, payments). Keys from https://dashboard.stripe.com/apikeys
 STRIPE_SECRET_KEY = os.getenv('STRIPE_SECRET_KEY', '')
