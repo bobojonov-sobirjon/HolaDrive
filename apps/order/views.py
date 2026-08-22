@@ -3765,10 +3765,8 @@ class OrderPinVerifyDriverView(AsyncAPIView):
             )
 
         def _pin_ok():
-            return PinVerificationForUser.objects.filter(
-                user_id=od.driver_id,
-                pin=pin,
-            ).exists()
+            rec = PinVerificationForUser.objects.filter(user_id=od.driver_id).first()
+            return bool(rec and rec.check_pin(pin))
 
         if not await sync_to_async(_pin_ok)():
             _notify_driver(driver_id=od.driver_id, order_id=order_id, verified=False, reason="pin_mismatch")
@@ -3877,10 +3875,8 @@ class OrderPinVerifyRiderView(AsyncAPIView):
             )
 
         def _pin_ok():
-            return PinVerificationForUser.objects.filter(
-                user_id=order.user_id,
-                pin=pin,
-            ).exists()
+            rec = PinVerificationForUser.objects.filter(user_id=order.user_id).first()
+            return bool(rec and rec.check_pin(pin))
 
         if not await sync_to_async(_pin_ok)():
             _notify_rider(rider_id=order.user_id, order_id=order_id, verified=False, reason="pin_mismatch")

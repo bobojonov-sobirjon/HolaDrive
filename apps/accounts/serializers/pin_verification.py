@@ -3,7 +3,7 @@ from ..models import PinVerificationForUser
 
 
 class PinVerificationForUserSerializer(serializers.ModelSerializer):
-    pin = serializers.CharField(write_only=True, min_length=4, max_length=4, help_text='4-digit PIN')
+    pin = serializers.CharField(min_length=4, max_length=128, help_text='4-digit PIN')
     has_pin = serializers.SerializerMethodField()
 
     class Meta:
@@ -20,6 +20,12 @@ class PinVerificationForUserSerializer(serializers.ModelSerializer):
         if len(value) != 4:
             raise serializers.ValidationError('PIN must be exactly 4 digits.')
         return value
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        data['pin'] = instance.display_pin()
+        data['has_pin'] = bool(instance.pin)
+        return data
 
     def create(self, validated_data):
         user = self.context['request'].user

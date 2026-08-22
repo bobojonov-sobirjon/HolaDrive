@@ -2,7 +2,7 @@ from ckeditor.fields import RichTextField
 from django.contrib.auth.models import AbstractUser
 from django.contrib.contenttypes.fields import GenericForeignKey, GenericRelation
 from django.contrib.contenttypes.models import ContentType
-from django.contrib.auth.hashers import check_password, make_password
+from django.contrib.auth.hashers import check_password
 from django.db import models
 from decimal import Decimal
 import secrets
@@ -545,7 +545,7 @@ class PinVerificationForUser(models.Model):
     pin = models.CharField(
         max_length=128,
         verbose_name="PIN",
-        help_text="Hashed 4-digit PIN"
+        help_text="4-digit rider/driver PIN (legacy hashes still accepted by check_pin)"
     )
     created_at = models.DateTimeField(
         auto_now_add=True,
@@ -569,18 +569,23 @@ class PinVerificationForUser(models.Model):
     def __str__(self):
         return f"PIN for {self.user.email}"
 
+    def display_pin(self):
+        stored = self.pin or ''
+        if stored.isdigit() and len(stored) == 4:
+            return stored
+        return None
+
     def set_pin(self, raw: str) -> None:
-        self.pin = make_password(raw)
+        self.pin = str(raw).strip()
 
     def check_pin(self, raw: str) -> bool:
         stored = self.pin or ''
+        raw = str(raw)
         if stored.isdigit() and len(stored) == 4:
-            ok = secrets.compare_digest(stored, str(raw))
-            if ok:
-                self.set_pin(raw)
-                self.save(update_fields=['pin'])
-            return ok
-        return check_password(str(raw), stored)
+            return secrets.compare_digest(stored, raw)
+        if len(stored) > 4:
+            return check_password(raw, stored)
+        return False
 
 
 class DriverPreferences(models.Model):
