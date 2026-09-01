@@ -6,6 +6,7 @@ from apps.accounts.models import CustomUser
 class Order(models.Model):
     
     class OrderStatus(models.TextChoices):
+        SCHEDULED = 'scheduled', 'Scheduled'
         PENDING = 'pending', 'Pending'
         ACCEPTED = 'accepted', 'Accepted'
         ON_THE_WAY = 'on_the_way', 'On the way'
@@ -644,6 +645,24 @@ class OrderSchedule(models.Model):
     schedule_date = models.DateField(verbose_name='Schedule Date', null=True, blank=True)
     schedule_time = models.TimeField(verbose_name='Schedule Time', null=True, blank=True)
     schedule_time_type = models.CharField(max_length=20, choices=ScheduleTime.choices, default=ScheduleTime.TODAY)
+    scheduled_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name='Rider chosen datetime',
+        help_text='ISO instant the rider picked (pickup_at or arrive-by).',
+    )
+    pickup_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name='Pickup datetime',
+        help_text='When the driver should collect the rider (dispatch clock).',
+    )
+    dropoff_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name='Arrive-by datetime',
+    )
+    dispatched_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     
@@ -661,6 +680,7 @@ class OrderSchedule(models.Model):
             models.Index(fields=['schedule_date'], name='ord_sched_date_idx'),
             models.Index(fields=['schedule_time'], name='ord_sched_time_idx'),
             models.Index(fields=['created_at'], name='order_schedule_created_idx'),
+            models.Index(fields=['pickup_at'], name='ord_sched_pickup_at_idx'),
         ]
 
     def save(self, *args, **kwargs):

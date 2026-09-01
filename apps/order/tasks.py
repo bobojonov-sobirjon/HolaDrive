@@ -227,3 +227,11 @@ def send_active_ride_snapshot_once(user_id: int, scope: str):
         'has_active_ride': bool(order),
         'sent_at': timezone.now().isoformat(),
     }
+
+
+@shared_task(name='apps.order.tasks.dispatch_scheduled_rides')
+def dispatch_scheduled_rides():
+    from apps.order.services.scheduled_ride import dispatch_due_scheduled_orders
+
+    count = dispatch_due_scheduled_orders()
+    return {'dispatched': count}

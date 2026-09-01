@@ -107,6 +107,23 @@ class OrderCreateSerializer(serializers.Serializer):
         required=False,
         help_text='Optional multi-stop waypoints: pickup, one or more stop, dropoff. Omit for a 1-leg trip.',
     )
+    when = serializers.ChoiceField(
+        choices=['now', 'later'],
+        required=False,
+        default='now',
+        help_text='now = dispatch immediately; later = scheduled ride (no driver until pickup is near).',
+    )
+    schedule_type = serializers.ChoiceField(
+        choices=['pickup_at', 'drop_off_by'],
+        required=False,
+        default='pickup_at',
+    )
+    scheduled_at = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        help_text='ISO 8601 with offset. Required when when=later.',
+    )
 
     def validate_order_type(self, value):
         if value not in [1, 2]:
@@ -139,6 +156,16 @@ class OrderCreateSerializer(serializers.Serializer):
                 )
             except MultiStopError as e:
                 raise serializers.ValidationError({'stops': str(e)})
+
+        when = (data.get('when') or 'now').strip().lower()
+        data['when'] = when
+        if when == 'later':
+            from apps.order.services.scheduled_ride import parse_scheduled_at
+
+            try:
+                data['_scheduled_at'] = parse_scheduled_at(data.get('scheduled_at'))
+            except serializers.ValidationError as e:
+                raise serializers.ValidationError({'scheduled_at': e.detail})
         return data
 
     @transaction.atomic
@@ -152,12 +179,17 @@ class OrderCreateSerializer(serializers.Serializer):
         adjusted_price = validated_data.pop('adjusted_price', None)
         validated_data.pop('stops', None)
         waypoints = validated_data.pop('_waypoints', None)
+        when = validated_data.pop('when', 'now')
+        schedule_type = validated_data.pop('schedule_type', 'pickup_at') or 'pickup_at'
+        validated_data.pop('scheduled_at', None)
+        user_scheduled_at = validated_data.pop('_scheduled_at', None)
+        is_later = when == 'later'
 
         order = Order.objects.create(
             user=user,
             order_type=order_type,
             payment_type=payment_type,
-            status=Order.OrderStatus.PENDING
+            status=Order.OrderStatus.SCHEDULED if is_later else Order.OrderStatus.PENDING,
         )
 
         template = UserOrderPreferences.objects.filter(user=user).first()
@@ -234,6 +266,20 @@ class OrderCreateSerializer(serializers.Serializer):
         except Exception as e:
             import logging
             logging.getLogger(__name__).error(f"Failed to create ChatRoom for order {order.id}: {e}")
+
+        if is_later:
+            from apps.order.services.scheduled_ride import apply_schedule
+
+            try:
+                apply_schedule(
+                    order,
+                    schedule_type=schedule_type,
+                    user_at=user_scheduled_at,
+                )
+            except serializers.ValidationError as e:
+                raise serializers.ValidationError({'scheduled_at': e.detail})
+            return order
+
         def _schedule_driver_assignment(oid):
             """Celery/sync assign — faqat DB commitdan keyin (boshqa process orderni ko‘radi)."""
             import logging
@@ -333,10 +379,11 @@ class OrderSerializer(serializers.ModelSerializer):
     status = serializers.ChoiceField(
         choices=Order.OrderStatus.choices,
         help_text=(
-            "Order status: pending, accepted, on_the_way, arrived, in_progress, "
-            "completed, cancelled, rejected"
+            "Order status: scheduled, pending, accepted, on_the_way, arrived, "
+            "in_progress, completed, cancelled, rejected"
         )
     )
+    schedule = serializers.SerializerMethodField()
     
     class Meta:
         model = Order
@@ -345,7 +392,7 @@ class OrderSerializer(serializers.ModelSerializer):
             'status', 'order_type', 'payment_type',
             'stripe_trip_payment_intent_id', 'stripe_trip_payment_status',
             'stripe_trip_payment_amount_cents', 'stripe_trip_payment_currency',
-            'order_items',
+            'order_items', 'schedule',
             'created_at', 'updated_at',
         ]
         read_only_fields = [
@@ -378,6 +425,11 @@ class OrderSerializer(serializers.ModelSerializer):
             status='approved',
             tip_amount__gt=0,
         ).count()
+
+    def get_schedule(self, obj):
+        from apps.order.services.scheduled_ride import schedule_payload
+
+        return schedule_payload(obj)
 
 
 class OrderDetailSerializer(OrderSerializer):

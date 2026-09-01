@@ -28,6 +28,10 @@ app.conf.beat_schedule = {
         'task': 'apps.order.tasks.check_order_timeouts',
         'schedule': 30.0,
     },
+    'dispatch-scheduled-rides': {
+        'task': 'apps.order.tasks.dispatch_scheduled_rides',
+        'schedule': 15.0,
+    },
 }
 
 # Timezone

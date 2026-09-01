@@ -395,7 +395,10 @@ def build_rider_order_payload(order: Order, accepted_assignment: OrderDriver | N
         'discount': _order_discount_payload(order),
         'driver': driver_payload,
         'order_driver': _order_driver_row(driver_assignment),
+        'schedule': None,
     }
+    from apps.order.services.scheduled_ride import schedule_payload
+    payload['schedule'] = schedule_payload(order)
     if order.status == Order.OrderStatus.CANCELLED:
         payload['cancel'] = build_cancel_ws_payload(order)
     return payload
@@ -413,6 +416,7 @@ def _fetch_order_for_rider_ws(order_id: int) -> Order | None:
                 'order_drivers__driver',
                 'order_drivers__driver__vehicle_details__images',
                 'cancel_orders',
+                'order_schedules',
             )
             .first()
         )
@@ -438,6 +442,7 @@ def get_rider_active_orders(rider_user):
             'applied_promo_codes__promo_code',
             'order_drivers__driver',
             'order_drivers__driver__vehicle_details__images',
+            'order_schedules',
         )
         .order_by('-updated_at')
     )

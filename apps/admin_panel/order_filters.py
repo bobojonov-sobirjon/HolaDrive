@@ -1,9 +1,9 @@
 """Admin panel order list filters (Rides sidebar)."""
 from __future__ import annotations
 
-from django.db.models import Exists, OuterRef, QuerySet
+from django.db.models import QuerySet
 
-from apps.order.models import Order, OrderSchedule
+from apps.order.models import Order
 
 TERMINAL_STATUSES = (
     Order.OrderStatus.COMPLETED,
@@ -13,7 +13,7 @@ TERMINAL_STATUSES = (
 
 ADMIN_ORDER_FILTERS = {
     'all': 'All rides',
-    'scheduled': 'Scheduled rides (has schedule, not completed/cancelled)',
+    'scheduled': 'Scheduled rides (Later, waiting for dispatch)',
     'pending': 'Pending rides',
     'cancelled': 'Cancelled / rejected rides',
     'running': 'Active rides (accepted → in progress)',
@@ -65,14 +65,7 @@ def apply_admin_order_list_filters(
         ), fv, None
 
     if fv == 'scheduled':
-        has_schedule = OrderSchedule.objects.filter(order_id=OuterRef('pk'))
-        return (
-            qs.filter(Exists(has_schedule))
-            .exclude(status__in=TERMINAL_STATUSES)
-            .distinct(),
-            fv,
-            None,
-        )
+        return qs.filter(status=Order.OrderStatus.SCHEDULED), fv, None
 
     raise ValueError(
         f'Invalid filter. Must be one of: {", ".join(ADMIN_ORDER_FILTERS.keys())}'

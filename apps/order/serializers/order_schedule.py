@@ -58,3 +58,12 @@ class OrderScheduleSerializer(serializers.ModelSerializer):
         
         return schedule
 
+
+class OrderScheduleUpdateSerializer(serializers.Serializer):
+    schedule_type = serializers.ChoiceField(
+        choices=OrderSchedule.ScheduleType.choices,
+        required=False,
+        default=OrderSchedule.ScheduleType.PICKUP_AT,
+    )
+    scheduled_at = serializers.CharField(required=True)
+

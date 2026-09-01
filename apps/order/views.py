@@ -22,6 +22,7 @@ from .serializers import (
     UserOrderPreferencesSerializer,
     AdditionalPassengerSerializer,
     OrderScheduleSerializer,
+    OrderScheduleUpdateSerializer,
     DriverNearbyOrderSerializer,
     DriverOrderActionSerializer,
     DriverOrderLifecycleSerializer,
@@ -71,7 +72,9 @@ class OrderCreateView(AsyncAPIView):
             'Create order and order items. Optional ride_type_id: tariff (RideType) ID; '
             'if omitted, first active is used. Optional payment_type: ``card`` (default), '
             '``cash``, or ``hola_wallet_cash``. Optional adjusted_price: reja/min-max '
-            'qoidalariga mos narx (``price-estimate/manage-price/`` dan keyin).'
+            'qoidalariga mos narx (``price-estimate/manage-price/`` dan keyin). '
+            'Later ride: ``when=later`` + ``scheduled_at`` (ISO with offset); status '
+            '``scheduled``, driver is not searched until ~30 minutes before pickup.'
         ),
         request=OrderCreateSerializer,
         examples=[
@@ -101,7 +104,8 @@ class OrderCreateView(AsyncAPIView):
             order = await sync_to_async(serializer.save)()
             
             order = await Order.objects.select_related('user', 'saved_card').prefetch_related(
-                'order_items__ride_type'
+                'order_items__ride_type',
+                'order_schedules',
             ).aget(pk=order.pk)
             
             order_serializer = OrderSerializer(order, context={'request': request})
@@ -316,6 +320,147 @@ class OrderScheduleCreateView(AsyncAPIView):
             },
             status=status.HTTP_400_BAD_REQUEST
         )
+
+
+class ScheduledOrderListView(AsyncAPIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        tags=['Rider: Orders'],
+        summary='Scheduled (upcoming Later) rides',
+        description='Upcoming Later trips: status scheduled, or pending after dispatch. Ordered by pickup time.',
+        parameters=[
+            OpenApiParameter('page', OpenApiTypes.INT, OpenApiParameter.QUERY, required=False),
+            OpenApiParameter('page_size', OpenApiTypes.INT, OpenApiParameter.QUERY, required=False),
+        ],
+        responses={200: OrderSerializer(many=True)},
+    )
+    async def get(self, request):
+        from rest_framework.pagination import PageNumberPagination
+        from django.db.models import Prefetch
+        from apps.order.models import OrderSchedule
+
+        qs = (
+            Order.objects.filter(user=request.user)
+            .filter(
+                status__in=(Order.OrderStatus.SCHEDULED, Order.OrderStatus.PENDING),
+                order_schedules__isnull=False,
+            )
+            .select_related('user', 'saved_card')
+            .prefetch_related(
+                'order_items__ride_type',
+                Prefetch('order_schedules', queryset=OrderSchedule.objects.order_by('-id')),
+            )
+            .distinct()
+            .order_by('order_schedules__pickup_at', 'id')
+        )
+        orders = await sync_to_async(list)(qs)
+
+        paginator = PageNumberPagination()
+        paginator.page_size = int(request.query_params.get('page_size', 10))
+        paginated = await sync_to_async(paginator.paginate_queryset)(orders, request)
+        if paginated is not None:
+            serializer = OrderSerializer(paginated, many=True, context={'request': request})
+            serializer_data = await sync_to_async(lambda: serializer.data)()
+            response = await sync_to_async(paginator.get_paginated_response)(serializer_data)
+            response.data['message'] = 'Scheduled rides retrieved successfully'
+            response.data['status'] = 'success'
+            response.data['data'] = response.data.pop('results')
+            return response
+
+        serializer = OrderSerializer(orders, many=True, context={'request': request})
+        serializer_data = await sync_to_async(lambda: serializer.data)()
+        return Response(
+            {
+                'message': 'Scheduled rides retrieved successfully',
+                'status': 'success',
+                'count': len(orders),
+                'data': serializer_data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class OrderScheduleUpdateView(AsyncAPIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        tags=['Rider: Orders'],
+        summary='Update scheduled ride time',
+        description='Only while status is scheduled (driver not dispatched yet).',
+        request=OrderScheduleUpdateSerializer,
+        responses={200: OrderSerializer},
+    )
+    async def patch(self, request, order_id: int):
+        from apps.order.services.scheduled_ride import apply_schedule, parse_scheduled_at
+        from rest_framework.exceptions import ValidationError as DRFValidationError
+
+        try:
+            order = await Order.objects.select_related('user').prefetch_related(
+                'order_items__ride_type',
+                'order_schedules',
+            ).aget(id=order_id)
+        except Order.DoesNotExist:
+            return Response(
+                {'message': 'Order not found', 'status': 'error'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        if order.user_id != request.user.id:
+            return Response(
+                {'message': 'Permission denied', 'status': 'error'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        if order.status != Order.OrderStatus.SCHEDULED:
+            return Response(
+                {
+                    'message': 'Schedule can only be changed before driver search starts',
+                    'status': 'error',
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        serializer = OrderScheduleUpdateSerializer(data=request.data)
+        is_valid = await sync_to_async(lambda: serializer.is_valid())()
+        if not is_valid:
+            errors = await sync_to_async(lambda: serializer.errors)()
+            return Response(
+                {'message': 'Validation error', 'status': 'error', 'errors': errors},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        data = await sync_to_async(lambda: serializer.validated_data)()
+
+        def _update():
+            user_at = parse_scheduled_at(data['scheduled_at'])
+            apply_schedule(
+                order,
+                schedule_type=data.get('schedule_type') or 'pickup_at',
+                user_at=user_at,
+            )
+            return (
+                Order.objects.select_related('user', 'saved_card')
+                .prefetch_related('order_items__ride_type', 'order_schedules')
+                .get(pk=order.pk)
+            )
+
+        try:
+            order = await sync_to_async(_update)()
+        except DRFValidationError as e:
+            return Response(
+                {'message': 'Validation error', 'status': 'error', 'errors': e.detail},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        order_serializer = OrderSerializer(order, context={'request': request})
+        serializer_data = await sync_to_async(lambda: order_serializer.data)()
+        return Response(
+            {
+                'message': 'Schedule updated successfully',
+                'status': 'success',
+                'data': serializer_data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
 
 class DriverNearbyOrdersView(AsyncAPIView):
     permission_classes = [IsAuthenticated]
@@ -2207,7 +2352,9 @@ class OrderCancelView(AsyncAPIView):
     @extend_schema(tags=['Rider: Orders'], summary='Cancel order', description='Rider-initiated cancellation endpoint. Body: reason and optional other_reason. Writes cancellation meta and broadcasts updates to rider/driver sockets.', request=OrderCancelSerializer)
     async def post(self, request, order_id):
         try:
-            order = await Order.objects.select_related('user').aget(id=order_id)
+            order = await Order.objects.select_related('user').prefetch_related(
+                'order_schedules',
+            ).aget(id=order_id)
             if order.user != request.user:
                 return Response(
                     {
@@ -2251,6 +2398,8 @@ class OrderCancelView(AsyncAPIView):
             validated_data = await sync_to_async(lambda: serializer.validated_data)()
             reason = validated_data['reason']
             other_reason = validated_data.get('other_reason', '')
+            from apps.order.services.scheduled_ride import cancel_fee_payload
+            fee = await sync_to_async(cancel_fee_payload)(order)
             
             order.status = Order.OrderStatus.CANCELLED
             await sync_to_async(order.save)()
@@ -2335,7 +2484,8 @@ class OrderCancelView(AsyncAPIView):
 
             order = await Order.objects.select_related('user').prefetch_related(
                 'order_items__ride_type',
-                'order_drivers__driver'
+                'order_drivers__driver',
+                'order_schedules',
             ).aget(pk=order.pk)
             
             order_serializer = OrderSerializer(order, context={'request': request})
@@ -2345,7 +2495,9 @@ class OrderCancelView(AsyncAPIView):
                 {
                     'message': 'Order cancelled successfully',
                     'status': 'success',
-                    'data': serializer_data
+                    'data': serializer_data,
+                    'can_cancel_free': fee['can_cancel_free'],
+                    'cancel_fee': fee['cancel_fee'],
                 },
                 status=status.HTTP_200_OK
             )
@@ -2387,6 +2539,7 @@ class MyOrderListView(AsyncAPIView):
             'order_drivers__driver',
             'additional_passengers',
             'user__groups',
+            'order_schedules',
         ).annotate(
             _client_rating=Avg(
                 'user__ratings_given__rating',
@@ -2620,6 +2773,7 @@ class OrderDetailView(AsyncAPIView):
                 'order_preferences',
                 'order_drivers__driver__vehicle_details__images',
                 'additional_passengers',
+                'order_schedules',
             ).aget(id=order_id)
         except Order.DoesNotExist:
             return Response(

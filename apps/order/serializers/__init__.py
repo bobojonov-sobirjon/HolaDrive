@@ -12,7 +12,7 @@ from .order import (
 )
 from .order_preferences import OrderPreferencesSerializer, UserOrderPreferencesSerializer
 from .additional_passenger import AdditionalPassengerSerializer
-from .order_schedule import OrderScheduleSerializer
+from .order_schedule import OrderScheduleSerializer, OrderScheduleUpdateSerializer
 from .driver import (
     DriverNearbyOrderSerializer,
     DriverOrderActionSerializer,
@@ -51,6 +51,7 @@ __all__ = [
     'UserOrderPreferencesSerializer',
     'AdditionalPassengerSerializer',
     'OrderScheduleSerializer',
+    'OrderScheduleUpdateSerializer',
     'DriverNearbyOrderSerializer',
     'DriverOrderActionSerializer',
     'DriverOrderLifecycleSerializer',
