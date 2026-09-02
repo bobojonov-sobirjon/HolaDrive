@@ -337,14 +337,17 @@ class ScheduledOrderListView(AsyncAPIView):
     )
     async def get(self, request):
         from rest_framework.pagination import PageNumberPagination
-        from django.db.models import Prefetch
+        from django.db.models import Prefetch, Q
         from apps.order.models import OrderSchedule
 
         qs = (
             Order.objects.filter(user=request.user)
             .filter(
-                status__in=(Order.OrderStatus.SCHEDULED, Order.OrderStatus.PENDING),
-                order_schedules__isnull=False,
+                Q(status=Order.OrderStatus.SCHEDULED)
+                | Q(
+                    status=Order.OrderStatus.PENDING,
+                    order_schedules__pickup_at__isnull=False,
+                )
             )
             .select_related('user', 'saved_card')
             .prefetch_related(
@@ -431,9 +434,13 @@ class OrderScheduleUpdateView(AsyncAPIView):
 
         def _update():
             user_at = parse_scheduled_at(data['scheduled_at'])
+            existing = order.order_schedules.order_by('-id').first()
+            schedule_type = data.get('schedule_type') or (
+                existing.schedule_type if existing else 'pickup_at'
+            )
             apply_schedule(
                 order,
-                schedule_type=data.get('schedule_type') or 'pickup_at',
+                schedule_type=schedule_type,
                 user_at=user_at,
             )
             return (

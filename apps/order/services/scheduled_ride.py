@@ -29,6 +29,16 @@ def display_tz():
         return timezone.get_current_timezone()
 
 
+def format_display_at(dt) -> str | None:
+    if dt is None:
+        return None
+    if timezone.is_naive(dt):
+        dt = timezone.make_aware(dt, timezone.utc)
+    local = dt.astimezone(display_tz())
+    hour = local.strftime('%I').lstrip('0') or '12'
+    return f"{local.strftime('%a, %b')} {local.day} · {hour}:{local.strftime('%M %p')}"
+
+
 def iso_local(dt) -> str | None:
     if dt is None:
         return None
@@ -173,6 +183,7 @@ def schedule_payload(order: Order) -> dict | None:
         'scheduled_at': iso_local(user_at),
         'pickup_at': iso_local(pickup_at),
         'dropoff_by': iso_local(dropoff_at),
+        'display_at': format_display_at(user_at),
         'timezone': DISPLAY_TZ_NAME,
         'dispatch_at': iso_local(dispatch_at),
         'can_edit': is_scheduled,

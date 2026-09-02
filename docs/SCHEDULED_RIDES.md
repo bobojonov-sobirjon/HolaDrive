@@ -139,6 +139,7 @@ Create body +:
       "scheduled_at": "2026-09-17T20:00:00-06:00",
       "pickup_at": "2026-09-17T20:00:00-06:00",
       "dropoff_by": null,
+      "display_at": "Thu, Sep 17 · 8:00 PM",
       "timezone": "America/Edmonton",
       "dispatch_at": "2026-09-17T19:30:00-06:00",
       "can_edit": true,
