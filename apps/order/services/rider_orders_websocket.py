@@ -396,9 +396,12 @@ def build_rider_order_payload(order: Order, accepted_assignment: OrderDriver | N
         'driver': driver_payload,
         'order_driver': _order_driver_row(driver_assignment),
         'schedule': None,
+        'passenger': None,
     }
     from apps.order.services.scheduled_ride import schedule_payload
+    from apps.order.services.guest_rider import passenger_payload
     payload['schedule'] = schedule_payload(order)
+    payload['passenger'] = passenger_payload(order)
     if order.status == Order.OrderStatus.CANCELLED:
         payload['cancel'] = build_cancel_ws_payload(order)
     return payload

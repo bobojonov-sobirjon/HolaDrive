@@ -13,6 +13,8 @@ from ..models import (
 from apps.accounts.serializers.user import UserDetailSerializer
 from apps.payment.serializers import SavedCardSerializer
 from apps.order.services.multi_stop import MultiStopError, parse_stops_payload
+from apps.order.serializers.saved_rider import GuestRiderInputSerializer
+from apps.order.services.guest_rider import passenger_payload, resolve_create_passenger
 
 
 class RideStopInputSerializer(serializers.Serializer):
@@ -124,6 +126,26 @@ class OrderCreateSerializer(serializers.Serializer):
         allow_null=True,
         help_text='ISO 8601 with offset. Required when when=later.',
     )
+    booked_for = serializers.ChoiceField(
+        choices=['me', 'someone_else'],
+        required=False,
+        help_text='me = current user rides (default). someone_else = Switch rider / Add new contact.',
+    )
+    saved_rider_id = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text='Existing Switch rider contact. Use instead of guest.',
+    )
+    guest = GuestRiderInputSerializer(
+        required=False,
+        allow_null=True,
+        help_text='New rider: full_name, phone_number, optional email.',
+    )
+    save_guest = serializers.BooleanField(
+        required=False,
+        default=True,
+        help_text='When guest is sent, also save to Switch rider address book (default true).',
+    )
 
     def validate_order_type(self, value):
         if value not in [1, 2]:
@@ -166,6 +188,15 @@ class OrderCreateSerializer(serializers.Serializer):
                 data['_scheduled_at'] = parse_scheduled_at(data.get('scheduled_at'))
             except serializers.ValidationError as e:
                 raise serializers.ValidationError({'scheduled_at': e.detail})
+
+        user = self.context['request'].user
+        data['_passenger'] = resolve_create_passenger(
+            user=user,
+            booked_for=data.get('booked_for'),
+            saved_rider_id=data.get('saved_rider_id'),
+            guest=data.get('guest'),
+            save_guest=data.get('save_guest', True),
+        )
         return data
 
     @transaction.atomic
@@ -184,12 +215,39 @@ class OrderCreateSerializer(serializers.Serializer):
         validated_data.pop('scheduled_at', None)
         user_scheduled_at = validated_data.pop('_scheduled_at', None)
         is_later = when == 'later'
+        passenger = validated_data.pop('_passenger', {})
+        validated_data.pop('booked_for', None)
+        validated_data.pop('saved_rider_id', None)
+        validated_data.pop('guest', None)
+        validated_data.pop('save_guest', None)
+        if passenger.get('booked_for') == Order.BookedFor.SOMEONE_ELSE:
+            order_type = Order.OrderType.PICKUP
+        touch_saved = passenger.pop('_touch_saved', False)
+        upsert_guest = passenger.pop('_upsert_guest', False)
+        saved_rider = passenger.get('saved_rider')
+        if touch_saved and saved_rider is not None:
+            saved_rider.save(update_fields=['updated_at'])
+        elif upsert_guest:
+            from apps.order.services.guest_rider import upsert_saved_rider
+
+            saved_rider = upsert_saved_rider(
+                user,
+                full_name=passenger.get('guest_full_name') or '',
+                email=passenger.get('guest_email') or '',
+                phone_number=passenger.get('guest_phone_number') or '',
+            )
+            passenger['saved_rider'] = saved_rider
 
         order = Order.objects.create(
             user=user,
             order_type=order_type,
             payment_type=payment_type,
             status=Order.OrderStatus.SCHEDULED if is_later else Order.OrderStatus.PENDING,
+            booked_for=passenger.get('booked_for') or Order.BookedFor.ME,
+            guest_full_name=passenger.get('guest_full_name') or '',
+            guest_email=passenger.get('guest_email') or '',
+            guest_phone_number=passenger.get('guest_phone_number') or '',
+            saved_rider=passenger.get('saved_rider'),
         )
 
         template = UserOrderPreferences.objects.filter(user=user).first()
@@ -266,6 +324,24 @@ class OrderCreateSerializer(serializers.Serializer):
         except Exception as e:
             import logging
             logging.getLogger(__name__).error(f"Failed to create ChatRoom for order {order.id}: {e}")
+
+        def _notify_guest(oid):
+            import logging
+            from apps.order.services.guest_rider import notify_guest_ride_booked
+
+            try:
+                o = (
+                    Order.objects.select_related('user')
+                    .prefetch_related('order_items')
+                    .get(pk=oid)
+                )
+                notify_guest_ride_booked(o)
+            except Exception as exc:
+                logging.getLogger(__name__).warning(
+                    'Guest ride booked SMS failed for order %s: %s', oid, exc
+                )
+
+        transaction.on_commit(lambda oid=order.id: _notify_guest(oid))
 
         if is_later:
             from apps.order.services.scheduled_ride import apply_schedule
@@ -384,6 +460,7 @@ class OrderSerializer(serializers.ModelSerializer):
         )
     )
     schedule = serializers.SerializerMethodField()
+    passenger = serializers.SerializerMethodField()
     
     class Meta:
         model = Order
@@ -392,7 +469,7 @@ class OrderSerializer(serializers.ModelSerializer):
             'status', 'order_type', 'payment_type',
             'stripe_trip_payment_intent_id', 'stripe_trip_payment_status',
             'stripe_trip_payment_amount_cents', 'stripe_trip_payment_currency',
-            'order_items', 'schedule',
+            'order_items', 'schedule', 'passenger',
             'created_at', 'updated_at',
         ]
         read_only_fields = [
@@ -425,6 +502,9 @@ class OrderSerializer(serializers.ModelSerializer):
             status='approved',
             tip_amount__gt=0,
         ).count()
+
+    def get_passenger(self, obj):
+        return passenger_payload(obj)
 
     def get_schedule(self, obj):
         from apps.order.services.scheduled_ride import schedule_payload

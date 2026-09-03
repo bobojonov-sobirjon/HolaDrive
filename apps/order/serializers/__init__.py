@@ -12,6 +12,7 @@ from .order import (
 )
 from .order_preferences import OrderPreferencesSerializer, UserOrderPreferencesSerializer
 from .additional_passenger import AdditionalPassengerSerializer
+from .saved_rider import SavedRiderSerializer, GuestRiderInputSerializer
 from .order_schedule import OrderScheduleSerializer, OrderScheduleUpdateSerializer
 from .driver import (
     DriverNearbyOrderSerializer,
@@ -50,6 +51,8 @@ __all__ = [
     'OrderPreferencesSerializer',
     'UserOrderPreferencesSerializer',
     'AdditionalPassengerSerializer',
+    'SavedRiderSerializer',
+    'GuestRiderInputSerializer',
     'OrderScheduleSerializer',
     'OrderScheduleUpdateSerializer',
     'DriverNearbyOrderSerializer',

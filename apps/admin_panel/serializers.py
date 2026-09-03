@@ -595,6 +595,8 @@ class AdminOrderFullSerializer(serializers.Serializer):
                 return None
             return model_ser(obj, context={'request': request}).data
 
+        from apps.order.services.guest_rider import passenger_payload as _guest_passenger
+
         # OrderItems with embedded RideType object (instead of only ride_type_id).
         order_items = list(getattr(instance, 'order_items', []).all()) if hasattr(instance, 'order_items') else []
         ride_types_map = {}
@@ -656,6 +658,7 @@ class AdminOrderFullSerializer(serializers.Serializer):
             'order_preferences': _many(AdminOrderPreferencesSerializer, order_preferences_rows),
             'user_order_preferences': _one(AdminUserOrderPreferencesSerializer, user_template),
             'additional_passengers': _many(AdminAdditionalPassengerSerializer, list(getattr(instance, 'additional_passengers', []).all()) if hasattr(instance, 'additional_passengers') else []),
+            'passenger': _guest_passenger(instance),
             'order_schedules': _many(AdminOrderScheduleSerializer, list(getattr(instance, 'order_schedules', []).all()) if hasattr(instance, 'order_schedules') else []),
             'order_drivers': _many(AdminOrderDriverSerializer, order_drivers),
             'cancel_orders': _many(AdminCancelOrderSerializer, list(getattr(instance, 'cancel_orders', []).all()) if hasattr(instance, 'cancel_orders') else []),

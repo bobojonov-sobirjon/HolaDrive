@@ -139,7 +139,10 @@ def _order_to_dict(order, driver=None, requested_at=None):
         'client': client_info,
         'client_rating': client_rating,
         'client_tip_count': client_tip_count,
+        'passenger': None,
     }
+    from apps.order.services.guest_rider import passenger_payload
+    result['passenger'] = passenger_payload(order)
 
     if driver and driver.latitude and driver.longitude and first_item.latitude_from and first_item.longitude_from:
         from .surge_pricing_service import calculate_distance

@@ -20,6 +20,10 @@ class Order(models.Model):
         PICKUP = 'pickup', 'Pickup'
         FOR_ME = 'for_me', 'For Me'
 
+    class BookedFor(models.TextChoices):
+        ME = 'me', 'Me'
+        SOMEONE_ELSE = 'someone_else', 'Someone else'
+
     class PaymentType(models.TextChoices):
         CARD = 'card', 'Card'
         CASH = 'cash', 'Cash'
@@ -41,6 +45,24 @@ class Order(models.Model):
         related_name='orders',
         verbose_name='Saved payment card',
         help_text='Rider saved card used when payment_type is card.',
+    )
+    booked_for = models.CharField(
+        max_length=20,
+        choices=BookedFor.choices,
+        default=BookedFor.ME,
+        verbose_name='Booked for',
+        help_text='me = logged-in rider is the passenger; someone_else = guest passenger (payer is still user).',
+    )
+    guest_full_name = models.CharField(max_length=255, blank=True, default='', verbose_name='Guest full name')
+    guest_email = models.EmailField(max_length=255, blank=True, default='', verbose_name='Guest email')
+    guest_phone_number = models.CharField(max_length=32, blank=True, default='', verbose_name='Guest phone')
+    saved_rider = models.ForeignKey(
+        'SavedRider',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='orders',
+        verbose_name='Saved rider',
     )
 
     class StripeTripPaymentStatus(models.TextChoices):
@@ -601,6 +623,41 @@ class UserOrderPreferences(models.Model):
             models.Index(fields=['user'], name='user_ord_pref_user_idx'),
             models.Index(fields=['updated_at'], name='user_ord_pref_updated_idx'),
         ]
+
+class SavedRider(models.Model):
+    """Address book of people this rider books trips for (Switch rider → John Doe / Add new contact)."""
+
+    owner = models.ForeignKey(
+        CustomUser,
+        on_delete=models.CASCADE,
+        related_name='saved_riders',
+        verbose_name='Owner',
+    )
+    full_name = models.CharField(max_length=255, verbose_name='Full Name')
+    email = models.EmailField(max_length=255, blank=True, default='', verbose_name='Email')
+    phone_number = models.CharField(max_length=32, verbose_name='Phone Number')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    objects = models.Manager()
+
+    def __str__(self):
+        return f'{self.full_name} ({self.phone_number})'
+
+    class Meta:
+        verbose_name = 'Saved Rider'
+        verbose_name_plural = '04c Saved Riders'
+        ordering = ['-updated_at', '-id']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['owner', 'phone_number'],
+                name='saved_rider_owner_phone_uniq',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['owner', 'updated_at'], name='saved_rider_owner_upd_idx'),
+        ]
+
 
 class AdditionalPassenger(models.Model):
     order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name='additional_passengers')

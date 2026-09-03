@@ -275,7 +275,7 @@ SPECTACULAR_SETTINGS = {
     'SCHEMA_PATH_PREFIX': r'/api/v1',
     'COMPONENT_SPLIT_REQUEST': True,
     'TAGS': [
-        {'name': 'Rider: Orders', 'description': 'Create, list, detail, cancel, extra passengers, and scheduling.'},
+        {'name': 'Rider: Orders', 'description': 'Create, list, detail, cancel, extra passengers, saved riders (book for someone else), and scheduling.'},
         {'name': 'Rider: Preferences', 'description': 'Pre-order rider preference profile.'},
         {'name': 'Rider: Pricing', 'description': 'Price estimates and pre-order price validation.'},
         {'name': 'Rider: Order items', 'description': 'Stops, price, and ride type updates on an order.'},

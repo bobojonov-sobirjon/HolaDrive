@@ -74,7 +74,8 @@ class OrderCreateView(AsyncAPIView):
             '``cash``, or ``hola_wallet_cash``. Optional adjusted_price: reja/min-max '
             'qoidalariga mos narx (``price-estimate/manage-price/`` dan keyin). '
             'Later ride: ``when=later`` + ``scheduled_at`` (ISO with offset); status '
-            '``scheduled``, driver is not searched until ~30 minutes before pickup.'
+            '``scheduled``, driver is not searched until ~30 minutes before pickup. '
+            'Book for someone else: ``booked_for=someone_else`` + ``saved_rider_id`` or ``guest``.'
         ),
         request=OrderCreateSerializer,
         examples=[
@@ -637,6 +638,22 @@ class DriverOrderActionView(AsyncAPIView):
                 attach_driver_pin_to_order_driver(od)
 
             await sync_to_async(_attach_driver_pin)()
+
+            def _notify_guest_accepted():
+                from apps.order.services.guest_rider import notify_guest_driver_accepted
+
+                try:
+                    od = OrderDriver.objects.filter(pk=order_driver.pk).only('pin_code').first()
+                    pin = od.pin_code if od else None
+                    o = Order.objects.select_related('user').get(pk=order.pk)
+                    notify_guest_driver_accepted(o, pin_code=pin)
+                except Exception as exc:
+                    import logging
+                    logging.getLogger(__name__).warning(
+                        'Guest driver-accepted SMS failed for order %s: %s', order.id, exc
+                    )
+
+            await sync_to_async(_notify_guest_accepted)()
             
             try:
                 from apps.chat.models import ChatRoom
@@ -3522,9 +3539,7 @@ class TripRatingCreateView(AsyncAPIView):
         feedback_tag_ids = validated_data.get('feedback_tag_ids', [])
 
         try:
-            order = await Order.objects.select_related('user').prefetch_related(
-                'order_drivers__driver'
-            ).aget(id=order_id)
+            order = await Order.objects.select_related('user').aget(id=order_id)
         except Order.DoesNotExist:
             return Response(
                 {
@@ -3543,11 +3558,14 @@ class TripRatingCreateView(AsyncAPIView):
                 status=status.HTTP_403_FORBIDDEN,
             )
 
-        order_driver = await sync_to_async(
-            lambda: order.order_drivers.filter(status=OrderDriver.DriverRequestStatus.ACCEPTED).first()
-        )()
-        
-        if not order_driver or not order_driver.driver:
+        # select_related so .driver is loaded in the async queryset, not via a
+        # lazy FK fetch (that raises SynchronousOnlyOperation under Daphne).
+        order_driver = await OrderDriver.objects.filter(
+            order=order,
+            status=OrderDriver.DriverRequestStatus.ACCEPTED,
+        ).select_related('driver').afirst()
+
+        if not order_driver or not order_driver.driver_id:
             return Response(
                 {
                     'message': 'No driver found for this order',

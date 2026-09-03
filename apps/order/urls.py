@@ -46,6 +46,7 @@ from .views import (
     OrderPinVerifyDriverView,
     OrderPinVerifyRiderView,
 )
+from .views_saved_riders import SavedRiderDetailView, SavedRiderListCreateView
 
 urlpatterns = [
     path('create/', OrderCreateView.as_view(), name='order-create'),
@@ -73,6 +74,8 @@ urlpatterns = [
     path('preferences/', OrderPreferencesGetView.as_view(), name='order-preferences-get'),
     path('preferences/create/', OrderPreferencesCreateView.as_view(), name='order-preferences-create'),
     path('preferences/update/', OrderPreferencesCreateView.as_view(), name='order-preferences-update'),
+    path('saved-riders/', SavedRiderListCreateView.as_view(), name='saved-riders-list-create'),
+    path('saved-riders/<int:rider_id>/', SavedRiderDetailView.as_view(), name='saved-riders-detail'),
     path('additional-passenger/', AdditionalPassengerCreateView.as_view(), name='additional-passenger-create'),
     path('schedule/', OrderScheduleCreateView.as_view(), name='order-schedule-create'),
 

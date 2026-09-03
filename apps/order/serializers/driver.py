@@ -27,6 +27,7 @@ class DriverNearbyOrderSerializer(serializers.ModelSerializer):
     longitude_to = serializers.SerializerMethodField()
     distance_to_pickup_km = serializers.FloatField(read_only=True)
     order_items = serializers.SerializerMethodField()
+    passenger = serializers.SerializerMethodField()
 
     class Meta:
         model = Order
@@ -44,6 +45,7 @@ class DriverNearbyOrderSerializer(serializers.ModelSerializer):
             'longitude_to',
             'distance_to_pickup_km',
             'order_items',
+            'passenger',
         ]
 
     def _items(self, obj):
@@ -67,6 +69,11 @@ class DriverNearbyOrderSerializer(serializers.ModelSerializer):
         from .order import OrderItemSerializer
 
         return OrderItemSerializer(self._items(obj), many=True).data
+
+    def get_passenger(self, obj):
+        from apps.order.services.guest_rider import passenger_payload
+
+        return passenger_payload(obj)
 
     def get_address_from(self, obj):
         item = self._first_item(obj)

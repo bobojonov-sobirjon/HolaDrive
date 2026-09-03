@@ -7,6 +7,7 @@ from .models import (
     Order,
     OrderDriver,
     RideType,
+    SavedRider,
 )
 
 
@@ -18,11 +19,19 @@ class OrderDriverInline(admin.TabularInline):
 
 @admin.register(Order)
 class OrderAdmin(admin.ModelAdmin):
-    list_display = ('id', 'order_code', 'user', 'status', 'order_type', 'payment_type', 'created_at')
-    list_filter = ('status', 'order_type', 'payment_type')
-    search_fields = ('order_code', 'user__email', 'id')
-    raw_id_fields = ('user', 'saved_card')
+    list_display = ('id', 'order_code', 'user', 'status', 'order_type', 'booked_for', 'payment_type', 'created_at')
+    list_filter = ('status', 'order_type', 'booked_for', 'payment_type')
+    search_fields = ('order_code', 'user__email', 'id', 'guest_full_name', 'guest_phone_number')
+    raw_id_fields = ('user', 'saved_card', 'saved_rider')
     inlines = (OrderDriverInline,)
+    readonly_fields = ('created_at', 'updated_at')
+
+
+@admin.register(SavedRider)
+class SavedRiderAdmin(admin.ModelAdmin):
+    list_display = ('id', 'owner', 'full_name', 'phone_number', 'email', 'updated_at')
+    search_fields = ('full_name', 'phone_number', 'email', 'owner__email')
+    raw_id_fields = ('owner',)
     readonly_fields = ('created_at', 'updated_at')
 
 
